@@ -3,4 +3,4 @@ HEADERS += \
 
 SOURCES += \
     $$PWD/clib_syslog.c \
-    $$PWD/clib_syslog_example.c
+#    $$PWD/clib_syslog_example.c

@@ -1,4 +1,7 @@
 #include "single-app.h"
+
+#include "clib_syslog.h"
+
 #include <pwd.h>
 #include <unistd.h>
 
@@ -23,7 +26,6 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     mOptions = options;
 
     genBlockServerName(appName);
-    qDebug() << "memory name:" << mBlockServerName;
 
 #ifdef Q_OS_UNIX
     // 防止异常退出后, 没有销毁共享内存
@@ -37,7 +39,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     while (++blockSize) {
         if (blockSize * SHARED_MEMORY_SIZE >= sizeof (InstancesInfo)) {
             ret = mMemory->create(sizeof (InstancesInfo));
-            qDebug() << "create shared memary success!";
+            CT_SYSLOG(LOG_ERR, "无法创建共享内存")
             break;
         }
     }
@@ -48,7 +50,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
         mMemory->unlock();
     } else {
         if (!mMemory->attach()) {
-            qCritical() << "SingleApplication: Unable to attach to shared memory block. error:" << mMemory->errorString();
+            CT_SYSLOG(LOG_ERR, "单例程序无法连接共享内存, 错误: %s", mMemory->errorString().constData());
             ::exit( EXIT_FAILURE );
         }
     }
@@ -61,7 +63,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     while(true) {
         if(blockChecksum() == inst->checksum) break;
         if(time.elapsed() > 5000) {
-            qWarning() << "SingleApplication: Shared memory block has been in an inconsistent state from more than 5s. Assuming primary instance failure.";
+            CT_SYSLOG(LOG_WARNING, "共享内存块从5s以上就一直处于不一致状态, 主实例故障");
             initializeMemoryBlock();
         }
 
@@ -70,14 +72,14 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     }
 
     if (false == inst->primary) {
-        qDebug() << "start primary";
+        CT_SYSLOG(LOG_DEBUG, "开始第一个实例")
         startPrimary();
         mMemory->unlock();
         return;
     }
 
     if(allowSecondary) {
-        qDebug() << "start other app";
+        CT_SYSLOG(LOG_DEBUG, "开始另一个实例")
         inst->secondary += 1;
         inst->checksum = blockChecksum();
         mInstanceNumber = inst->secondary;
@@ -93,7 +95,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
 
     connectToPrimary (timeout, NewInstance);
 
-    qDebug() << "init application fail!";
+    CT_SYSLOG(LOG_ERR, "单例初始化失败!")
     ::exit(EXIT_FAILURE);
 }
 
@@ -148,7 +150,6 @@ quint32 SingleApp::instanceId()
 bool SingleApp::sendMessage(QByteArray message, int timeout)
 {
     if(isPrimary()) {
-        qDebug() << "is primary, cannot send message!";
         return false;
     }
 
