@@ -7,3 +7,4 @@ SUBDIRS += \
 
 
 OTHER_FILES += \
+    $$PWD/Doxyfile
