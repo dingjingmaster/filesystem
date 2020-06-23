@@ -1,10 +1,16 @@
-TEMPLATE = subdirs
+TEMPLATE = app
 
-#CONFIG += ordered
+QMAKE_CFLAGS += -DLOG_LEVEL=7
+QMAKE_CXXFLAGS += -DLOG_LEVEL=7
 
-SUBDIRS += \
-    $$PWD/app/library/single-app/single-app.pro
+include($$PWD/app/library/single-app/single-app.pri)
+include($$PWD/app/library/syslog/syslog.pri)
 
+SOURCES += \
+#    $$PWD/app/main.cpp
 
 OTHER_FILES += \
-    $$PWD/Doxyfile
+    $$PWD/Doxyfile \
+    $$PWD/.gitignore \
+    $$PWD/LICENSE \
+    $$PWD/README.md
