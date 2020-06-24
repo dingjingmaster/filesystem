@@ -269,6 +269,6 @@ static void enumerate_next_files_async (GFileEnumerator *enumerator, int numFile
     g_task_set_task_data (task, GINT_TO_POINTER (numFiles), NULL);
     g_task_set_priority (task, ioPriority);
 
-    g_task_run_in_thread (task, nextFilesThread);
+    g_task_run_in_thread (task, next_files_thread);
     g_object_unref (task);
 }
