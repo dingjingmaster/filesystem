@@ -6,7 +6,7 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 
-class FilesystemManager : SingleApp
+class FilesystemManager : public SingleApp
 {
     Q_OBJECT
 public:
@@ -36,11 +36,11 @@ protected Q_SLOTS:
     void slotParseCommandLine (quint32 id, QByteArray msg);
 
 private:
-    QCommandLineParser parser;
-    QCommandLineOption quitOption = QCommandLineOption(QStringList()<<"q"<<"quit", tr("Close all peony-qt windows and quit"));
-    QCommandLineOption showItemsOption = QCommandLineOption(QStringList()<<"i"<<"show-items", tr("Show items"));
-    QCommandLineOption showFoldersOption = QCommandLineOption(QStringList()<<"f"<<"show-folders", tr("Show folders"));
-    QCommandLineOption showPropertiesOption = QCommandLineOption(QStringList()<<"p"<<"show-properties", tr("Show properties"));
+    QCommandLineParser mParser;
+    QCommandLineOption mQuitOption = QCommandLineOption(QStringList()<<"q"<<"quit", tr("关闭所有filesystem manager窗口并退出"));
+    QCommandLineOption mShowItemsOption = QCommandLineOption(QStringList()<<"i"<<"show-items", tr(""));
+    QCommandLineOption mShowFoldersOption = QCommandLineOption(QStringList()<<"f"<<"show-folders", tr("显示文件夹"));
+    QCommandLineOption mShowPropertiesOption = QCommandLineOption(QStringList()<<"p"<<"show-properties", tr("显示属性"));
 
     bool mFirstParse = true;
 
