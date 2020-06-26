@@ -3,6 +3,7 @@ QT += concurrent
 HEADERS += \
     $$PWD/file-copy-operation.h \
     $$PWD/file-count-operation.h \
+    $$PWD/file-create-templ-operation.h \
     $$PWD/file-delete-operation.h \
     $$PWD/file-link-operation.h \
     $$PWD/file-move-operation.h \
@@ -21,6 +22,7 @@ HEADERS += \
 SOURCES += \
     $$PWD/file-copy-operation.cpp \
     $$PWD/file-count-operation.cpp \
+    $$PWD/file-create-templ-operation.cpp \
     $$PWD/file-delete-operation.cpp \
     $$PWD/file-link-operation.cpp \
     $$PWD/file-move-operation.cpp \
@@ -35,3 +37,6 @@ SOURCES += \
     $$PWD/file-rename-operation.cpp \
     $$PWD/file-trash-operation.cpp \
     $$PWD/file-untrash-operation.cpp
+
+DISTFILES += \
+    $$PWD/README.md
