@@ -1,4 +1,12 @@
+#include "file-copy-operation.h"
+#include "file-delete-operation.h"
+#include "file-move-operation.h"
+#include "file-operation-error-dialog.h"
 #include "file-operation-manager.h"
+#include "file-operation-progress-wizard.h"
+#include "file-rename-operation.h"
+#include "file-trash-operation.h"
+#include "file-untrash-operation.h"
 
 #include <QVariant>
 #include <QMessageBox>
