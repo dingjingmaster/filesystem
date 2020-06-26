@@ -6,7 +6,6 @@
 #include <QRunnable>
 
 
-
 class FileOperation : public QObject, public QRunnable
 {
     friend class FileOperationManager;

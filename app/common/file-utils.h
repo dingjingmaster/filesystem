@@ -8,7 +8,6 @@
 #include <QStringList>
 
 
-
 class FileUtils
 {
 public:

@@ -1,7 +1,7 @@
 #ifndef FILESYSTEMMANAGER_H
 #define FILESYSTEMMANAGER_H
 
-#include <single-app.h>
+#include <single-app/single-app.h>
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>

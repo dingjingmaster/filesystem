@@ -1,7 +1,7 @@
 #include "search-vfs-file.h"
 
-#include "search-vfs-file-enumerator.h"
 #include "search-vfs-manager.h"
+#include "search-vfs-file-enumerator.h"
 
 #include <QFile>
 #include <QTextStream>

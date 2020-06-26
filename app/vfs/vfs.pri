@@ -1,6 +1,3 @@
-INCLUDEPATH += \
-    $$PWD/../library/syslog/
-
 HEADERS += \
     $$PWD/search-vfs-file-enumerator.h \
     $$PWD/search-vfs-file.h \
