@@ -1,4 +1,5 @@
 #include "file-operation.h"
+#include "file-operation-manager.h"
 
 
 FileOperation::FileOperation(QObject *parent)

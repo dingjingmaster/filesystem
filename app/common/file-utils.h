@@ -40,7 +40,7 @@ public:
     static bool queryVolumeInfo(const QString &volumeUri, QString &volumeName, QString &unixDeviceName, const QString &volumeDisplayName = nullptr);
 
 private:
-    FileUtils();
+    FileUtils ();
 };
 
 #endif // FILEUTILS_H

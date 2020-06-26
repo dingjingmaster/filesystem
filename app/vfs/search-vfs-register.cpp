@@ -61,5 +61,5 @@ static GFile* test_vfs_parse_name (GVfs* vfs, const char *parseName, gpointer ud
         QString realUri = tmp.split("real-uri:").last();
         return g_file_new_for_uri(realUri.toUtf8().constData());
     }
-    return search_vfs_file_new_for_uri(parseName);
+    return fm_search_vfs_file_new_for_uri(parseName);
 }

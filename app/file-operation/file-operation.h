@@ -5,6 +5,11 @@
 #include <QObject>
 #include <QRunnable>
 
+#include "file-operation-info.h"
+#include "gobject/gerror-wrapper.h"
+#include "gobject/gobject-template.h"
+
+class FileOperationInfo;
 
 class FileOperation : public QObject, public QRunnable
 {
@@ -60,7 +65,7 @@ Q_SIGNALS:
     void operationPreparedOne (const QString &srcUri, const qint64 &size);
     void operationRollbackedOne (const QString &destUri, const QString &srcUri);
     void operationProgressedOne (const QString& srcUri, const QString &destUri, const qint64 &size);
-    QVariant errored (const QString &srcUri, const QString &destUri, const GErrorWrapperPtr &err, bool isCritical = false);
+    QVariant errored (const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool isCritical = false);
     void FileProgressCallback (const QString &srcUri, const QString &destUri, const qint64 &current_file_offset, const qint64 &current_file_size);
 
 
