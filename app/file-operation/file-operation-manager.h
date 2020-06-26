@@ -17,7 +17,7 @@ class FileOperationManager : public QObject
 {
     Q_OBJECT
 public:
-    FileOperationManager();
+    static FileOperationManager* getInstance ();
 
     void close ();
     bool isAllowParallel ();
@@ -37,10 +37,10 @@ public Q_SLOTS:
     void slotOnFilesDeleted(const QStringList &uris);
     std::shared_ptr<FileOperationInfo> slotGetRedoInfo();
     std::shared_ptr<FileOperationInfo> slotGetUndoInfo();
-    void manuallyNotifyDirectoryChanged(FileOperationInfo *info);
-    void slotStartUndoOrRedo(std::shared_ptr<FileOperationInfo> info);
-    void slotStartOperation(FileOperation *operation, bool addToHistory = true);
-    QVariant handleError(const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool critical);
+    void manuallyNotifyDirectoryChanged (FileOperationInfo *info);
+    void slotStartUndoOrRedo (std::shared_ptr<FileOperationInfo> info);
+    void slotStartOperation (FileOperation *operation, bool addToHistory = true);
+    QVariant handleError (const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool critical);
 
 private:
     explicit FileOperationManager(QObject *parent = nullptr);

@@ -1,3 +1,5 @@
+QT += concurrent
+
 HEADERS += \
     $$PWD/file-operation-info.h \
     $$PWD/file-operation-manager.h \
