@@ -7,13 +7,14 @@
 
 void enumerator_dispose(GObject *object);
 static void next_async_op_free (GList *files);
-static void peony_search_vfs_file_enumerator_init(FmSearchVFSFileEnumerator *self);
-static void peony_search_vfs_file_enumerator_class_init (FmSearchVFSFileEnumeratorClass *klass);
+static void fm_search_vfs_file_enumerator_init(FmSearchVFSFileEnumerator *self);
+static void fm_search_vfs_file_enumerator_class_init (FmSearchVFSFileEnumeratorClass *klass);
 static gboolean enumerator_close(GFileEnumerator *enumerator, GCancellable *cancellable, GError **error);
 static GFileInfo *enumerate_next_file(GFileEnumerator *enumerator, GCancellable *cancellable, GError **error);
 static GList* enumerate_next_files_finished(GFileEnumerator *enumerator, GAsyncResult *result, GError **error);
 gboolean fm_search_vfs_file_enumerator_is_file_match(FmSearchVFSFileEnumerator *enumerator, const QString &uri);
 static void next_files_thread (GTask* task, gpointer sourceObject, gpointer taskData, GCancellable *cancellable);
+static void fm_search_vfs_file_enumerator_add_directory_to_queue(FmSearchVFSFileEnumerator *enumerator, const QString &directoryUri);
 static void enumerate_next_files_async (GFileEnumerator *enumerator, int numFiles, int ioPriority, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer udata);
 
 G_DEFINE_TYPE_WITH_PRIVATE(FmSearchVFSFileEnumerator, fm_search_vfs_file_enumerator, G_TYPE_FILE_ENUMERATOR)
@@ -45,7 +46,7 @@ static void next_async_op_free (GList *files)
     g_list_free_full (files, g_object_unref);
 }
 
-static void peony_search_vfs_file_enumerator_init(FmSearchVFSFileEnumerator *self)
+static void fm_search_vfs_file_enumerator_init(FmSearchVFSFileEnumerator *self)
 {
     FmSearchVFSFileEnumeratorPrivate *priv = (FmSearchVFSFileEnumeratorPrivate*) fm_search_vfs_file_enumerator_get_instance_private(self);
     self->priv = priv;
@@ -61,7 +62,7 @@ static void peony_search_vfs_file_enumerator_init(FmSearchVFSFileEnumerator *sel
     self->priv->matchNameOrContent = true;
 }
 
-static void peony_search_vfs_file_enumerator_class_init (FmSearchVFSFileEnumeratorClass *klass)
+static void fm_search_vfs_file_enumerator_class_init (FmSearchVFSFileEnumeratorClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     GFileEnumeratorClass *enumerator_class = G_FILE_ENUMERATOR_CLASS(klass);
@@ -271,4 +272,35 @@ static void enumerate_next_files_async (GFileEnumerator *enumerator, int numFile
 
     g_task_run_in_thread (task, next_files_thread);
     g_object_unref (task);
+}
+
+static void fm_search_vfs_file_enumerator_add_directory_to_queue(FmSearchVFSFileEnumerator *enumerator, const QString &directoryUri)
+{
+    auto queue = enumerator->priv->enumerateQueue;
+
+    GError *err = nullptr;
+    GFile *top = g_file_new_for_uri(directoryUri.toUtf8().constData());
+    GFileEnumerator *e = g_file_enumerate_children(top, G_FILE_ATTRIBUTE_STANDARD_NAME, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, nullptr, &err);
+
+    if (err) {
+        QString errMsg = err->message;
+        g_error_free(err);
+    }
+    g_object_unref(top);
+    if (!e)
+        return;
+
+    auto child_info = g_file_enumerator_next_file(e, nullptr, nullptr);
+    while (child_info) {
+        auto child = g_file_enumerator_get_child(e, child_info);
+        auto uri = g_file_get_uri(child);
+        *queue<<uri;
+        g_free(uri);
+        g_object_unref(child);
+        g_object_unref(child_info);
+        child_info = g_file_enumerator_next_file(e, nullptr, nullptr);
+    }
+
+    g_file_enumerator_close(e, nullptr, nullptr);
+    g_object_unref(e);
 }

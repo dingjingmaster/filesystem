@@ -190,10 +190,6 @@ void FileOperationManager::slotStartUndoOrRedo(std::shared_ptr<FileOperationInfo
     default:
         break;
     }
-    //do not record the undo/redo operation to history again.
-    //this had been handled at undo() and redo() yet.
-    //FIXME: if an undo/redo work went error (usually won't),
-    //should i remove the operation info from stack?
     if (op) {
         slotStartOperation(op, false);
     }

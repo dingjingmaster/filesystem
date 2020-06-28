@@ -7,8 +7,16 @@
 
 class FileTrashOperation : public FileOperation
 {
+    Q_OBJECT
 public:
-    FileTrashOperation();
+    explicit FileTrashOperation (QStringList srcUris, QObject *parent = nullptr);
+
+    void run () override;
+    std::shared_ptr<FileOperationInfo> getOperationInfo () override;
+
+private:
+    QStringList mSrcUris;
+    std::shared_ptr<FileOperationInfo> mInfo = nullptr;
 };
 
 #endif // FILETRASHOPERATION_H

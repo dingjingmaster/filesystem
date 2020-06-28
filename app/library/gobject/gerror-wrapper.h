@@ -8,6 +8,7 @@
 class GerrorWrapper
 {
 public:
+    GerrorWrapper ();
     GerrorWrapper (GError* err);
     ~GerrorWrapper ();
 

@@ -1,6 +1,11 @@
 #include "gerror-wrapper.h"
 
 
+GerrorWrapper::GerrorWrapper()
+{
+
+}
+
 GerrorWrapper::GerrorWrapper(GError *err)
 {
     mErr = err;

@@ -70,7 +70,7 @@ Q_SIGNALS:
 
 
 public Q_SLOTS:
-    virtual void cancel();
+    virtual void slotCancel();
 
 protected:
     GCancellableWrapperPtr getCancellable ();

@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QUrl>
+#include <file-enumerator.h>
 
 static void file_dispose(GObject *object);
 GFile* fm_search_vfs_file_dup(GFile *file);

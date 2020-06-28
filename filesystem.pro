@@ -30,7 +30,8 @@ INCLUDEPATH +=                                      \
 
 SOURCES +=                                          \
     $$PWD/app/main.cpp                              \
-    $$PWD/app/filesyste-mmanager.cpp
+    $$PWD/app/filesyste-mmanager.cpp                \
+    $$PWD/app/file-enumerator.cpp
 
 OTHER_FILES +=                                      \
     $$PWD/LICENSE                                   \
@@ -39,8 +40,8 @@ OTHER_FILES +=                                      \
     $$PWD/.gitignore
 
 HEADERS +=                                          \
-    $$PWD/app/common/file-utils.h                   \
-    $$PWD/app/filesyste-mmanager.h
+    $$PWD/app/filesyste-mmanager.h                  \
+    $$PWD/app/file-enumerator.h
 
 include($$PWD/app/vfs/vfs.pri)
 include($$PWD/app/common/common.pri)
