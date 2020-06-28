@@ -4,7 +4,6 @@
 #include "file-operation.h"
 
 
-
 class FileRenameOperation : public FileOperation
 {
     Q_OBJECT

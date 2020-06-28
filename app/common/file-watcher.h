@@ -7,6 +7,7 @@
 
 class FileWatcher : public QObject
 {
+    Q_OBJECT
 public:
     FileWatcher (QString uri = nullptr, QObject* parent = nullptr);
     ~FileWatcher ();

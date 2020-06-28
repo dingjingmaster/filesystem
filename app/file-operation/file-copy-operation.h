@@ -25,7 +25,7 @@ protected:
     ResponseType prehandle (GError *err);
     void copyRecursively (FileNode *node);
     void rollbackNodeRecursively (FileNode *node);
-    static void progressCallback (goffset current_num_bytes, goffset total_num_bytes, FileCopyOperation *p_this);
+    static void progressCallback (goffset currentNumBytes, goffset totalNumBytes, FileCopyOperation *pThis);
 
 private:
     int mTotalCount = 0;

@@ -24,7 +24,7 @@ GFileInfo *fm_search_vfs_file_query_info(GFile *file, const char *attributes, GF
 GFileEnumerator *fm_search_vfs_file_enumerate_children(GFile *file, const char *attribute, GFileQueryInfoFlags flags, GCancellable *cancellable, GError **error);
 GFileEnumerator *fm_search_vfs_file_enumerate_children_internal(GFile *file, const char *attributes, GFileQueryInfoFlags flags, GCancellable *cancellable, GError **error);
 
-G_DEFINE_TYPE_EXTENDED(FmSearchVFSFile, peony_search_vfs_file, G_TYPE_OBJECT, 0, G_ADD_PRIVATE(FmSearchVFSFile) G_IMPLEMENT_INTERFACE(G_TYPE_FILE, fm_search_vfs_file_g_file_iface_init));
+G_DEFINE_TYPE_EXTENDED(FmSearchVFSFile, fm_search_vfs_file, G_TYPE_OBJECT, 0, G_ADD_PRIVATE(FmSearchVFSFile) G_IMPLEMENT_INTERFACE(G_TYPE_FILE, fm_search_vfs_file_g_file_iface_init));
 
 
 static void file_dispose(GObject *object)
@@ -79,7 +79,7 @@ GFile* fm_search_vfs_file_new_for_uri(const char *uri)
 
 static void fm_search_vfs_file_init(FmSearchVFSFile *self)
 {
-    FmSearchVFSFilePrivate *priv = (FmSearchVFSFilePrivate*)peony_search_vfs_file_get_instance_private(self);
+    FmSearchVFSFilePrivate *priv = (FmSearchVFSFilePrivate*) fm_search_vfs_file_get_instance_private(self);
     self->priv = priv;
     priv->uri = nullptr;
 }

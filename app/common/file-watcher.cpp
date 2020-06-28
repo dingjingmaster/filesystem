@@ -209,10 +209,6 @@ void FileWatcher::dir_changed_callback(GFileMonitor *monitor, GFile *file, GFile
 
 void FileWatcher::file_changed_callback(GFileMonitor *monitor, GFile *file, GFile *otherFile, GFileMonitorEvent eventType, FileWatcher *pThis)
 {
-    //qDebug()<<"file_changed_callback"<<event_type;
-    //FIXME: when a volume unmounted, the delete signal
-    //will be sent, but the volume may not be deleted (in computer:///).
-    //I need deal with this case.
     Q_UNUSED(monitor);
     Q_UNUSED(file);
     switch (eventType) {

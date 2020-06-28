@@ -3,12 +3,14 @@
 
 #include "file-operation.h"
 
-
+#include <QObject>
 
 class FileCreateTemplOperation : public FileOperation
 {
+    Q_OBJECT
 public:
-    enum Type {
+    enum Type
+    {
         EmptyFile,
         EmptyFolder,
         Template
@@ -24,12 +26,11 @@ protected:
     void handleDuplicate(const QString &uri);
 
 private:
-    std::shared_ptr<FileOperationInfo> mInfo;
-
-    QString mSrcUri;
-    QString mDestDirUri;
-    QString mTargetUri;
     Type mType;
+    QString mSrcUri;
+    QString mTargetUri;
+    QString mDestDirUri;
+    std::shared_ptr<FileOperationInfo> mInfo;
 };
 
 #endif // FILECREATETEMPLOPERATION_H

@@ -9,6 +9,7 @@
 #include <memory>
 #include <QStack>
 #include <QObject>
+#include <QVariant>
 #include <QThreadPool>
 
 class FileWatcher;
@@ -40,11 +41,11 @@ public Q_SLOTS:
     void manuallyNotifyDirectoryChanged (FileOperationInfo *info);
     void slotStartUndoOrRedo (std::shared_ptr<FileOperationInfo> info);
     void slotStartOperation (FileOperation *operation, bool addToHistory = true);
-    QVariant handleError (const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool critical);
+    QVariant slotHandleError (const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool critical);
 
 private:
-    explicit FileOperationManager(QObject *parent = nullptr);
-    ~FileOperationManager();
+    explicit FileOperationManager (QObject *parent = nullptr);
+    ~FileOperationManager ();
 
     QThreadPool *mThreadPool;
     bool mAllowParallel = false;

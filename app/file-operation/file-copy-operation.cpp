@@ -40,7 +40,7 @@ void FileCopyOperation::rollbackNodeRecursively(FileNode *node)
 
 }
 
-void FileCopyOperation::progressCallback(goffset current_num_bytes, goffset total_num_bytes, FileCopyOperation *p_this)
+void FileCopyOperation::progressCallback(goffset currentNumBytes, goffset totalNumBytes, FileCopyOperation *pThis)
 {
 
 }

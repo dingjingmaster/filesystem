@@ -30,7 +30,7 @@ private:
     QString mCurrentSrcUri = nullptr;
     FileNodeReporter *mReporter = nullptr;
     QHash<int, ResponseType> mPrehandleHash;
-    std::shared_ptr<FileOperationInfo> m_info = nullptr;
+    std::shared_ptr<FileOperationInfo> mInfo = nullptr;
 };
 
 #endif // FILEDELETEOPERATION_H

@@ -12,7 +12,6 @@ class FileOperationInfo : public QObject
     friend class FileOperationManager;
 
 public:
-
     enum Type {
         Invalid,
         Move,               // move back if no error in original moving

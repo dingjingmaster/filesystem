@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <QObject>
+#include <QVariant>
 #include <QRunnable>
 
 #include "file-operation-info.h"
@@ -14,9 +15,7 @@ class FileOperationInfo;
 class FileOperation : public QObject, public QRunnable
 {
     friend class FileOperationManager;
-
     Q_OBJECT
-
 public:
     enum ResponseType
     {
@@ -33,19 +32,19 @@ public:
         OverWriteAll,
     };
 
-    explicit FileOperation(QObject *parent = nullptr);
-    ~FileOperation();
+    explicit FileOperation (QObject *parent = nullptr);
+    ~FileOperation ();
 
-    virtual void run();
+    virtual void run ();
 
     void setHasError (bool hasError = true);
 
-    bool hasError();
+    bool hasError ();
 
-    virtual std::shared_ptr<FileOperationInfo> getOperationInfo();
+    virtual std::shared_ptr<FileOperationInfo> getOperationInfo ();
 
-    void setShouldReversible(bool reversible = true);
-    virtual bool reversible();
+    void setShouldReversible (bool reversible = true);
+    virtual bool reversible ();
 
     bool isCancelled();
 
@@ -70,7 +69,7 @@ Q_SIGNALS:
 
 
 public Q_SLOTS:
-    virtual void slotCancel();
+    virtual void slotCancel ();
 
 protected:
     GCancellableWrapperPtr getCancellable ();
@@ -78,10 +77,10 @@ protected:
     void notifyFileWatcherOperationFinished ();
 
 private:
-    GCancellableWrapperPtr mCancellableWrapper = nullptr;
-    bool mIsCancelled = false;
-    bool mReversible = false;
     bool mHasError = false;
+    bool mReversible = false;
+    bool mIsCancelled = false;
+    GCancellableWrapperPtr mCancellableWrapper = nullptr;
 };
 
 Q_DECLARE_METATYPE(FileOperation::ResponseType)

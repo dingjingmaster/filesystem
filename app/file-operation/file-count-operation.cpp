@@ -1,7 +1,7 @@
 #include "file-count-operation.h"
 
 
-FileCountOperation::FileCountOperation(const QStringList &uris, bool countRoot, QObject *parent)
+FileCountOperation::FileCountOperation(const QStringList &uris, bool countRoot, QObject *parent) : FileOperation(parent)
 {
 
 }
@@ -26,4 +26,9 @@ void FileCountOperation::getInfo(quint64 &file_count, quint64 &hidden_file_count
     file_count = mFileCount;
     hidden_file_count = mHiddenFileCount;
     total_size = mTotalSize;
+}
+
+void FileCountOperation::slotCancel()
+{
+
 }

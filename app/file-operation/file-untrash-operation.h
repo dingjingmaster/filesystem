@@ -23,9 +23,9 @@ protected:
 private:
     QStringList mUris;
     QHash<QString, QString> mRestoreHash;
-    ResponseType m_pre_handler = Invalid;
-    std::shared_ptr<FileOperationInfo> m_info = nullptr;
-    GFileCopyFlags m_default_copy_flag = GFileCopyFlags(G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_ALL_METADATA);
+    ResponseType mPreHandler = Invalid;
+    std::shared_ptr<FileOperationInfo> mInfo = nullptr;
+    GFileCopyFlags mDefaultCopyFlag = GFileCopyFlags(G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_ALL_METADATA);
 };
 
 #endif // FILEUNTRASHOPERATION_H

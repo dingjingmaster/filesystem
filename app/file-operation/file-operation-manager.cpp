@@ -1,22 +1,24 @@
-#include "file-copy-operation.h"
-#include "file-delete-operation.h"
-#include "file-move-operation.h"
-#include "file-operation-error-dialog.h"
 #include "file-operation-manager.h"
-#include "file-operation-progress-wizard.h"
-#include "file-rename-operation.h"
-#include "file-trash-operation.h"
-#include "file-untrash-operation.h"
-
-#include <QVariant>
-#include <QMessageBox>
-#include <QApplication>
-#include <QtConcurrent>
-#include <QStandardPaths>
 
 #include <QUrl>
 #include <file-utils.h>
 #include <file-watcher.h>
+
+#include <QMessageBox>
+#include <QApplication>
+#include <QtConcurrent>
+#include <QStandardPaths>
+#include <global-settings.h>
+
+#include "global-settings.h"
+#include "file-copy-operation.h"
+#include "file-move-operation.h"
+#include "file-trash-operation.h"
+#include "file-delete-operation.h"
+#include "file-rename-operation.h"
+#include "file-untrash-operation.h"
+#include "file-operation-error-dialog.h"
+#include "file-operation-progress-wizard.h"
 
 static FileOperationManager *globalInstance = nullptr;
 
@@ -271,15 +273,13 @@ void FileOperationManager::slotStartOperation(FileOperation *operation, bool add
     wizard->connect(operation, &FileOperation::operationFinished, wizard, &FileOperationProgressWizard::deleteLater);
 
     connect(wizard, &FileOperationProgressWizard::cancelled,
-            operation, &FileOperation::cancel);
+            operation, &FileOperation::slotCancel);
 
     operation->connect(operation, &FileOperation::errored, [=]() {
         operation->setHasError(true);
     });
 
-    operation->connect(operation, &FileOperation::errored,
-                       this, &FileOperationManager::handleError,
-                       Qt::BlockingQueuedConnection);
+    operation->connect(operation, &FileOperation::errored, this, &FileOperationManager::slotHandleError, Qt::BlockingQueuedConnection);
 
     operation->connect(operation, &FileOperation::operationFinished, [=]() {
         if (operation->hasError()) {
@@ -326,10 +326,10 @@ void FileOperationManager::slotStartOperation(FileOperation *operation, bool add
     }
 }
 
-QVariant FileOperationManager::handleError(const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool critical)
+QVariant FileOperationManager::slotHandleError(const QString &srcUri, const QString &destUri, const GerrorWrapperPtr &err, bool critical)
 {
     FileOperationErrorDialog dlg;
-    return dlg.handleError(srcUri, destUri, err, critical);
+    return dlg.slotHandleError(srcUri, destUri, err, critical);
 }
 
 FileOperationManager::FileOperationManager(QObject *parent) : QObject(parent)
@@ -343,4 +343,9 @@ FileOperationManager::FileOperationManager(QObject *parent) : QObject(parent)
     if (!mAllowParallel) {
         mThreadPool->setMaxThreadCount(1);
     }
+}
+
+FileOperationManager::~FileOperationManager()
+{
+
 }

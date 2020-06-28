@@ -3,6 +3,7 @@ HEADERS += \
     $$PWD/file-operation-utils.h \
     $$PWD/file-utils.h \
     $$PWD/file-watcher.h \
+    $$PWD/global-settings.h \
     $$PWD/password.h
 
 SOURCES += \
@@ -10,4 +11,5 @@ SOURCES += \
     $$PWD/file-operation-utils.cpp \
     $$PWD/file-utils.cpp \
     $$PWD/file-watcher.cpp \
+    $$PWD/global-settings.cpp \
     $$PWD/password.cpp

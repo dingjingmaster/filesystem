@@ -4,18 +4,16 @@
 #include "gobject/gerror-wrapper.h"
 #include "file-operation-error-handler.h"
 
-#include <QButtonGroup>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QLabel>
-
-#define ErrorHandlerIID "org.graceful.linux.filesystem.FileOperationErrorHandler"
+#include <QDialog>
+#include <QFormLayout>
+#include <QButtonGroup>
+#include <QDialogButtonBox>
 
 class FileOperationErrorDialog : public QDialog, public FileOperationErrorHandler
 {
     Q_OBJECT
-    Q_INTERFACES(Peony::FileOperationErrorHandler)
+    Q_INTERFACES(FileOperationErrorHandler)
 public:
     explicit FileOperationErrorDialog (QWidget *parent = nullptr);
     ~FileOperationErrorDialog () override;
@@ -33,7 +31,5 @@ private:
     QDialogButtonBox *mButtonBox2 = nullptr;
 
 };
-
-Q_DECLARE_INTERFACE(FileOperationErrorHandler, ErrorHandlerIID)
 
 #endif // FILEOPERATIONERRORDIALOG_H
