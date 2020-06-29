@@ -27,6 +27,8 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
 
     genBlockServerName(appName);
 
+    syslog_init(appName, LOG_DEBUG, LOG_LOCAL6);
+
 #ifdef Q_OS_UNIX
     // 防止异常退出后, 没有销毁共享内存
     mMemory = new QSharedMemory(mBlockServerName);

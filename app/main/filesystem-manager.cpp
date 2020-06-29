@@ -2,31 +2,40 @@
 
 #include <glib.h>
 #include <file-utils.h>
+#include <clib_syslog.h>
 #include <glib/gprintf.h>
 
 #include <QTimer>
+#include <QObject>
+#include <QTranslator>
 #include <QMessageBox>
 #include <QApplication>
 
 
-FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appName)
-        : SingleApp(argc, argv, appName, true)
+FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appName) : SingleApp(argc, argv, appName, true)
 {
     setApplicationVersion("v1.0.0");
     setApplicationName(appName);
+
+    QTranslator *ts = new QTranslator (this);
+    ts->load("/usr/share/filesystem-manager/filesystem-manager_" + QLocale::system().name());
+    QApplication::installTranslator(ts);
 
     mParser.addOption(mQuitOption);
     mParser.addOption(mShowItemsOption);
     mParser.addOption(mShowFoldersOption);
     mParser.addOption(mShowPropertiesOption);
 
+    mParser.addPositionalArgument("files", tr("open Files or directories"), tr("[FILE1, FILE2, ...]"));
+
     if (this->isSecondary()) {
+        CT_SYSLOG(LOG_DEBUG, "%s", "第二个filesystem-manager实例");
         mParser.addHelpOption();
         mParser.addVersionOption();
         if (this->arguments().count() == 2 && arguments().last() == ".") {
             QStringList args;
             auto dir = g_get_current_dir();
-            args<<"filesystem manager"<<dir;
+            args << "filesystem manager" << dir;
             g_free(dir);
             auto message = args.join(' ').toUtf8();
             sendMessage(message);

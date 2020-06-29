@@ -35,7 +35,8 @@ OTHER_FILES +=                                      \
     $$PWD/LICENSE                                   \
     $$PWD/Doxyfile                                  \
     $$PWD/README.md                                 \
-    $$PWD/.gitignore
+    $$PWD/.gitignore                                \
+    $$PWD/translate/filesystem-manager.ts
 
 include($$PWD/app/vfs/vfs.pri)
 include($$PWD/app/main/main.pri)

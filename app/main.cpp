@@ -1,12 +1,12 @@
 #include "main/filesystem-manager.h"
 
-#include <QGuiApplication>
 #include <stdio.h>
+#include <QGuiApplication>
 
 int main (int argc, char* argv[])
 {
-    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
     FilesystemManager fm (argc, argv);
     if (fm.isSecondary()) {

@@ -25,14 +25,22 @@ void syslog_init(const char *category, int loglevel, int facility)
 
 void syslog_info(int mlogLevel, const char *fileName, const char *functionName, int line, const char* fmt, ...)
 {
-    if (mlogLevel > logLevel)
+    if (mlogLevel > logLevel) {
         return;
+    }
 
-    char buf[2048] = {0};
-    char *logLevelstr = NULL;
-    unsigned long tagLen = 0;
-    va_list para;
+    va_list         para;
+    unsigned long   tagLen = 0;
+    char            buf[2048] = {0};
+    char*           currentProj = NULL;
+    char            *logLevelstr = NULL;
+
     va_start(para, fmt);
+
+    currentProj = strstr(fileName, "filesystem/");
+    if (NULL != currentProj) {
+        fileName = currentProj + 11;
+    }
 
     memset(buf, 0, sizeof buf);
 
