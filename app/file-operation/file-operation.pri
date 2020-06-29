@@ -17,7 +17,8 @@ HEADERS += \
     $$PWD/file-operation.h \
     $$PWD/file-rename-operation.h \
     $$PWD/file-trash-operation.h \
-    $$PWD/file-untrash-operation.h
+    $$PWD/file-untrash-operation.h\
+    $$PWD/file-enumerator.h
 
 SOURCES += \
     $$PWD/file-copy-operation.cpp \
@@ -36,7 +37,8 @@ SOURCES += \
     $$PWD/file-operation.cpp \
     $$PWD/file-rename-operation.cpp \
     $$PWD/file-trash-operation.cpp \
-    $$PWD/file-untrash-operation.cpp
+    $$PWD/file-untrash-operation.cpp\
+    $$PWD/file-enumerator.cpp
 
 DISTFILES += \
     $$PWD/README.md

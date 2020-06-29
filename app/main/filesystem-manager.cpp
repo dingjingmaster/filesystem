@@ -1,12 +1,12 @@
-#include "filesyste-mmanager.h"
+#include "filesystem-manager.h"
 
-#include <app/common/file-utils.h>
 #include <glib.h>
+#include <file-utils.h>
 #include <glib/gprintf.h>
 
-#include <QApplication>
-#include <QMessageBox>
 #include <QTimer>
+#include <QMessageBox>
+#include <QApplication>
 
 
 FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appName)

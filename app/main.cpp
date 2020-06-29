@@ -1,4 +1,4 @@
-#include "filesyste-mmanager.h"
+#include "main/filesystem-manager.h"
 
 #include <QGuiApplication>
 #include <stdio.h>
