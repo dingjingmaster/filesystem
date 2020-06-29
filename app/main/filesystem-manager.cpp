@@ -126,17 +126,17 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                 window->show();
                 KWindowSystem::raiseWindow(window->winId());
             }
-//            if (parser.isSet(showFoldersOption)) {
-//                QStringList uris = Peony::FileUtils::toDisplayUris(parser.positionalArguments());
-//                auto window = new MainWindow(uris.first());
-//                uris.removeAt(0);
-//                if (!uris.isEmpty()) {
-//                    CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
-////                    window->addNewTabs(uris);
-//                }
-//                window->show();
-//                KWindowSystem::raiseWindow(window->winId());
-//            }
+            if (parser.isSet(mShowFoldersOption)) {
+                QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
+                auto window = new MainWindow(uris.first());
+                uris.removeAt(0);
+                if (!uris.isEmpty()) {
+                    CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
+//                    window->addNewTabs(uris);
+                }
+                window->show();
+                KWindowSystem::raiseWindow(window->winId());
+            }
             if (parser.isSet(mShowPropertiesOption)) {
                 QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
 
@@ -149,21 +149,19 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
         } else {
             if (!parser.positionalArguments().isEmpty()) {
                 QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
-                //auto window = new Peony::FMWindow(uris.first());
-//                auto window = new MainWindow(uris.first());
-//                uris.removeAt(0);
-//                if (!uris.isEmpty()) {
+                auto window = new FMWindow(uris.first());
+                uris.removeAt(0);
+                if (!uris.isEmpty()) {
 //                    window->addNewTabs(uris);
-//                }
-//                window->setAttribute(Qt::WA_DeleteOnClose);
-//                window->show();
-//                KWindowSystem::raiseWindow(window->winId());
+                }
+                window->setAttribute(Qt::WA_DeleteOnClose);
+                window->show();
+                KWindowSystem::raiseWindow(window->winId());
             } else {
-//                auto window = new MainWindow;
-//                //auto window = new Peony::FMWindow;
-//                window->setAttribute(Qt::WA_DeleteOnClose);
-//                window->show();
-//                KWindowSystem::raiseWindow(window->winId());
+                auto window = new MainWindow;
+                window->setAttribute(Qt::WA_DeleteOnClose);
+                window->show();
+                KWindowSystem::raiseWindow(window->winId());
             }
         }
     }

@@ -10,6 +10,7 @@ class MainWindow : public QMainWindow, public FMWindowIface
     Q_OBJECT
 public:
     explicit MainWindow(const QString &uri = nullptr, QWidget *parent = nullptr);
+    ~MainWindow();
 
     QSize sizeHint() const;
     int getCurrentSortColumn();

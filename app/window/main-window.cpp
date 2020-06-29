@@ -1,19 +1,71 @@
 #include "main-window.h"
 
+#include <QScreen>
+#include <QApplication>
+#include <global-settings.h>
+#include <QMouseEvent>
+
+static MainWindow* gLastResizeWindow = nullptr;
 
 MainWindow::MainWindow(const QString &uri, QWidget *parent)
 {
+    installEventFilter(this);
 
+    setWindowIcon(QIcon::fromTheme("system-file-manager"));
+    setWindowTitle(tr("File Manager"));
+
+    slotCheckSettings();
+
+//    mEffect = new BorderShadowEffect(this);
+//    mEffect->setPadding(4);
+//    mEffect->setBorderRadius(6);
+//    mEffect->setBlurRadius(4);
+    //setGraphicsEffect(m_effect);
+
+    setAnimated(false);
+    setAttribute(Qt::WA_DeleteOnClose);
+    setAttribute(Qt::WA_TranslucentBackground);
+    //setAttribute(Qt::WA_OpaquePaintEvent);
+    //fix double window base buttons issue, not effect MinMax button hints
+    auto flags = windowFlags() &~Qt::WindowMinMaxButtonsHint;
+    setWindowFlags(flags |Qt::FramelessWindowHint);
+    //setWindowFlags(windowFlags()|Qt::FramelessWindowHint);
+    setContentsMargins(4, 4, 4, 4);
+
+    //bind resize handler
+//    auto handler = new QWidgetResizeHandler(this);
+//    handler->setMovingEnabled(false);
+//    mResizeHandler = handler;
+
+    //disable style window manager
+//    setProperty("useStyleWindowManager", false);
+
+    slotSetShortCuts();
+
+    initUI(uri);
+}
+
+MainWindow::~MainWindow()
+{
+    if (gLastResizeWindow == this) {
+        auto settings = GlobalSettings::getInstance();
+        settings->setValue(DEFAULT_WINDOW_SIZE, this->size());
+        gLastResizeWindow = nullptr;
+    }
 }
 
 QSize MainWindow::sizeHint() const
 {
-
+    auto screenSize = QApplication::primaryScreen()->size();
+    QSize defaultSize = (GlobalSettings::getInstance()->getValue(DEFAULT_WINDOW_SIZE)).toSize();
+    int width = qMin(defaultSize.width(), screenSize.width());
+    int height = qMin(defaultSize.height(), screenSize.height());
+    return QSize(width, height);
 }
 
 int MainWindow::getCurrentSortColumn()
 {
-
+//    return mTab->getSortType();
 }
 
 bool MainWindow::getWindowShowHidden()
@@ -28,47 +80,112 @@ bool MainWindow::getWindowUseDefaultNameSortOrder()
 
 DirectoryViewContainer *MainWindow::getCurrentPage()
 {
-
+//    return mTab->currentPage();
 }
 
 const QStringList MainWindow::getCurrentSelections()
 {
-
+//    return mTab->getCurrentSelections();
 }
 
 const QStringList MainWindow::getCurrentAllFileUris()
 {
-
+//    return mTab->getAllFileUris();
 }
 
 FMWindowIface *MainWindow::create(const QString &uri)
 {
+    auto window = new MainWindow(uri);
+    if (currentViewSupportZoom()) {
+        window->slotSetCurrentViewZoomLevel(this->currentViewZoomLevel());
+    }
 
+    return window;
 }
 
 FMWindowIface *MainWindow::create(const QStringList &uris)
 {
+    if (uris.isEmpty()) {
+        auto window = new MainWindow;
+        if (currentViewSupportZoom())
+            window->slotSetCurrentViewZoomLevel(this->currentViewZoomLevel());
+        return window;
+    }
+    auto uri = uris.first();
+    auto l = uris;
+    l.removeAt(0);
+    auto window = new MainWindow(uri);
+    if (currentViewSupportZoom()) {
+        window->slotSetCurrentViewZoomLevel(this->currentViewZoomLevel());
+    }
 
+//    window->addNewTabs(l);
+
+    return window;
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::MouseMove) {
+        auto me = static_cast<QMouseEvent *>(event);
+        auto widget = this->childAt(me->pos());
+        if (!widget) {
+            mShouldSaveSideBarWidth = true;
+        }
+    }
 
+    if (event->type() == QEvent::MouseButtonRelease) {
+        if (mShouldSaveSideBarWidth) {
+            auto settings = GlobalSettings::getInstance();
+//            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
+        }
+        mShouldSaveSideBarWidth = false;
+    }
+
+    return false;
 }
 
 FMWindowIface *MainWindow::createWithZoomLevel(const QString &uri, int zoomLevel)
 {
+    auto window = new MainWindow(uri);
 
+    if (currentViewSupportZoom()) {
+        window->slotSetCurrentViewZoomLevel(zoomLevel);
+    }
+
+    return window;
 }
 
 const QList<std::shared_ptr<FileInfo> > MainWindow::getCurrentSelectionFileInfos()
 {
-
+    const QStringList uris = getCurrentSelections();
+    QList<std::shared_ptr<FileInfo>> infos;
+    for(auto uri : uris) {
+//        auto info = FileInfo::fromUri(uri);
+//        infos << info;
+    }
+    return infos;
 }
 
 FMWindowIface *MainWindow::createWithZoomLevel(const QStringList &uris, int zoomLevel)
 {
+    if (uris.isEmpty()) {
+        auto window = new MainWindow;
+        if (currentViewSupportZoom())
+            window->slotSetCurrentViewZoomLevel(zoomLevel);
+        return window;
+    }
+    auto uri = uris.first();
+    auto l = uris;
+    l.removeAt(0);
+    auto window = new MainWindow(uri);
+    if (currentViewSupportZoom()) {
+        window->slotSetCurrentViewZoomLevel(zoomLevel);
+    }
 
+//    window->addNewTabs(l);
+
+    return window;
 }
 
 void MainWindow::slotRefresh()
