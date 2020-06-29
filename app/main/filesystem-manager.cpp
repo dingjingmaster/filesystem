@@ -7,6 +7,7 @@
 #include <glib/gprintf.h>
 #include <window/main-window.h>
 #include <vfs/search-vfs-register.h>
+#include <kwindow-system/kwindowsystem.h>
 
 #include <QTimer>
 #include <QObject>
@@ -118,24 +119,24 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                 auto window = new MainWindow(parentUri);
                 connect(window, &MainWindow::locationChangeEnd, [=]() {
                     QTimer::singleShot(500, [=] {
-                        window->getCurrentPage()->getView()->setSelections(itemHash.value(parentUri));
-                        window->getCurrentPage()->getView()->scrollToSelection(itemHash.value(parentUri).first());
+//                        window->getCurrentPage()->getView()->setSelections(itemHash.value(parentUri));
+//                        window->getCurrentPage()->getView()->scrollToSelection(itemHash.value(parentUri).first());
                     });
                 });
                 window->show();
                 KWindowSystem::raiseWindow(window->winId());
             }
-            if (parser.isSet(showFoldersOption)) {
-                QStringList uris = Peony::FileUtils::toDisplayUris(parser.positionalArguments());
-                auto window = new MainWindow(uris.first());
-                uris.removeAt(0);
-                if (!uris.isEmpty()) {
-                    CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
-//                    window->addNewTabs(uris);
-                }
-                window->show();
-                KWindowSystem::raiseWindow(window->winId());
-            }
+//            if (parser.isSet(showFoldersOption)) {
+//                QStringList uris = Peony::FileUtils::toDisplayUris(parser.positionalArguments());
+//                auto window = new MainWindow(uris.first());
+//                uris.removeAt(0);
+//                if (!uris.isEmpty()) {
+//                    CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
+////                    window->addNewTabs(uris);
+//                }
+//                window->show();
+//                KWindowSystem::raiseWindow(window->winId());
+//            }
             if (parser.isSet(mShowPropertiesOption)) {
                 QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
 
