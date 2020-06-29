@@ -1,9 +1,12 @@
 #include "filesystem-manager.h"
+#include "fm-window.h"
 
 #include <glib.h>
 #include <file-utils.h>
 #include <clib_syslog.h>
 #include <glib/gprintf.h>
+#include <window/main-window.h>
+#include <vfs/search-vfs-register.h>
 
 #include <QTimer>
 #include <QObject>
@@ -54,9 +57,7 @@ FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appNam
     auto message = this->arguments().join(' ').toUtf8();
     slotParseCommandLine(this->instanceId(), message);
 
-
-
-
+    SearchVFSRegister::registSearchVFS();
 }
 
 void FilesystemManager::about()
@@ -69,7 +70,7 @@ void FilesystemManager::help()
     about();
 }
 
-void FilesystemManager::slotParseCommandLine(quint32 id, QByteArray msg)
+void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
 {
     QCommandLineParser parser;
     if (mFirstParse) {
@@ -86,6 +87,7 @@ void FilesystemManager::slotParseCommandLine(quint32 id, QByteArray msg)
 
     parser.process(args);
     if (parser.isSet(mQuitOption)) {
+        CT_SYSLOG(LOG_DEBUG, "退出");
         QTimer::singleShot(1, [=]() {
             qApp->quit();
         });
@@ -100,7 +102,7 @@ void FilesystemManager::slotParseCommandLine(quint32 id, QByteArray msg)
                 auto parentUri = FileUtils::getParentUri(uri);
                 if (itemHash.value(parentUri).isEmpty()) {
                     QStringList l;
-                    l<<uri;
+                    l << uri;
                     itemHash.insert(parentUri, l);
                 } else {
                     auto l = itemHash.value(parentUri);
@@ -113,35 +115,36 @@ void FilesystemManager::slotParseCommandLine(quint32 id, QByteArray msg)
             auto parentUris = itemHash.keys();
 
             for (auto parentUri : parentUris) {
-//                auto window = new MainWindow(parentUri);
-                //Peony::FMWindow *window = new Peony::FMWindow(parentUri);
-//                connect(window, &MainWindow::locationChangeEnd, [=]() {
-//                    QTimer::singleShot(500, [=] {
-//                        window->getCurrentPage()->getView()->setSelections(itemHash.value(parentUri));
-//                        window->getCurrentPage()->getView()->scrollToSelection(itemHash.value(parentUri).first());
-//                    });
-//                });
+                auto window = new MainWindow(parentUri);
+                connect(window, &MainWindow::locationChangeEnd, [=]() {
+                    QTimer::singleShot(500, [=] {
+                        window->getCurrentPage()->getView()->setSelections(itemHash.value(parentUri));
+                        window->getCurrentPage()->getView()->scrollToSelection(itemHash.value(parentUri).first());
+                    });
+                });
+                window->show();
+                KWindowSystem::raiseWindow(window->winId());
+            }
+            if (parser.isSet(showFoldersOption)) {
+                QStringList uris = Peony::FileUtils::toDisplayUris(parser.positionalArguments());
+                auto window = new MainWindow(uris.first());
+                uris.removeAt(0);
+                if (!uris.isEmpty()) {
+                    CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
+//                    window->addNewTabs(uris);
+                }
+                window->show();
+                KWindowSystem::raiseWindow(window->winId());
+            }
+            if (parser.isSet(mShowPropertiesOption)) {
+                QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
+
+                CT_SYSLOG(LOG_DEBUG, "展示属性窗口");
+
+//                PropertiesWindow *window = new PropertiesWindow(uris);
 //                window->show();
 //                KWindowSystem::raiseWindow(window->winId());
             }
-//            if (parser.isSet(showFoldersOption)) {
-//                QStringList uris = Peony::FileUtils::toDisplayUris(parser.positionalArguments());
-//                auto window = new MainWindow(uris.first());
-//                //Peony::FMWindow *window = new Peony::FMWindow(uris.first());
-//                uris.removeAt(0);
-//                if (!uris.isEmpty()) {
-//                    window->addNewTabs(uris);
-//                }
-//                window->show();
-//                KWindowSystem::raiseWindow(window->winId());
-//            }
-//            if (parser.isSet(showPropertiesOption)) {
-//                QStringList uris = Peony::FileUtils::toDisplayUris(parser.positionalArguments());
-
-//                Peony::PropertiesWindow *window = new Peony::PropertiesWindow(uris);
-//                window->show();
-//                KWindowSystem::raiseWindow(window->winId());
-//            }
         } else {
             if (!parser.positionalArguments().isEmpty()) {
                 QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());

@@ -4,7 +4,7 @@
 #include <memory>
 #include <QStringList>
 
-#include <file-create-templ-operation.h>
+#include <file/file-create-templ-operation.h>
 
 class FileInfo;
 

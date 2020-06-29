@@ -25,11 +25,10 @@ CONFIG +=                                           \
 INCLUDEPATH +=                                      \
     $$PWD/app                                       \
     $$PWD/app/common                                \
-    $$PWD/app/library                               \
-    $$PWD/app/file-operation                        \
+    $$PWD/app/library
 
 SOURCES +=                                          \
-    $$PWD/app/main.cpp
+    $$PWD/app/main.cpp                              \
 
 OTHER_FILES +=                                      \
     $$PWD/LICENSE                                   \
@@ -39,10 +38,11 @@ OTHER_FILES +=                                      \
     $$PWD/translate/filesystem-manager.ts
 
 include($$PWD/app/vfs/vfs.pri)
+include($$PWD/app/file/file.pri)
 include($$PWD/app/main/main.pri)
+include($$PWD/app/window/window.pri)
 include($$PWD/app/common/common.pri)
 include($$PWD/app/library/syslog/syslog.pri)
 include($$PWD/app/library/gobject/gobject.pri)
-include($$PWD/app/file-operation/file-operation.pri)
 include($$PWD/app/library/single-app/single-app.pri)
 include($$PWD/app/library/qgsettings/qgsettings-lib.pri)
