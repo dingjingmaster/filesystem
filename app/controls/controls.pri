@@ -1,5 +1,7 @@
 HEADERS += \
-    $$PWD/status-bar.h
+    $$PWD/sidebar.h \
+    $$PWD/statusbar.h
 
 SOURCES += \
-    $$PWD/status-bar.cpp
+    $$PWD/sidebar.cpp \
+    $$PWD/statusbar.cpp
