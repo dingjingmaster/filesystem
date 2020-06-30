@@ -5,6 +5,7 @@ HEADERS += \
     $$PWD/file-count-operation.h \
     $$PWD/file-create-templ-operation.h \
     $$PWD/file-delete-operation.h \
+    $$PWD/file-info-manager.h \
     $$PWD/file-info.h \
     $$PWD/file-link-operation.h \
     $$PWD/file-move-operation.h \
@@ -26,6 +27,7 @@ SOURCES += \
     $$PWD/file-count-operation.cpp \
     $$PWD/file-create-templ-operation.cpp \
     $$PWD/file-delete-operation.cpp \
+    $$PWD/file-info-manager.cpp \
     $$PWD/file-info.cpp \
     $$PWD/file-link-operation.cpp \
     $$PWD/file-move-operation.cpp \

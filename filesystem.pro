@@ -40,6 +40,7 @@ OTHER_FILES +=                                      \
 include($$PWD/app/vfs/vfs.pri)
 include($$PWD/app/file/file.pri)
 include($$PWD/app/main/main.pri)
+include($$PWD/app/model/model.pri)
 include($$PWD/app/window/window.pri)
 include($$PWD/app/common/common.pri)
 include($$PWD/app/library/syslog/syslog.pri)
