@@ -11,6 +11,7 @@
 #include <QAbstractItemModel>
 #include <file/file-enumerator.h>
 #include <file/file-info-job.h>
+#include <window/volume-manager.h>
 
 static GAsyncReadyCallback eject_cb(GFile *file, GAsyncResult *res, SideBarFileSystemItem *pThis);
 

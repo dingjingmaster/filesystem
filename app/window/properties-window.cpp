@@ -1,6 +1,57 @@
 #include "properties-window.h"
 
-PropertiesWindow::PropertiesWindow(QObject *parent) : QObject(parent)
+
+PropertiesWindowPrivate::PropertiesWindowPrivate(const QStringList &uris, QWidget *parent)
+{
+
+}
+
+PropertiesWindow::PropertiesWindow(const QStringList &uris, QWidget *parent)
+{
+
+}
+
+void PropertiesWindow::show()
+{
+
+}
+
+void PropertiesWindow::gotoAboutComputer()
+{
+
+}
+
+void PropertiesWindowPluginManager::release()
+{
+
+}
+
+const QStringList PropertiesWindowPluginManager::getFactoryNames()
+{
+
+}
+
+PropertiesWindowPluginManager *PropertiesWindowPluginManager::getInstance()
+{
+
+}
+
+bool PropertiesWindowPluginManager::registerFactory(PropertiesWindowTabPagePluginIface *factory)
+{
+
+}
+
+PropertiesWindowTabPagePluginIface *PropertiesWindowPluginManager::getFactory(const QString &id)
+{
+
+}
+
+PropertiesWindowPluginManager::~PropertiesWindowPluginManager()
+{
+
+}
+
+PropertiesWindowPluginManager::PropertiesWindowPluginManager(QObject *parent)
 {
 
 }

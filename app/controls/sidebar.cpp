@@ -1,10 +1,13 @@
+#include "sidebar-menu.h"
 #include "sidebar.h"
 
 #include <QMouseEvent>
 #include <QHeaderView>
 #include <QApplication>
 
+#include <model/sidebar-delegate.h>
 #include <model/sidebar-model.h>
+#include <model/sidebar-proxy-filter-sort-model.h>
 
 SideBar::SideBar(QWidget *parent) : QTreeView(parent)
 {
@@ -27,7 +30,7 @@ SideBar::SideBar(QWidget *parent) : QTreeView(parent)
     setItemDelegate(new SideBarDelegate(this));
 
     auto model = new SideBarModel(this);
-    auto proxy_model = new SideBarProxyFilterSortModel(model);
+    auto proxyModel = new SideBarProxyFilterSortModel(model);
 
     setSortingEnabled(true);
     setExpandsOnDoubleClick(false);
@@ -35,24 +38,24 @@ SideBar::SideBar(QWidget *parent) : QTreeView(parent)
     header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     header()->setVisible(false);
 
-    setModel(proxy_model);
+    setModel(proxyModel);
 
-    proxy_model->setSourceModel(model);
+    proxyModel->setSourceModel(model);
 
     connect(this, &QTreeView::expanded, [=](const QModelIndex &index) {
-        auto item = proxy_model->itemFromIndex(index);
+        auto item = proxyModel->itemFromIndex(index);
         item->findChildrenAsync();
     });
 
     connect(this, &QTreeView::collapsed, [=](const QModelIndex &index) {
-        auto item = proxy_model->itemFromIndex(index);
+        auto item = proxyModel->itemFromIndex(index);
         item->clearChildren();
     });
 
     connect(this, &QTreeView::clicked, [=](const QModelIndex &index) {
         switch (index.column()) {
         case 0: {
-            auto item = proxy_model->itemFromIndex(index);
+            auto item = proxyModel->itemFromIndex(index);
             //some side bar item doesn't have a uri.
             //do not emit signal with a null uri to window.
             if (!item->uri().isNull())
@@ -60,9 +63,9 @@ SideBar::SideBar(QWidget *parent) : QTreeView(parent)
             break;
         }
         case 1: {
-            auto item = proxy_model->itemFromIndex(index);
+            auto item = proxyModel->itemFromIndex(index);
             if (item->isMounted()) {
-                auto leftIndex = proxy_model->index(index.row(), 0, index.parent());
+                auto leftIndex = proxyModel->index(index.row(), 0, index.parent());
                 this->collapse(leftIndex);
                 item->unmount();
             }
@@ -75,7 +78,7 @@ SideBar::SideBar(QWidget *parent) : QTreeView(parent)
 
     connect(this, &QTreeView::customContextMenuRequested, this, [=](const QPoint &pos) {
         auto index = indexAt(pos);
-        auto item = proxy_model->itemFromIndex(index);
+        auto item = proxyModel->itemFromIndex(index);
         if (item) {
             if (item->type() != SideBarAbstractItem::SeparatorItem) {
                 SideBarMenu menu(item, this);

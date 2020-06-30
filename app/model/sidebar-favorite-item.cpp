@@ -53,6 +53,41 @@ QModelIndex SideBarFavoriteItem::firstColumnIndex()
 
 }
 
+void SideBarFavoriteItem::eject()
+{
+
+}
+
+void SideBarFavoriteItem::format()
+{
+
+}
+
+void SideBarFavoriteItem::unmount()
+{
+
+}
+
+void SideBarFavoriteItem::onUpdated()
+{
+
+}
+
+void SideBarFavoriteItem::findChildren()
+{
+
+}
+
+void SideBarFavoriteItem::clearChildren()
+{
+
+}
+
+void SideBarFavoriteItem::findChildrenAsync()
+{
+
+}
+
 QModelIndex SideBarFavoriteItem::lastColumnIndex()
 {
 

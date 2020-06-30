@@ -14,7 +14,7 @@ class FileEnumerator : public QObject
     Q_OBJECT
 public:
     explicit FileEnumerator (QObject *parent = nullptr);
-    ~ FileEnumerator ();
+    ~FileEnumerator ();
 
     void prepare ();
     void enumerateSync ();

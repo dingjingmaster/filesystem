@@ -13,6 +13,8 @@
 #include <file/file-info-job.h>
 #include <file/file-info.h>
 
+#include <window/bookmark-manager.h>
+
 
 SideBarModel::SideBarModel(QObject *parent) : QAbstractItemModel (parent)
 {
