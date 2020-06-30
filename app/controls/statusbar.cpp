@@ -1,4 +1,4 @@
-#include "status-bar.h"
+#include "statusbar.h"
 
 #include "main/fm-window.h"
 

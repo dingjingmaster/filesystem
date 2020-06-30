@@ -1,6 +1,10 @@
-#include "side-bar.h"
+#include "sidebar.h"
 
+#include <QMouseEvent>
+#include <QHeaderView>
 #include <QApplication>
+
+#include <model/sidebar-model.h>
 
 SideBar::SideBar(QWidget *parent) : QTreeView(parent)
 {
@@ -27,7 +31,6 @@ SideBar::SideBar(QWidget *parent) : QTreeView(parent)
 
     setSortingEnabled(true);
     setExpandsOnDoubleClick(false);
-    //don't show HorizontalScroll
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     header()->setVisible(false);

@@ -3,6 +3,8 @@
 
 #include <QObject>
 
+class SideBarModel;
+
 class SideBarAbstractItem : public QObject
 {
     friend class SideBarModel;
@@ -17,7 +19,7 @@ public:
     };
 
     explicit SideBarAbstractItem (SideBarModel* model, QObject *parent = nullptr);
-    virtual ~SideBarAbstractItem ();
+    virtual ~SideBarAbstractItem();
 
     virtual bool isMounted ();
     virtual Type type () = 0;

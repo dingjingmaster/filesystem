@@ -1,7 +1,8 @@
 #include "sidebar-abstract-item.h"
 
+#include "sidebar-model.h"
 
-SideBarAbstractItem::SideBarAbstractItem(SideBarModel *model, QObject *parent)
+SideBarAbstractItem::SideBarAbstractItem(SideBarModel *model, QObject *parent) : QObject(parent)
 {
     mModel = model;
     mChildren = new QVector<SideBarAbstractItem*> ();
