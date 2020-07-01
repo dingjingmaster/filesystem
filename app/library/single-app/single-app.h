@@ -1,10 +1,10 @@
 #ifndef SINGLEAPP_H
 #define SINGLEAPP_H
 
-#include <QCoreApplication>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QSharedMemory>
+#include <QCoreApplication>
 
 /**
  * @brief 此类使系统只运行一个此类的实例

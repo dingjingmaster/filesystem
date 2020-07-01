@@ -7,7 +7,7 @@ CONFIG(debug,debug|release) {
 }
 
 SUBDIRS = \
-    $$PWD/app/widget/gui.pro                        \
+    $$PWD/app/gui/gui.pro                           \
     $$PWD/app/daemon/daemon.pro                     \
 
 OTHER_FILES +=                                      \
