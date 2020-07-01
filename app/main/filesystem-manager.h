@@ -16,7 +16,7 @@ public:
      * @param argv 命令参数
      * @param appName app名
      */
-    FilesystemManager(int& argc, char* argv[], const char* appName = "graceful-filesystem");
+    FilesystemManager (int& argc, char* argv[], const char* appName = "graceful-filesystem");
 
     /**
      * @brief 关于

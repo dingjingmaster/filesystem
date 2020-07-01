@@ -6,8 +6,11 @@
 #include <clib_syslog.h>
 #include <glib/gprintf.h>
 #include <window/main-window.h>
+#include <window/properties-window.h>
 #include <vfs/search-vfs-register.h>
 #include <kwindow-system/kwindowsystem.h>
+#include <view/directory-view-container.h>
+#include <view/directory-view-widget.h>
 
 #include <QTimer>
 #include <QObject>
@@ -85,7 +88,7 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
     parser.addOption(mShowPropertiesOption);
 
     const QStringList args = QString(msg).split(' ');
-
+    CT_SYSLOG(LOG_DEBUG, "process: %s", QString(msg).toUtf8().data())
     parser.process(args);
     if (parser.isSet(mQuitOption)) {
         CT_SYSLOG(LOG_DEBUG, "退出");
@@ -119,8 +122,8 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                 auto window = new MainWindow(parentUri);
                 connect(window, &MainWindow::locationChangeEnd, [=]() {
                     QTimer::singleShot(500, [=] {
-//                        window->getCurrentPage()->getView()->setSelections(itemHash.value(parentUri));
-//                        window->getCurrentPage()->getView()->scrollToSelection(itemHash.value(parentUri).first());
+                        window->getCurrentPage()->getView()->setSelections(itemHash.value(parentUri));
+                        window->getCurrentPage()->getView()->scrollToSelection(itemHash.value(parentUri).first());
                     });
                 });
                 window->show();
@@ -132,19 +135,17 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                 uris.removeAt(0);
                 if (!uris.isEmpty()) {
                     CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
-//                    window->addNewTabs(uris);
+                    window->slotAddNewTabs(uris);
                 }
                 window->show();
                 KWindowSystem::raiseWindow(window->winId());
             }
             if (parser.isSet(mShowPropertiesOption)) {
                 QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
-
                 CT_SYSLOG(LOG_DEBUG, "展示属性窗口");
-
-//                PropertiesWindow *window = new PropertiesWindow(uris);
-//                window->show();
-//                KWindowSystem::raiseWindow(window->winId());
+                PropertiesWindow *window = new PropertiesWindow(uris);
+                window->show();
+                KWindowSystem::raiseWindow(window->winId());
             }
         } else {
             if (!parser.positionalArguments().isEmpty()) {
@@ -152,7 +153,7 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                 auto window = new FMWindow(uris.first());
                 uris.removeAt(0);
                 if (!uris.isEmpty()) {
-//                    window->addNewTabs(uris);
+                    window->slotAddNewTabs(uris);
                 }
                 window->setAttribute(Qt::WA_DeleteOnClose);
                 window->show();

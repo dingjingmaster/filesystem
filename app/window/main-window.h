@@ -9,65 +9,65 @@ class MainWindow : public QMainWindow, public FMWindowIface
 {
     Q_OBJECT
 public:
-    explicit MainWindow(const QString &uri = nullptr, QWidget *parent = nullptr);
-    ~MainWindow();
+    explicit MainWindow (const QString &uri = nullptr, QWidget *parent = nullptr);
+    ~MainWindow ();
 
-    QSize sizeHint() const;
-    int getCurrentSortColumn();
-    bool getWindowShowHidden();
-    int currentViewZoomLevel();
-    FMWindowFactory *getFactory();
-    const QString getCurrentUri();
-    bool currentViewSupportZoom();
-    bool getWindowSortFolderFirst();
-    Qt::SortOrder getCurrentSortOrder();
-    bool getWindowUseDefaultNameSortOrder();
-    DirectoryViewContainer *getCurrentPage();
-    const QStringList getCurrentSelections();
-    const QStringList getCurrentAllFileUris();
-    FMWindowIface *create(const QString &uri);
-    FMWindowIface *create(const QStringList &uris);
+    QSize sizeHint () const;
+    int getCurrentSortColumn ();
+    bool getWindowShowHidden ();
+    int currentViewZoomLevel ();
+    FMWindowFactory *getFactory ();
+    const QString getCurrentUri ();
+    bool currentViewSupportZoom ();
+    bool getWindowSortFolderFirst ();
+    Qt::SortOrder getCurrentSortOrder ();
+    bool getWindowUseDefaultNameSortOrder ();
+    DirectoryViewContainer *getCurrentPage ();
+    const QStringList getCurrentSelections ();
+    const QStringList getCurrentAllFileUris ();
+    FMWindowIface *create (const QString &uri);
+    FMWindowIface *create (const QStringList &uris);
     bool eventFilter(QObject *watched, QEvent *event);
-    FMWindowIface *createWithZoomLevel(const QString &uri, int zoomLevel);
-    const QList<std::shared_ptr<FileInfo>> getCurrentSelectionFileInfos();
-    FMWindowIface *createWithZoomLevel(const QStringList &uris, int zoomLevel);
+    FMWindowIface *createWithZoomLevel (const QString &uri, int zoomLevel);
+    const QList<std::shared_ptr<FileInfo>> getCurrentSelectionFileInfos ();
+    FMWindowIface *createWithZoomLevel (const QStringList &uris, int zoomLevel);
 
 Q_SIGNALS:
-    void locationChangeEnd();
-    void locationChangeStart();
-    void windowSelectionChanged();
-    void viewLoaded(bool successed = true);
-    void locationChanged(const QString &uri);
+    void locationChangeEnd ();
+    void locationChangeStart ();
+    void windowSelectionChanged ();
+    void viewLoaded (bool successed = true);
+    void locationChanged (const QString &uri);
 
 public Q_SLOTS:
-    void slotRefresh();
-    void slotCleanTrash();
-    void slotClearRecord();
-    void slotSetShortCuts();
-    void slotAdvanceSearch();
-    void slotSetShowHidden();
-    void slotCheckSettings();
-    void slotUpdateHeaderBar();
-    void slotForceStopLoading();
-    void slotRecoverFromTrash();
-    void slotMaximizeOrRestore();
-    void slotSetSortFolderFirst();
-    void slotUpdateTabPageTitle();
-    void slotCreateFolderOperation();
-    void slotEditUri(const QString &uri);
-    void slotSetUseDefaultNameSortOrder();
-    void slotSetLabelNameFilter(QString name);
-    void slotEditUris(const QStringList &uris);
-    void slotAddNewTabs(const QStringList &uris);
+    void slotRefresh ();
+    void slotCleanTrash ();
+    void slotClearRecord ();
+    void slotSetShortCuts ();
+    void slotAdvanceSearch ();
+    void slotSetShowHidden ();
+    void slotCheckSettings ();
+    void slotUpdateHeaderBar ();
+    void slotForceStopLoading ();
+    void slotRecoverFromTrash ();
+    void slotMaximizeOrRestore ();
+    void slotSetSortFolderFirst ();
+    void slotUpdateTabPageTitle ();
+    void slotCreateFolderOperation ();
+    void slotEditUri (const QString &uri);
+    void slotSetUseDefaultNameSortOrder ();
+    void slotSetLabelNameFilter (QString name);
+    void slotEditUris (const QStringList &uris);
+    void slotAddNewTabs (const QStringList &uris);
     void slotSetCurrentSortColumn (int sortColumn);
-    void slotSetCurrentViewZoomLevel(int zoomLevel);
-    void slotBeginSwitchView(const QString &viewId);
-    void slotSyncControlsLocation(const QString &uri);
+    void slotSetCurrentViewZoomLevel (int zoomLevel);
+    void slotBeginSwitchView (const QString &viewId);
+    void slotSyncControlsLocation (const QString &uri);
     void slotSetCurrentSortOrder (Qt::SortOrder order);
-    void slotSetCurrentSelectionUris(const QStringList &uris);
-    void slotFilterUpdate(int type_index=0, int time_index=0, int size_index=0);
-    void slotGoToUri(const QString &uri, bool addHistory = false, bool force = false);
-    void slotSearchFilter(QString target_path, QString keyWord, bool search_file_name, bool search_content);
+    void slotSetCurrentSelectionUris (const QStringList &uris);
+    void slotFilterUpdate (int type_index=0, int time_index=0, int size_index=0);
+    void slotGoToUri (const QString &uri, bool addHistory = false, bool force = false);
+    void slotSearchFilter (QString target_path, QString keyWord, bool search_file_name, bool search_content);
 
 protected:
     void validBorder ();
