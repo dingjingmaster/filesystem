@@ -1,6 +1,6 @@
 #include "clib_syslog.h"
 
-static char sysCategory[128] = {0};
+static char sysCategory[256] = {0};
 static int sysFacility = 0;
 
 #ifdef LOG_LEVEL

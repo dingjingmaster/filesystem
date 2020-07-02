@@ -1,7 +1,7 @@
 #include "desktop-menu-plugin-manager.h"
 #include "fm-dbus-service.h"
 #include "fm-desktop-application.h"
-
+#include <syslog/clib_syslog.h>
 
 #include <QFile>
 #include <QProcess>
@@ -18,11 +18,10 @@ static DesktopIconView *gDesktopIconView = nullptr;
 
 FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *applicationName) : SingleApp(argc, argv, applicationName)
 {
-    setApplicationVersion("v2.1.0");
+    setApplicationVersion("v1.0.0");
     setApplicationName(applicationName);
 
     if (this->isPrimary()) {
-        qDebug()<<"isPrimary screen";
         connect(this, &SingleApp::receivedMessage, [=](quint32 id, QByteArray msg) {
             this->parseCmd(id, msg, true);
         });
@@ -93,6 +92,7 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
 
         if (parser.isSet(daemonOption)) {
             if (!gHasDaemon) {
+                CT_SYSLOG(LOG_DEBUG, "配置选项 -d");
                 trySetDefaultFolderUrlHandler();
                 FMDBusService *service = new FMDBusService(this);
                 connect(service, &FMDBusService::showItemsRequest, [=](const QStringList &urisList) {
