@@ -71,7 +71,6 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
     setGeometry(screen->geometry());
     setContextMenuPolicy(Qt::CustomContextMenu);
 
-    // menu
     connect(this, &QMainWindow::customContextMenuRequested, [=](const QPoint &pos) {
         auto contentMargins = contentsMargins();
         auto fixedPos = pos - QPoint(contentMargins.left(), contentMargins.top());
@@ -90,7 +89,6 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
             if (DesktopApplication::getIconView()->getSelections().isEmpty()) {
                 auto action = menu.addAction(tr("set background"));
                 connect(action, &QAction::triggered, [=]() {
-                    //go to control center set background
                     gotoSetBackground();
                 });
             }
@@ -204,7 +202,6 @@ void DesktopWindow::slotScaleBg(const QRect &geometry)
     auto flags = windowFlags() &~Qt::WindowMinMaxButtonsHint;
     setWindowFlags(flags | Qt::FramelessWindowHint);
 
-    //fix qt5.6 setAttribute as desktop has no effect issue
 #if QT_VERSION_CHECK(5, 6, 0)
     Atom mWindowType = XInternAtom(QX11Info::display(), "_NET_WM_WINDOW_TYPE", true);
     Atom mDesktopType = XInternAtom(QX11Info::display(), "_NET_WM_WINDOW_TYPE_DESKTOP", true);

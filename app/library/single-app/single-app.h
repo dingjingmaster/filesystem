@@ -5,12 +5,13 @@
 #include <QLocalSocket>
 #include <QSharedMemory>
 #include <QCoreApplication>
+#include <QApplication>
 
 /**
  * @brief 此类使系统只运行一个此类的实例
- * @see QCoreApplication
+ * @see QApplication
  */
-class SingleApp : public QCoreApplication
+class SingleApp : public QApplication
 {
     struct InstancesInfo
     {

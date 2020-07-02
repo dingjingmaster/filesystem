@@ -39,7 +39,7 @@ public:
     const QString getDirectoryUri ();
     const QStringList getSelections ();
     const QStringList getAllFileUris ();
-    bool eventFilter(QObject *obj, QEvent *e);
+    bool eventFilter (QObject *obj, QEvent *e);
     void setProxy (DirectoryViewProxyIface *proxy);
     QRect visualRect (const QModelIndex &index) const;
     const QFont getViewItemFont (QStyleOptionViewItem *item);

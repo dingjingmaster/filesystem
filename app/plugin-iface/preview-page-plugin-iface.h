@@ -3,16 +3,16 @@
 
 #include "plugin-iface.h"
 
-#include <QString>
+class QString;
+class PreviewPageIface;
 
 #define PreviewPagePluginIface_iid "org.graceful.fm.plugin-iface.PreviewPagePluginIface"
 
-class PreviewPageIface;
 
 class PreviewPagePluginIface : public PluginIface
 {
 public:
-    virtual ~PreviewPagePluginIface();
+    virtual ~PreviewPagePluginIface() {}
 
     virtual PreviewPageIface *createPreviewPage() = 0;
 };
@@ -30,7 +30,7 @@ public:
         Other
     };
 
-    virtual ~PreviewPageIface();
+    virtual ~PreviewPageIface() {}
 
     virtual void cancel() = 0;
     virtual void startPreview() = 0;

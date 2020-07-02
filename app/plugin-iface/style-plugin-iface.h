@@ -1,12 +1,12 @@
 #ifndef STYLEPLUGINIFACE_H
 #define STYLEPLUGINIFACE_H
 
-#include <QString>
-#include <QtPlugin>
-#include <QProxyStyle>
-#include <QPluginLoader>
-
 #include "plugin-iface.h"
+
+class QString;
+class QtPlugin;
+class QProxyStyle;
+class QPluginLoader;
 
 #define StylePluginIface_iid "org.graceful.fm.plugin-iface.StylePluginIface"
 

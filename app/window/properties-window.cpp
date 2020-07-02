@@ -1,12 +1,7 @@
 #include "properties-window.h"
 
 
-PropertiesWindowPrivate::PropertiesWindowPrivate(const QStringList &uris, QWidget *parent)
-{
-
-}
-
-PropertiesWindow::PropertiesWindow(const QStringList &uris, QWidget *parent)
+PropertiesWindowPrivate::PropertiesWindowPrivate(const QStringList &uris, QWidget *parent) : QTabWidget(parent)
 {
 
 }
@@ -52,6 +47,11 @@ PropertiesWindowPluginManager::~PropertiesWindowPluginManager()
 }
 
 PropertiesWindowPluginManager::PropertiesWindowPluginManager(QObject *parent)
+{
+
+}
+
+PropertiesWindow::PropertiesWindow(const QStringList &uris, QWidget *parent) : QMainWindow(parent)
 {
 
 }

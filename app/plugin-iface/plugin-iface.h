@@ -21,7 +21,7 @@ public:
         Other
     };
 
-    virtual ~PluginIface ();
+    virtual ~PluginIface () {}
     virtual bool isEnable () = 0;
     virtual const QIcon icon () = 0;
     virtual const QString name () = 0;

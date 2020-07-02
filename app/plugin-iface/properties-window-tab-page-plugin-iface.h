@@ -3,15 +3,14 @@
 
 #include "plugin-iface.h"
 
-#include <QWidget>
-
+class QWidget;
 
 #define PropertiesWindowTabPagePluginIface_iid "org.graceful.fm.plugin-iface.PropertiesWindowTabPagePluginIface"
 
 class PropertiesWindowTabPagePluginIface : public PluginIface
 {
 public:
-    virtual ~PropertiesWindowTabPagePluginIface();
+    virtual ~PropertiesWindowTabPagePluginIface() {}
 
     virtual int tabOrder() = 0;
     virtual void closeFactory() = 0;

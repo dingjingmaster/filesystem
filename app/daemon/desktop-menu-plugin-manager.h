@@ -1,6 +1,7 @@
 #ifndef DESKTOPMENUPLUGINMANAGER_H
 #define DESKTOPMENUPLUGINMANAGER_H
 
+#include <QMap>
 #include <QObject>
 #include "plugin-iface/menu-plugin-iface.h"
 

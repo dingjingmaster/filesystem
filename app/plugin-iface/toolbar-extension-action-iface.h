@@ -5,13 +5,12 @@
 
 #include <QAction>
 
-
 #define ToolBarActionPluginIface_iid "org.graceful.fm.plugin-iface.ToolBarActionPluginIface"
 
 class ToolBarExtensionActionIface : public QAction
 {
     Q_OBJECT
-    ~ToolBarExtensionActionIface();
+    ~ToolBarExtensionActionIface() {}
 
 public Q_SLOTS:
     virtual void excuteAction(const QString &directoryUri, const QStringList &selectedUris) = 0;
@@ -21,7 +20,7 @@ class ToolBarActionPluginIface : public PluginIface
 {
 
 public:
-    ~ToolBarActionPluginIface();
+    ~ToolBarActionPluginIface() {}
 
     virtual ToolBarExtensionActionIface *create() = 0;
 };

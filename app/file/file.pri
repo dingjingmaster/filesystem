@@ -8,7 +8,11 @@ HEADERS += \
     $$PWD/file-info-job.h \
     $$PWD/file-info-manager.h \
     $$PWD/file-info.h \
+    $$PWD/file-launch-action.h \
+    $$PWD/file-launch-dialog.h \
+    $$PWD/file-launch-manager.h \
     $$PWD/file-link-operation.h \
+    $$PWD/file-meta-info.h \
     $$PWD/file-move-operation.h \
     $$PWD/file-node-reporter.h \
     $$PWD/file-node.h \
@@ -31,7 +35,11 @@ SOURCES += \
     $$PWD/file-info-job.cpp \
     $$PWD/file-info-manager.cpp \
     $$PWD/file-info.cpp \
+    $$PWD/file-launch-action.cpp \
+    $$PWD/file-launch-dialog.cpp \
+    $$PWD/file-launch-manager.cpp \
     $$PWD/file-link-operation.cpp \
+    $$PWD/file-meta-info.cpp \
     $$PWD/file-move-operation.cpp \
     $$PWD/file-node-reporter.cpp \
     $$PWD/file-node.cpp \

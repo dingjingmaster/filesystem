@@ -9,7 +9,7 @@
 #include <QScreen>
 
 
-class FMDesktopApplication : SingleApp
+class FMDesktopApplication : public SingleApp
 {
     Q_OBJECT
 public:

@@ -1,14 +1,17 @@
 #ifndef MENUPLUGINIFACE_H
 #define MENUPLUGINIFACE_H
 
+#include "plugin-iface.h"
+
+#include <QString>
 #include <QAction>
-#include <QObject>
+#include <QtPlugin>
+#include <QPluginLoader>
 
 #define MenuPluginIface_iid "org.graceful.fm.plugin-iface.MenuPluginIface"
 
-class MenuPluginIface : public QObject
+class MenuPluginIface : public PluginIface
 {
-    Q_OBJECT
 public:
     enum Type
     {
@@ -20,9 +23,7 @@ public:
     };
     Q_DECLARE_FLAGS(Types, Type)
 
-    explicit MenuPluginIface (QObject *parent = nullptr);
-    virtual ~MenuPluginIface ();
-
+    virtual ~MenuPluginIface () {}
 
     virtual QString testPlugin () = 0;
     virtual QList<QAction*> menuActions (Types types, const QString &uri, const QStringList &selectionUris) = 0;

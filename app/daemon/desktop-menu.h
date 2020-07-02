@@ -3,6 +3,8 @@
 
 #include <QMenu>
 
+#include <plugin-iface/directory-view-plugin-iface.h>
+
 
 class DirectoryViewIface;
 

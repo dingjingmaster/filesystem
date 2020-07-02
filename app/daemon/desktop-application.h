@@ -7,11 +7,11 @@ class QScreen;
 class DesktopWindow;
 class DesktopIconView;
 
-class DesktopApplication : SingleApp
+class DesktopApplication : public SingleApp
 {
     Q_OBJECT
 public:
-    explicit DesktopApplication (int &argc, char *argv[], const char *applicationName = "peony-qt-desktop");
+    explicit DesktopApplication (int &argc, char *argv[], const char *applicationName = "fm-daemon");
 
     static DesktopIconView *getIconView ();
 
