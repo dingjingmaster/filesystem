@@ -6,11 +6,15 @@ TARGET = fm-daemon
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
+CONFIG +=                                           \
+    c++11                                           \
+    no_keywords                                     \
+    link_pkgconfig
+
 INCLUDEPATH +=                                      \
-    $$PWD/..                                        \
+    $$PWD/../                                       \
     $$PWD/../common                                 \
     $$PWD/../library
-
 
 PKGCONFIG +=                                        \
     gio-2.0                                         \
@@ -21,11 +25,6 @@ LIBS +=                                             \
     -lX11                                           \
     -lgio-2.0                                       \
     -lglib-2.0
-
-CONFIG +=                                           \
-    c++11                                           \
-    no_keywords
-    link_pkgconfig
 
 HEADERS +=                                          \
     $$PWD/desktop-menu.h                            \

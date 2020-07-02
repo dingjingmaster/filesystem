@@ -20,6 +20,11 @@ void DesktopApplication::slotParseCmd(quint32 id, QByteArray msg, bool isPrimary
 
 }
 
+void DesktopApplication::slotCheckWindowProcess()
+{
+
+}
+
 void DesktopApplication::slotScreenAddedProcess(QScreen *screen)
 {
 
