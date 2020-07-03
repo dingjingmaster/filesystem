@@ -32,7 +32,6 @@ HEADERS +=                                          \
     $$PWD/fm-dbus-service.h                         \
     $$PWD/desktop-icon-view.h                       \
     $$PWD/desktop-item-model.h                      \
-    $$PWD/desktop-application.h                     \
     $$PWD/desktop-index-widget.h                    \
     $$PWD/fm-desktop-application.h                  \
     $$PWD/desktop-item-proxy-model.h                \
@@ -46,7 +45,6 @@ SOURCES +=                                          \
     $$PWD/fm-dbus-service.cpp                       \
     $$PWD/desktop-icon-view.cpp                     \
     $$PWD/desktop-item-model.cpp                    \
-    $$PWD/desktop-application.cpp                   \
     $$PWD/desktop-index-widget.cpp                  \
     $$PWD/fm-desktop-application.cpp                \
     $$PWD/desktop-item-proxy-model.cpp              \

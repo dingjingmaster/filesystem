@@ -1,4 +1,4 @@
-#include "desktop-application.h"
+#include "fm-desktop-application.h"
 
 #include "desktop-menu.h"
 #include "desktop-window.h"
@@ -28,6 +28,7 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
 {
     initGSettings();
 
+    CT_SYSLOG(LOG_DEBUG, "");
     setWindowTitle(tr("Desktop"));
     mOpacity = new QVariantAnimation(this);
     mOpacity->setDuration (1000);
@@ -51,7 +52,7 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
     mIsPrimary = isPrimary;
     setContentsMargins(0, 0, 0, 0);
 
-    CT_SYSLOG(LOG_DEBUG, "桌面%s第一窗体, name:%s", mIsPrimary ? "是" : "不是", screen->name().toUtf8().data());
+    CT_SYSLOG(LOG_DEBUG, "is first screen: %s, name:%s", mIsPrimary ? "true" : "false", screen->name().toUtf8().data());
 
     auto flags = windowFlags() &~Qt::WindowMinMaxButtonsHint;
     setWindowFlags(flags |Qt::FramelessWindowHint);
@@ -74,19 +75,19 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
     connect(this, &QMainWindow::customContextMenuRequested, [=](const QPoint &pos) {
         auto contentMargins = contentsMargins();
         auto fixedPos = pos - QPoint(contentMargins.left(), contentMargins.top());
-        auto index = DesktopApplication::getIconView()->indexAt(fixedPos);
+        auto index = FMDesktopApplication::getIconView()->indexAt(fixedPos);
         if (!index.isValid() || !centralWidget()) {
-            DesktopApplication::getIconView()->clearSelection();
+            FMDesktopApplication::getIconView()->clearSelection();
         } else {
-            if (!DesktopApplication::getIconView()->selectionModel()->selection().indexes().contains(index)) {
-                DesktopApplication::getIconView()->clearSelection();
-                DesktopApplication::getIconView()->selectionModel()->select(index, QItemSelectionModel::Select);
+            if (!FMDesktopApplication::getIconView()->selectionModel()->selection().indexes().contains(index)) {
+                FMDesktopApplication::getIconView()->clearSelection();
+                FMDesktopApplication::getIconView()->selectionModel()->select(index, QItemSelectionModel::Select);
             }
         }
 
         QTimer::singleShot(1, [=]() {
-            DesktopMenu menu(DesktopApplication::getIconView());
-            if (DesktopApplication::getIconView()->getSelections().isEmpty()) {
+            DesktopMenu menu(FMDesktopApplication::getIconView());
+            if (FMDesktopApplication::getIconView()->getSelections().isEmpty()) {
                 auto action = menu.addAction(tr("set background"));
                 connect(action, &QAction::triggered, [=]() {
                     gotoSetBackground();
@@ -97,7 +98,7 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
             if (urisToEdit.count() == 1) {
                 QTimer::singleShot(
                 100, this, [=]() {
-                    DesktopApplication::getIconView()->editUri(urisToEdit.first());
+                    FMDesktopApplication::getIconView()->editUri(urisToEdit.first());
                 });
             }
         });
@@ -167,6 +168,7 @@ void DesktopWindow::slotDisconnectSignal()
 
 void DesktopWindow::slotUpdateWinGeometry()
 {
+    CT_SYSLOG(LOG_DEBUG, "");
     auto screenName = mScreen->name();
     auto screenSize = mScreen->size();
     auto g = getScreen()->geometry();
@@ -272,6 +274,7 @@ void DesktopWindow::paintEvent(QPaintEvent *e)
 
 void DesktopWindow::slotSetBg(const QColor &color)
 {
+    CT_SYSLOG(LOG_DEBUG, "set background color: (%.2f, %.2f, %.2f, %.2f)", color.red(), color.green(), color.blue(), color.alpha());
     mColorToBeSet = color;
     mUsePureColor = true;
 
@@ -285,7 +288,7 @@ void DesktopWindow::slotSetBg(const QColor &color)
 
 void DesktopWindow::slotSetBg(const QString &bgPath)
 {
-    CT_SYSLOG(LOG_DEBUG, "path:%s", bgPath.toUtf8().data());
+    CT_SYSLOG(LOG_DEBUG, "background path:%s", bgPath.toUtf8().data());
     if (bgPath.isNull()) {
         slotSetBg(getCurrentColor());
         return;
@@ -322,19 +325,20 @@ void DesktopWindow::initGSettings()
             auto defaultColor = QColor(Qt::cyan).darker();
             mBackupSetttings->setValue("color", defaultColor);
         }
+
         return;
     }
 
     mBgSettings = new QGSettings(BACKGROUND_SETTINGS, QByteArray(), this);
 
     connect(mBgSettings, &QGSettings::changed, this, [=](const QString &key) {
-        CT_SYSLOG(LOG_DEBUG, "背景已修改:%s", key.toUtf8().data());
+        CT_SYSLOG(LOG_DEBUG, "recive backgorund changed signal. key:%s", key.toUtf8().data());
         if (key == "pictureFilename") {
             auto bgPath = mBgSettings->get("pictureFilename").toString();
             if (!QFile::exists(bgPath)) {
                 auto colorString = mBgSettings->get("primary-color").toString();
                 auto color = QColor(colorString);
-                CT_SYSLOG(LOG_DEBUG, "背景图片不存在,使用纯色:%s", colorString.toUtf8().data());
+                CT_SYSLOG(LOG_DEBUG, "background picture is not exist, use pure color:%s", colorString.toUtf8().data());
                 this->slotSetBg(color);
             } else {
                 if (mCurrentBgPath == bgPath) {
@@ -366,7 +370,7 @@ void DesktopWindow::setScreen(QScreen *screen)
 
 void DesktopWindow::gotoSetBackground ()
 {
-    CT_SYSLOG(LOG_DEBUG, "此处应该打开控制面板设置桌面背景");
+    CT_SYSLOG(LOG_DEBUG, "open control center for select background");
 #if 0
     QProcess p;
     p.setProgram("控制面板");

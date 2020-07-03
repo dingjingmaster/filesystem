@@ -92,7 +92,7 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
 
         if (parser.isSet(daemonOption)) {
             if (!gHasDaemon) {
-                CT_SYSLOG(LOG_DEBUG, "配置选项 -d");
+                CT_SYSLOG(LOG_DEBUG, "command line -d");
                 trySetDefaultFolderUrlHandler();
                 FMDBusService *service = new FMDBusService(this);
                 connect(service, &FMDBusService::showItemsRequest, [=](const QStringList &urisList) {
@@ -130,9 +130,11 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
         }
 
         if (parser.isSet(desktopOption)) {
+            CT_SYSLOG(LOG_DEBUG, "command line -w");
             if (!gHasDesktop) {
                 getIconView();
                 for(auto screen : this->screens()) {
+                    CT_SYSLOG(LOG_DEBUG, "add screen:%s", screen->name().toUtf8().data());
                     addWindow(screen);
                 }
             }
@@ -170,7 +172,7 @@ void FMDesktopApplication::screenAddedProcess(QScreen *screen)
 
 void FMDesktopApplication::screenRemovedProcess(QScreen *screen)
 {
-    for(auto win :mWindowList) {
+    for(auto win : mWindowList) {
         if (win->getScreen() == screen) {
             mWindowList.removeOne(win);
             win->deleteLater();
@@ -185,7 +187,7 @@ void FMDesktopApplication::changeBgProcess(const QString &bgPath)
 
 void FMDesktopApplication::primaryScreenChangedProcess(QScreen *screen)
 {
-    bool need_exchange = false;
+    bool needExchange = false;
     QScreen *preMainScreen = nullptr;
     DesktopWindow *rawPrimaryWindow = nullptr;
     DesktopWindow *currentPrimayWindow = nullptr;
@@ -210,7 +212,7 @@ void FMDesktopApplication::primaryScreenChangedProcess(QScreen *screen)
     //do not check window need exchange
     //cause we always put the desktop icon view into window
     //which in current primary screen.
-    if (need_exchange) {
+    if (needExchange) {
         for(auto win : mWindowList) {
             win->slotDisconnectSignal();
             if (win->getScreen() == preMainScreen) {
@@ -231,10 +233,9 @@ void FMDesktopApplication::addWindow(QScreen *screen, bool checkPrimay)
 {
     DesktopWindow *window;
     if (checkPrimay) {
-        bool is_primary = isPrimaryScreen(screen);
-        window = new DesktopWindow(screen, is_primary);
-        if (is_primary)
-        {
+        bool isPrimary = isPrimaryScreen(screen);
+        window = new DesktopWindow(screen, isPrimary);
+        if (isPrimary) {
             window->setCentralWidget(gDesktopIconView);
             window->slotUpdateView();
         }

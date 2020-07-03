@@ -3,6 +3,8 @@
 #include "desktop-icon-view.h"
 #include "desktop-index-widget.h"
 
+#include <syslog/clib_syslog.h>
+
 #include <QAction>
 #include <QProcess>
 #include <gio/gio.h>
@@ -183,6 +185,7 @@ void DesktopIconView::editUri(const QString &uri)
 
 void DesktopIconView::saveAllItemPosistionInfos()
 {
+    CT_SYSLOG(LOG_DEBUG, "");
     for (int i = 0; i < mProxyModel->rowCount(); i++) {
         auto index = mProxyModel->index(i, 0);
         auto indexRect = QListView::visualRect(index);
@@ -761,6 +764,7 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     //connect(mModel, &DesktopItemModel::dataChanged, this, &DesktopIconView::clearAllIndexWidgets);
 
     connect(mModel, &DesktopItemModel::refreshed, this, [=]() {
+        CT_SYSLOG (LOG_DEBUG, "desktop recive refreshed signal");
         this->updateItemPosistions(nullptr);
         this->mIsRefreshing = false;
         if (isItemsOverlapped()) {
@@ -790,7 +794,6 @@ DesktopIconView::DesktopIconView(QWidget *parent)
             for (auto overrlappedIndex : overlappedIndexes) {
                 auto indexRect = QListView::visualRect(overrlappedIndex);
                 if (notEmptyRegion.contains(indexRect.center())) {
-                    // move index to closest empty grid.
                     auto next = indexRect;
                     bool isEmptyPos = false;
                     while (!isEmptyPos) {
@@ -803,7 +806,6 @@ DesktopIconView::DesktopIconView(QWidget *parent)
                                 }
                                 top-=gridSize().height();
                             }
-                            //put item to next column first column
                             next.moveTo(next.x() + grid.width(), top);
                         }
                         if (notEmptyRegion.contains(next.center()))
@@ -823,10 +825,8 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     connect(mModel, &DesktopItemModel::requestClearIndexWidget, this, &DesktopIconView::clearAllIndexWidgets);
 
     connect(mModel, &DesktopItemModel::requestLayoutNewItem, this, [=](const QString &uri) {
+        CT_SYSLOG(LOG_DEBUG, "recive DesktopItemModel::requestLayoutNewItem signal");
         auto index = mProxyModel->mapFromSource(mModel->indexFromUri(uri));
-        //qDebug()<<"=====================layout new item"<<index.data();
-
-        //qDebug()<<"=====================find a new empty place put new item";
         auto rect = QRect(QPoint(0, 0), gridSize());
         rect.moveTo(this->contentsMargins().left(), this->contentsMargins().top());
 
@@ -840,13 +840,11 @@ DesktopIconView::DesktopIconView(QWidget *parent)
                 return;
             }
             if (!this->indexAt(next.center()).isValid()) {
-                //put it into empty
                 qDebug()<<"put"<<index.data()<<next.topLeft();
                 this->setPositionForIndex(next.topLeft(), index);
                 this->saveItemPositionInfo(uri);
                 break;
             }
-            //aligin.
             next = QListView::visualRect(this->indexAt(next.center()));
             next.translate(0, grid.height());
             if (next.bottom() > viewRect.bottom()) {
@@ -857,7 +855,6 @@ DesktopIconView::DesktopIconView(QWidget *parent)
                     }
                     top-=gridSize().height();
                 }
-                //put item to next column first column
                 next.moveTo(next.x() + grid.width(), top);
             }
         }
@@ -866,6 +863,7 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     connect(mModel, &DesktopItemModel::requestUpdateItemPositions, this, &DesktopIconView::updateItemPosistions);
 
     connect(mModel, &DesktopItemModel::fileCreated, this, [=](const QString &uri) {
+        CT_SYSLOG(LOG_DEBUG, "recive DesktopItemModel::fileCreated signal");
         if (mNewFilesToBeSelected.isEmpty()) {
             mNewFilesToBeSelected<<uri;
 #if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
@@ -887,14 +885,12 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     });
 
     connect(mProxyModel, &QSortFilterProxyModel::layoutChanged, this, [=]() {
-        //qDebug()<<"layout changed=========================\n\n\n\n\n";
         if (mProxyModel->getSortType() == DesktopItemProxyModel::Other) {
             return;
         }
         if (mProxyModel->sortColumn() != 0) {
             return;
         }
-        //qDebug()<<"save====================================";
 #if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
         QTimer::singleShot(100, this, [=]() {
 #else
@@ -905,7 +901,6 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     });
 
     connect(this, &QListView::iconSizeChanged, this, [=]() {
-        //qDebug()<<"save=============";
         this->setSortType(GlobalSettings::getInstance()->getValue(LAST_DESKTOP_SORT_ORDER).toInt());
 #if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
         QTimer::singleShot(100, this, [=]() {
@@ -944,6 +939,7 @@ int DesktopIconView::getSortOrder()
 
 void DesktopIconView::initShoutCut()
 {
+    CT_SYSLOG(LOG_DEBUG, "init shortcut");
     QAction *copyAction = new QAction(this);
     copyAction->setShortcut(QKeySequence::Copy);
     connect(copyAction, &QAction::triggered, [=]() {
@@ -1027,7 +1023,7 @@ void DesktopIconView::initShoutCut()
     QAction *removeAction = new QAction(this);
     removeAction->setShortcut(QKeySequence(Qt::SHIFT + Qt::Key_Delete));
     connect(removeAction, &QAction::triggered, [=]() {
-        qDebug() << "delete" << this->getSelections();
+        this->getSelections();
         clearAllIndexWidgets();
         FileOperationUtils::executeRemoveActionWithDialog(this->getSelections());
     });
@@ -1092,7 +1088,7 @@ void DesktopIconView::initDoubleClick()
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
                 QProcess p;
                 QUrl url = uri;
-                p.setProgram("peony");
+                p.setProgram("filesystem");
                 p.setArguments(QStringList() << url.toEncoded() <<"%U&");
                 p.startDetached();
 #else
