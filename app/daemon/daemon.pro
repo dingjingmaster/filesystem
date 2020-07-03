@@ -2,7 +2,7 @@ TEMPLATE = app
 
 QT       += core gui x11extras dbus concurrent network
 
-TARGET = fm-daemon
+TARGET = graceful-desktop
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -70,3 +70,6 @@ include($$PWD/../plugin-iface/plugin-iface.pri)
 include($$PWD/../library/single-app/single-app.pri)
 include($$PWD/../library/qgsettings/qgsettings-lib.pri)
 include($$PWD/../library/kwindow-system/kwindow-system.pri)
+
+DISTFILES += \
+    README.md
