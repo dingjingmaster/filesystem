@@ -45,6 +45,10 @@ FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *
     parseCmd(this->instanceId(), message, isPrimary());
 }
 
+/**
+ * @brief 获取桌面
+ * @see DesktopIconView
+ */
 DesktopIconView *FMDesktopApplication::getIconView()
 {
     if (!gDesktopIconView) {
@@ -54,6 +58,9 @@ DesktopIconView *FMDesktopApplication::getIconView()
     return gDesktopIconView;
 }
 
+/**
+ * @brief 检测是否是第一个屏幕
+ */
 bool FMDesktopApplication::isPrimaryScreen(QScreen *screen)
 {
     if (screen == this->primaryScreen()) {
@@ -63,11 +70,14 @@ bool FMDesktopApplication::isPrimaryScreen(QScreen *screen)
     return false;
 }
 
+/**
+ * @brief 解析命令行参数
+ */
 void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
 {
     QCommandLineParser parser;
 
-    QCommandLineOption quitOption(QStringList() << "q" << "quit", tr("Close the peony desktop window"));
+    QCommandLineOption quitOption(QStringList() << "q" << "quit", tr("Close the graceful-desktop window"));
     parser.addOption(quitOption);
 
     QCommandLineOption daemonOption(QStringList() << "d" << "daemon", tr("Take over the dbus service."));
@@ -84,6 +94,7 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
         }
 
         Q_UNUSED(id)
+        CT_SYSLOG(LOG_DEBUG, "msg:%s", QString(msg).toUtf8().constData());
         const QStringList args = QString(msg).split(' ');
 
         parser.process(args);
@@ -102,31 +113,31 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
                 connect(service, &FMDBusService::showItemsRequest, [=](const QStringList &urisList) {
                     QProcess p;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-                    p.setProgram("filesystem");
-                    p.setArguments(QStringList()<<"--show-items"<<urisList);
+                    p.setProgram("graceful-desktop");
+                    p.setArguments(QStringList() << "--show-items" << urisList);
                     p.startDetached();
 #else
-                    p.startDetached("peony", QStringList()<<"--show-items"<<urisList, nullptr);
+                    p.startDetached("graceful-desktop", QStringList() << "--show-items" << urisList, nullptr);
 #endif
                 });
                 connect(service, &FMDBusService::showFolderRequest, [=](const QStringList &urisList) {
                     QProcess p;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-                    p.setProgram("filesystem");
-                    p.setArguments(QStringList()<<"--show-folders"<<urisList);
+                    p.setProgram("graceful-desktop");
+                    p.setArguments(QStringList() << "--show-folders" << urisList);
                     p.startDetached();
 #else
-                    p.startDetached("peony", QStringList()<<"--show-folders"<<urisList, nullptr);
+                    p.startDetached("graceful-desktop", QStringList() << "--show-folders" << urisList, nullptr);
 #endif
                 });
                 connect(service, &FMDBusService::showItemPropertiesRequest, [=](const QStringList &urisList) {
                     QProcess p;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-                    p.setProgram("filesystem");
-                    p.setArguments(QStringList()<<"--show-properties"<<urisList);
+                    p.setProgram("graceful-desktop");
+                    p.setArguments(QStringList() << "--show-properties" << urisList);
                     p.startDetached();
 #else
-                    p.startDetached("peony", QStringList()<<"--show-properties"<<urisList, nullptr);
+                    p.startDetached("graceful-desktop", QStringList() << "--show-properties" << urisList, nullptr);
 #endif
                 });
             }
@@ -271,7 +282,7 @@ static void trySetDefaultFolderUrlHandler()
             while (l) {
                 GAppInfo *info = static_cast<GAppInfo*>(l->data);
                 QString cmd = g_app_info_get_executable(info);
-                if (cmd.contains("fm")) {
+                if (cmd.contains("graceful-desktop")) {
                     hasFMQtAppInfo = true;
                     g_app_info_set_as_default_for_type(info, "inode/directory", nullptr);
                     break;
@@ -283,9 +294,9 @@ static void trySetDefaultFolderUrlHandler()
             }
 
             if (!hasFMQtAppInfo) {
-                GAppInfo *peony_qt = g_app_info_create_from_commandline("peony", nullptr, G_APP_INFO_CREATE_SUPPORTS_URIS, nullptr);
-                g_app_info_set_as_default_for_type(peony_qt, "inode/directory", nullptr);
-                g_object_unref(peony_qt);
+                GAppInfo *fmDaemon = g_app_info_create_from_commandline("graceful-desktop", nullptr, G_APP_INFO_CREATE_SUPPORTS_URIS, nullptr);
+                g_app_info_set_as_default_for_type(fmDaemon, "inode/directory", nullptr);
+                g_object_unref(fmDaemon);
             }
             return;
         });

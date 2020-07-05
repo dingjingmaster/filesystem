@@ -9,6 +9,9 @@ class FileInfo;
 class FileWatcher;
 class FileEnumerator;
 
+/**
+ * 桌面图标 Model 类
+ */
 class DesktopItemModel : public QAbstractListModel
 {
     Q_OBJECT

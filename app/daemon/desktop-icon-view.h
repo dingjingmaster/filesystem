@@ -9,7 +9,9 @@
 
 #include <plugin-iface/directory-view-plugin-iface.h>
 
-
+/**
+ * @brief 桌面,桌面展示的内容
+ */
 class DesktopIconView : public QListView, public DirectoryViewIface
 {
     friend class DesktopIndexWidget;
@@ -33,12 +35,31 @@ public:
     void initMenu();
     int getSortType ();
     int getSortOrder ();
+
+    /**
+     * @brief 桌面快捷键及其对应操作,包括复制、剪切、粘贴、删除、undo、redo、放大、缩小
+     * @see QAction
+     * @todo 需要整合到 settings-daemon
+     */
     void initShoutCut();
     void initDoubleClick();
     const QString viewId ();
+
+    /**
+     * @brief 获取桌面路径
+     * @return QString 桌面路径:file:///home/xxx/Desktop/
+     */
     const QString getDirectoryUri ();
+
+    /**
+     * @brief 获取桌面选中的图标
+     */
     const QStringList getSelections ();
     const QStringList getAllFileUris ();
+
+    /**
+     * @brief 事件过滤, 主要用于改变style时候, 更新桌面图标位置
+     */
     bool eventFilter (QObject *obj, QEvent *e);
     void setProxy (DirectoryViewProxyIface *proxy);
     QRect visualRect (const QModelIndex &index) const;

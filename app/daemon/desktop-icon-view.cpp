@@ -1,4 +1,3 @@
-#include "desktop-application.h"
 #include "desktop-icon-view-delegate.h"
 #include "desktop-icon-view.h"
 #include "desktop-index-widget.h"
@@ -257,7 +256,6 @@ void DesktopIconView::setDefaultZoomLevel(DesktopIconView::ZoomLevel level)
     clearAllIndexWidgets();
     auto metaInfo = FileMetaInfo::fromUri("computer:///");
     if (metaInfo) {
-        qDebug()<<"set zoom level"<<mZoomLevel;
         metaInfo->setMetaInfoInt("peony-qt-desktop-zoom-level", int(mZoomLevel));
     } else {
 
@@ -597,7 +595,6 @@ void DesktopIconView::mousePressEvent(QMouseEvent *e)
         }
     }
 
-    qDebug()<<mLastIndex.data();
     if (e->button() != Qt::LeftButton) {
         return;
     }
@@ -840,7 +837,7 @@ DesktopIconView::DesktopIconView(QWidget *parent)
                 return;
             }
             if (!this->indexAt(next.center()).isValid()) {
-                qDebug()<<"put"<<index.data()<<next.topLeft();
+                CT_SYSLOG(LOG_DEBUG, "put %s position x:%.2f; y:%.2f", index.data().data(), next.topLeft().x(), next.topLeft().y());
                 this->setPositionForIndex(next.topLeft(), index);
                 this->saveItemPositionInfo(uri);
                 break;
@@ -912,7 +909,6 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     });
 
     setModel(mProxyModel);
-    //mProxyModel->sort(0);
 
     this->refresh();
 }
@@ -1088,7 +1084,7 @@ void DesktopIconView::initDoubleClick()
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
                 QProcess p;
                 QUrl url = uri;
-                p.setProgram("filesystem");
+                p.setProgram("graceful-desktop");
                 p.setArguments(QStringList() << url.toEncoded() <<"%U&");
                 p.startDetached();
 #else
@@ -1119,7 +1115,7 @@ const QStringList DesktopIconView::getSelections()
     QStringList uris;
     auto indexes = selectionModel()->selection().indexes();
     for (auto index : indexes) {
-        uris<<index.data(Qt::UserRole).toString();
+        uris << index.data(Qt::UserRole).toString();
     }
     return uris;
 }
