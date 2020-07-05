@@ -16,6 +16,10 @@ static bool gHasDaemon = false;
 static bool gHasDesktop = false;
 static DesktopIconView *gDesktopIconView = nullptr;
 
+/**
+ * @brief 桌面守护进程
+ *
+ */
 FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *applicationName) : SingleApp(argc, argv, applicationName)
 {
     setApplicationVersion("v1.0.0");

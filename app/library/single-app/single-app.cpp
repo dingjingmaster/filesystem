@@ -40,7 +40,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     while (++blockSize) {
         if (blockSize * SHARED_MEMORY_SIZE >= sizeof (InstancesInfo)) {
             ret = mMemory->create(sizeof (InstancesInfo));
-            CT_SYSLOG(LOG_ERR, "无法创建共享内存")
+            CT_SYSLOG(LOG_ERR, "can not create shared memory")
             break;
         }
     }
@@ -51,7 +51,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
         mMemory->unlock();
     } else {
         if (!mMemory->attach()) {
-            CT_SYSLOG(LOG_ERR, "单例程序无法连接共享内存, 错误: %s", mMemory->errorString().constData());
+            CT_SYSLOG(LOG_ERR, "can not attach to shared memory, error:%s", mMemory->errorString().constData());
             ::exit( EXIT_FAILURE );
         }
     }
@@ -64,7 +64,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     while(true) {
         if(blockChecksum() == inst->checksum) break;
         if(time.elapsed() > 5000) {
-            CT_SYSLOG(LOG_WARNING, "共享内存块从5s以上就一直处于不一致状态, 主实例故障");
+            CT_SYSLOG(LOG_WARNING, "The Shared memory block has been in an inconsistent state from 5s onwards, Master instance fault");
             initializeMemoryBlock();
         }
 
@@ -73,7 +73,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     }
 
     if (false == inst->primary) {
-        CT_SYSLOG(LOG_DEBUG, "开始第一个实例")
+        CT_SYSLOG(LOG_DEBUG, "start primary ...")
         startPrimary();
         mMemory->unlock();
         return;
@@ -96,7 +96,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
 
     connectToPrimary (timeout, NewInstance);
 
-    CT_SYSLOG(LOG_ERR, "单例初始化失败!")
+    CT_SYSLOG(LOG_ERR, "class SingleApp init error!")
     ::exit(EXIT_FAILURE);
 }
 
