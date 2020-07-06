@@ -15,13 +15,13 @@ FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)
     mFile = g_file_new_for_uri(uri.toUtf8().constData());
     mCancellable = g_cancellable_new();
 
-//    connect(FileLabelModel::getGlobalModel(), &FileLabelModel::fileLabelChanged, this, [=](const QString &uri) {
-//        auto parentUri = FileUtils::getParentUri(uri);
-//        if (parentUri == mUri || parentUri == mTargetUri) {
-//            Q_EMIT fileChanged(uri);
-//            CT_SYSLOG(LOG_DEBUG, "file '%s' label changed", uri.toUtf8().constData());
-//        }
-//    });
+    connect(FileLabelModel::getGlobalModel(), &FileLabelModel::fileLabelChanged, this, [=](const QString &uri) {
+        auto parentUri = FileUtils::getParentUri(uri);
+        if (parentUri == mUri || parentUri == mTargetUri) {
+            Q_EMIT fileChanged(uri);
+            CT_SYSLOG(LOG_DEBUG, "file '%s' label changed", uri.toUtf8().constData());
+        }
+    });
 
     //monitor target file if existed.
     CT_SYSLOG(LOG_DEBUG, "begin prepare ...");

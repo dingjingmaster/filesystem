@@ -19,7 +19,6 @@ DesktopItemModel::DesktopItemModel(QObject *parent) : QAbstractListModel(parent)
 {
     CT_SYSLOG (LOG_DEBUG, "DesktopItemModel construct ...");
     mThumbnailWatcher = std::make_shared<FileWatcher>("thumbnail:///, this");
-    CT_SYSLOG (LOG_DEBUG, "--------------------------------------------");
 
     connect(mThumbnailWatcher.get(), &FileWatcher::fileChanged, this, [=](const QString &uri) {
         for (auto info : mFiles) {

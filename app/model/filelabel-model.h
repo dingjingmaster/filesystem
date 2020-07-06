@@ -5,7 +5,7 @@
 #include <QSettings>
 #include <QAbstractListModel>
 
-#define PEONY_FILE_LABEL_IDS "fm-file-label-ids"
+#define FM_FILE_LABEL_IDS "fm-file-label-ids"
 
 class FileLabelItem;
 
@@ -54,6 +54,31 @@ private:
 private:
     QSettings *mLabelSettings;
     QList<FileLabelItem*> mLabels;
+};
+
+
+class FileLabelItem : public QObject
+{
+    friend class FileLabelModel;
+    Q_OBJECT
+public:
+    explicit FileLabelItem(QObject *parent = nullptr);
+
+    int id();
+    const QString name();
+    const QColor color();
+
+    void setName(const QString &name);
+    void setColor(const QColor &color);
+
+Q_SIGNALS:
+    void nameChanged(const QString &name);
+    void colorChanged(const QColor &color);
+
+private:
+    int mId = -1; //invalid
+    QString mName = nullptr;
+    QColor mColor = Qt::transparent;
 };
 
 #endif // FILELABELMODEL_H
