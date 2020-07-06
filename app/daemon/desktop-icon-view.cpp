@@ -17,18 +17,18 @@
 #include <QDragMoveEvent>
 #include <QDragEnterEvent>
 #include <QDesktopServices>
-#include <global-settings.h>
-#include <file-operation-utils.h>
+#include <file/file-info.h>
 #include <clipbord-utils.h>
 #include <icon-view-style.h>
+#include <global-settings.h>
 #include <file/file-info-job.h>
-#include <file/file-info.h>
-#include <file/file-launch-manager.h>
 #include <file/file-meta-info.h>
-#include <file/file-operation-manager.h>
-#include <file/file-trash-operation.h>
+#include <file-operation-utils.h>
 #include <model/file-item-model.h>
 #include <window/properties-window.h>
+#include <file/file-launch-manager.h>
+#include <file/file-trash-operation.h>
+#include <file/file-operation-manager.h>
 
 #define ITEM_POS_ATTRIBUTE "metadata::filesystem-item-position"
 
@@ -77,14 +77,21 @@ void DesktopIconView::zoomOut()
 
 void DesktopIconView::refresh()
 {
-    if (mRefreshTimer.isActive())
+    if (mRefreshTimer.isActive()) {
+        CT_SYSLOG(LOG_DEBUG, "refresh is activited");
         return;
+    }
 
-    if (!mModel)
+    if (!mModel) {
+        CT_SYSLOG(LOG_ERR, "mModel is nullptr");
         return;
+    }
 
-    if (mIsRefreshing)
+    if (mIsRefreshing) {
+        CT_SYSLOG(LOG_DEBUG, "refreshing ...");
         return;
+    }
+
     mIsRefreshing = true;
     mModel->refresh();
 
@@ -116,8 +123,9 @@ void DesktopIconView::beginLocationChange()
 
 void DesktopIconView::clearAllIndexWidgets()
 {
-    if (!model())
+    if (!model()) {
         return;
+    }
 
     int row = 0;
     auto index = model()->index(row, 0);
@@ -130,31 +138,29 @@ void DesktopIconView::clearAllIndexWidgets()
 
 DesktopIconView::ZoomLevel DesktopIconView::zoomLevel() const
 {
-    if (mZoomLevel != Invalid)
+    if (mZoomLevel != Invalid) {
         return mZoomLevel;
+    }
 
     auto metaInfo = FileMetaInfo::fromUri("computer:///");
     if (metaInfo) {
-        auto i = metaInfo->getMetaInfoInt("peony-qt-desktop-zoom-level");
+        auto i = metaInfo->getMetaInfoInt("filesystem-desktop-zoom-level");
         return ZoomLevel(i);
     }
 
     GFile *computer = g_file_new_for_uri("computer:///");
-    GFileInfo *info = g_file_query_info(computer,
-                                        "metadata::peony-qt-desktop-zoom-level",
-                                        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-                                        nullptr,
-                                        nullptr);
-    char* zoom_level = g_file_info_get_attribute_as_string(info, "metadata::peony-qt-desktop-zoom-level");
-    if (!zoom_level) {
+    GFileInfo *info = g_file_query_info(computer, "metadata::filesystem-desktop-zoom-level", G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, nullptr, nullptr);
+    char* zoomlevel = g_file_info_get_attribute_as_string(info, "metadata::filesystem-desktop-zoom-level");
+    if (!zoomlevel) {
+        CT_SYSLOG(LOG_DEBUG, "not get zoom level value");
         g_object_unref(info);
         g_object_unref(computer);
         return Normal;
     }
     g_object_unref(info);
     g_object_unref(computer);
-    QString zoomLevel = zoom_level;
-    g_free(zoom_level);
+    QString zoomLevel = zoomlevel;
+    g_free(zoomlevel);
     return ZoomLevel(zoomLevel.toInt()) == Invalid? Normal: ZoomLevel(QString(zoomLevel).toInt());
 }
 
@@ -256,7 +262,7 @@ void DesktopIconView::setDefaultZoomLevel(DesktopIconView::ZoomLevel level)
     clearAllIndexWidgets();
     auto metaInfo = FileMetaInfo::fromUri("computer:///");
     if (metaInfo) {
-        metaInfo->setMetaInfoInt("peony-qt-desktop-zoom-level", int(mZoomLevel));
+        metaInfo->setMetaInfoInt("filesystem-desktop-zoom-level", int(mZoomLevel));
     } else {
 
     }
@@ -339,13 +345,8 @@ void DesktopIconView::updateItemPosistions(const QString &uri)
         if (list.count() == 2) {
             int top = list.first().toInt();
             int left = list.at(1).toInt();
-            if (top >= 0 && left >= 0) {
-//                auto rect = visualRect(index);
-//                auto grid = gridSize();
-//                if (abs(rect.top() - top) < grid.width() && abs(rect.left() - left))
-//                    return;
+            if (top > 0 && left >= 0) {
                 QPoint p(left, top);
-                //qDebug()<<"set"<<index.data()<<p;
                 setPositionForIndex(QPoint(left, top), index);
             } else {
                 saveItemPositionInfo(uri);
@@ -373,15 +374,6 @@ bool DesktopIconView::isItemsOverlapped()
 void DesktopIconView::dropEvent(QDropEvent *e)
 {
     mRealDoEdit = false;
-    //qDebug()<<"drop event";
-    /*!
-      \todo
-      fix the bug that move drop action can not move the desktop
-      item to correct position.
-
-      i use copy action to avoid this bug, but the drop indicator
-      is incorrect.
-      */
     mEditTriggerTimer.stop();
     if (this == e->source()) {
 
@@ -589,8 +581,7 @@ void DesktopIconView::mousePressEvent(QMouseEvent *e)
             clearAllIndexWidgets();
             mLastIndex = index;
             if (!indexWidget(mLastIndex)) {
-                setIndexWidget(mLastIndex,
-                               new DesktopIndexWidget(qobject_cast<DesktopIconViewDelegate *>(itemDelegate()), viewOptions(), mLastIndex));
+                setIndexWidget(mLastIndex, new DesktopIndexWidget(qobject_cast<DesktopIconViewDelegate *>(itemDelegate()), viewOptions(), mLastIndex));
             }
         }
     }
@@ -615,7 +606,6 @@ void DesktopIconView::dragMoveEvent(QDragMoveEvent *e)
     }
     if (e->isAccepted())
         return;
-    //qDebug()<<"drag move event";
     if (this == e->source()) {
         e->accept();
         return QListView::dragMoveEvent(e);
@@ -632,7 +622,6 @@ void DesktopIconView::mouseReleaseEvent(QMouseEvent *e)
 void DesktopIconView::dragEnterEvent(QDragEnterEvent *e)
 {
     mRealDoEdit = false;
-    //qDebug()<<"drag enter event";
     if (e->mimeData()->hasUrls()) {
         e->setDropAction(Qt::MoveAction);
         e->acceptProposedAction();
@@ -681,7 +670,7 @@ const QFont DesktopIconView::getViewItemFont(QStyleOptionViewItem *item)
     return item->font;
 }
 
-DesktopIconView::DesktopIconView(QWidget *parent)
+DesktopIconView::DesktopIconView(QWidget *parent) : QListView(parent)
 {
     mRefreshTimer.setInterval(500);
     mRefreshTimer.setSingleShot(true);
@@ -689,8 +678,10 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     installEventFilter(this);
 
     initShoutCut();
+    CT_SYSLOG(LOG_DEBUG, "init shortcut successful!");
     //initMenu();
     initDoubleClick();
+    CT_SYSLOG(LOG_DEBUG, "init double click successful!");
 
     connect(qApp, &QApplication::paletteChanged, this, [=]() {
         viewport()->update();
@@ -727,6 +718,7 @@ DesktopIconView::DesktopIconView(QWidget *parent)
 
     auto zoomLevel = this->zoomLevel();
     setDefaultZoomLevel(zoomLevel);
+    CT_SYSLOG(LOG_DEBUG, "set default zoom level successful!");
 
 //#if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
 //    QTimer::singleShot(500, this, [=](){
@@ -754,7 +746,15 @@ DesktopIconView::DesktopIconView(QWidget *parent)
 //    });
 
     mModel = new DesktopItemModel(this);
+    if (nullptr == mModel) {
+        CT_SYSLOG(LOG_ERR, "create desktop item model fail");
+        return;
+    }
     mProxyModel = new DesktopItemProxyModel(mModel);
+    if (nullptr == mProxyModel) {
+        CT_SYSLOG(LOG_ERR, "create desktop item proxy model fail");
+        return;
+    }
 
     mProxyModel->setSourceModel(mModel);
 
@@ -911,6 +911,7 @@ DesktopIconView::DesktopIconView(QWidget *parent)
     setModel(mProxyModel);
 
     this->refresh();
+    CT_SYSLOG(LOG_DEBUG, "DesktopIconView construct successful!");
 }
 
 DesktopIconView::~DesktopIconView()
@@ -1128,8 +1129,9 @@ const QStringList DesktopIconView::getAllFileUris()
 bool DesktopIconView::eventFilter(QObject *obj, QEvent *e)
 {
     if (e->type() == QEvent::StyleChange) {
-        if (mModel)
+        if (mModel) {
             updateItemPosistions();
+        }
     }
     return false;
 }

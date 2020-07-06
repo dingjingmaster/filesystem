@@ -14,7 +14,6 @@ class FMDesktopApplication : public SingleApp
     Q_OBJECT
 public:
     explicit FMDesktopApplication(int &argc, char *argv[], const char *applicationName = "graceful-desktop");
-
     static DesktopIconView *getIconView ();
 
 protected Q_SLOTS:

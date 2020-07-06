@@ -3,9 +3,10 @@
 #include <QUrl>
 #include <QIcon>
 #include <QMimeData>
+#include <clib_syslog.h>
 #include <QStandardPaths>
-#include <file-watcher.h>
 #include <file/file-info.h>
+#include <file/file-watcher.h>
 #include <file/file-info-job.h>
 #include <file/file-enumerator.h>
 #include <file/file-info-manager.h>
@@ -16,7 +17,9 @@
 
 DesktopItemModel::DesktopItemModel(QObject *parent) : QAbstractListModel(parent)
 {
+    CT_SYSLOG (LOG_DEBUG, "DesktopItemModel construct ...");
     mThumbnailWatcher = std::make_shared<FileWatcher>("thumbnail:///, this");
+    CT_SYSLOG (LOG_DEBUG, "--------------------------------------------");
 
     connect(mThumbnailWatcher.get(), &FileWatcher::fileChanged, this, [=](const QString &uri) {
         for (auto info : mFiles) {
@@ -30,7 +33,6 @@ DesktopItemModel::DesktopItemModel(QObject *parent) : QAbstractListModel(parent)
     mTrashWatcher = std::make_shared<FileWatcher>("trash:///", this);
 
     this->connect(mTrashWatcher.get(), &FileWatcher::fileCreated, [=]() {
-        //qDebug()<<"trash changed";
         auto trash = FileInfo::fromUri("trash:///", true);
         auto job = new FileInfoJob(trash);
         job->setAutoDelete();
@@ -57,7 +59,6 @@ DesktopItemModel::DesktopItemModel(QObject *parent) : QAbstractListModel(parent)
     mDesktopWatcher = std::make_shared<FileWatcher>("file://" + QStandardPaths::writableLocation(QStandardPaths::DesktopLocation), this);
     mDesktopWatcher->setMonitorChildrenChange(true);
     this->connect(mDesktopWatcher.get(), &FileWatcher::fileCreated, [=](const QString &uri) {
-        //qDebug()<<"created"<<uri;
         auto info = FileInfo::fromUri(uri, true);
         bool exsited = false;
         for (auto file : mFiles) {
@@ -117,6 +118,7 @@ DesktopItemModel::DesktopItemModel(QObject *parent) : QAbstractListModel(parent)
             }
         }
     });
+    CT_SYSLOG (LOG_DEBUG, "DesktopItemModel construct successful!");
 }
 
 DesktopItemModel::~DesktopItemModel()

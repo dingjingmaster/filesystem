@@ -9,21 +9,24 @@
 
 FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)
 {
+    CT_SYSLOG(LOG_DEBUG, "FileWatcher construct ...");
     mUri = uri;
     mTargetUri = uri;
     mFile = g_file_new_for_uri(uri.toUtf8().constData());
     mCancellable = g_cancellable_new();
 
-    connect(FileLabelModel::getGlobalModel(), &FileLabelModel::fileLabelChanged, this, [=](const QString &uri) {
-        auto parentUri = FileUtils::getParentUri(uri);
-        if (parentUri == mUri || parentUri == mTargetUri) {
-            Q_EMIT fileChanged(uri);
-            CT_SYSLOG(LOG_DEBUG, "file '%s' label changed", uri.toUtf8().constData());
-        }
-    });
+//    connect(FileLabelModel::getGlobalModel(), &FileLabelModel::fileLabelChanged, this, [=](const QString &uri) {
+//        auto parentUri = FileUtils::getParentUri(uri);
+//        if (parentUri == mUri || parentUri == mTargetUri) {
+//            Q_EMIT fileChanged(uri);
+//            CT_SYSLOG(LOG_DEBUG, "file '%s' label changed", uri.toUtf8().constData());
+//        }
+//    });
 
     //monitor target file if existed.
+    CT_SYSLOG(LOG_DEBUG, "begin prepare ...");
     prepare();
+    CT_SYSLOG(LOG_DEBUG, "prepare ok!");
 
     GError *err1 = nullptr;
     mMonitor = g_file_monitor_file(mFile, G_FILE_MONITOR_WATCH_MOVES, mCancellable, &err1);
@@ -40,6 +43,8 @@ FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)
     }
 
     FileOperationManager::getInstance()->registerFileWatcher(this);
+
+    CT_SYSLOG(LOG_DEBUG, "FileWatcher construct successful!");
 }
 
 FileWatcher::~FileWatcher()

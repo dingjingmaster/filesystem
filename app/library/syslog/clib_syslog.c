@@ -33,7 +33,7 @@ void syslog_info(int mlogLevel, const char *fileName, const char *functionName, 
     unsigned long   tagLen = 0;
     char            buf[2048] = {0};
     char*           currentProj = NULL;
-    char            *logLevelstr = NULL;
+    char*           logLevelstr = NULL;
 
     va_start(para, fmt);
 
@@ -45,7 +45,7 @@ void syslog_info(int mlogLevel, const char *fileName, const char *functionName, 
     memset(buf, 0, sizeof buf);
 
     openlog("", LOG_NDELAY, sysFacility);
-    switch (logLevel) {
+    switch (mlogLevel) {
     case LOG_EMERG:
         logLevelstr = "EMERG";
         break;
@@ -77,7 +77,7 @@ void syslog_info(int mlogLevel, const char *fileName, const char *functionName, 
     snprintf(buf, sizeof buf - 1, "%s [%s] %s %s line:%-5d ", logLevelstr, sysCategory, fileName, functionName, line);
     tagLen = strlen(buf);
     vsnprintf(buf + tagLen, sizeof buf - 1 - tagLen, (const char*)fmt, para);
-    syslog(logLevel, "%s", buf);
+    syslog(mlogLevel, "%s", buf);
     closelog();
     va_end(para);
 }

@@ -137,6 +137,7 @@ void DesktopWindow::setIsPrimary(bool isPrimary)
 
 void DesktopWindow::slotUpdateView()
 {
+    CT_SYSLOG(LOG_DEBUG, "update view");
     auto avaliableGeometry = mScreen->availableGeometry();
     auto geomerty = mScreen->geometry();
     int top = qAbs(avaliableGeometry.top() - geomerty.top());

@@ -147,7 +147,9 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
         if (parser.isSet(desktopOption)) {
             CT_SYSLOG(LOG_DEBUG, "command line -w");
             if (!gHasDesktop) {
+                CT_SYSLOG(LOG_DEBUG, "begin get icon view");
                 getIconView();
+                CT_SYSLOG(LOG_DEBUG, "get icon view ok");
                 for(auto screen : this->screens()) {
                     CT_SYSLOG(LOG_DEBUG, "add screen:%s", screen->name().toUtf8().data());
                     addWindow(screen);
@@ -251,6 +253,7 @@ void FMDesktopApplication::addWindow(QScreen *screen, bool checkPrimay)
         bool isPrimary = isPrimaryScreen(screen);
         window = new DesktopWindow(screen, isPrimary);
         if (isPrimary) {
+            CT_SYSLOG(LOG_DEBUG, "is primary screen");
             window->setCentralWidget(gDesktopIconView);
             window->slotUpdateView();
         }

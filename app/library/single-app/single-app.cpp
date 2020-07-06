@@ -37,15 +37,9 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
 
     // 初始化共享内存
     mMemory = new QSharedMemory(mBlockServerName);
-    while (++blockSize) {
-        if (blockSize * SHARED_MEMORY_SIZE >= sizeof (InstancesInfo)) {
-            ret = mMemory->create(sizeof (InstancesInfo));
-            CT_SYSLOG(LOG_ERR, "can not create shared memory")
-            break;
-        }
-    }
-
+    ret = mMemory->create(sizeof (InstancesInfo));
     if(ret) {
+        CT_SYSLOG(LOG_DEBUG, "create shared memory successful!");
         mMemory->lock();
         initializeMemoryBlock();
         mMemory->unlock();
@@ -80,7 +74,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     }
 
     if(allowSecondary) {
-        CT_SYSLOG(LOG_DEBUG, "开始另一个实例")
+        CT_SYSLOG(LOG_DEBUG, "start other instance ...")
         inst->secondary += 1;
         inst->checksum = blockChecksum();
         mInstanceNumber = inst->secondary;
