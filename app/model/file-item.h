@@ -3,7 +3,7 @@
 
 #include <memory>
 #include <QObject>
-#include <file-watcher.h>
+#include <file/file-watcher.h>
 
 #include <file/file-enumerator.h>
 #include <file/file-info.h>

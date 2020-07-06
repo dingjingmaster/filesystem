@@ -2,7 +2,7 @@
 
 #include <QUrl>
 #include <file-utils.h>
-#include <file-watcher.h>
+#include <file/file-watcher.h>
 
 #include <QMessageBox>
 #include <QApplication>
