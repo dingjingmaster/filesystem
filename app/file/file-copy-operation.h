@@ -35,7 +35,7 @@ private:
 
     QStringList mSourceUris;
     bool mIsDuplicatedCopy = false;
-    QString mDest_dirUri = nullptr;
+    QString mDestDirUri = nullptr;
     QString mCurrentSrcUri = nullptr;
     QString mCurrentDestDirUri = nullptr;
     FileNodeReporter *mReporter = nullptr;

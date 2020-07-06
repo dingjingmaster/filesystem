@@ -34,6 +34,9 @@ public:
     QStringList sources ();
     std::shared_ptr<FileOperationInfo> getOppositeInfo (FileOperationInfo& info);
 
+public:
+    QMap<QString, QString>  mNodeMap;
+
 private:
     bool                    mEnable = true;
 
@@ -44,7 +47,6 @@ private:
     QString                 mDestDirUri;
     QStringList             mSrcUris;
     QStringList             mDestUris;
-    QMap<QString, QString>  mNodeMap;
 
     QString                 mOldName = nullptr;
     QString                 mNewName = nullptr;
