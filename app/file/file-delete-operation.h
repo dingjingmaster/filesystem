@@ -23,7 +23,7 @@ public:
 private:
     int mTotalCount = 0;
     int mCurrentCount = 0;
-    goffset mTotalSzie = 0;
+    goffset mTotalSize = 0;
     goffset mCurrentOffset = 0;
 
     QStringList mSourceUris;
