@@ -5,7 +5,6 @@
 #include <QObject>
 #include <QObject>
 #include <QSettings>
-
 #include <qgsettings/QGSettings>
 
 #define RESIDENT_IN_BACKEND         "resident"

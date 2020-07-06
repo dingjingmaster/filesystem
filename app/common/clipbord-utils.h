@@ -3,10 +3,17 @@
 
 #include <QObject>
 
+/**
+ * @brief ClipbordUtils 用于访问 QClipboard 的类
+ * @see QClipboard
+ */
 class ClipbordUtils : public QObject
 {
     Q_OBJECT
 public:
+    /**
+     * @brief 获取 ClipbordUtils 实例
+     */
     ClipbordUtils* getInstance ();
 
     void release ();

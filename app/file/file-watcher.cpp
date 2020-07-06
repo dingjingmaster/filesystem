@@ -1,6 +1,11 @@
+#include "file-operation-manager.h"
 #include "file-watcher.h"
 
 #include <QUrl>
+#include <file-utils.h>
+
+#include <clib_syslog.h>
+#include <model/filelabel-model.h>
 
 FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)
 {
@@ -9,16 +14,13 @@ FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)
     mFile = g_file_new_for_uri(uri.toUtf8().constData());
     mCancellable = g_cancellable_new();
 
-    /**
-     * @todo 提供类
-     */
-//    connect(FileLabelModel::getGlobalModel(), &FileLabelModel::fileLabelChanged, this, [=](const QString &uri) {
-//        auto parentUri = FileUtils::getParentUri(uri);
-//        if (parentUri == m_uri || parentUri == m_target_uri) {
-//            Q_EMIT fileChanged(uri);
-//            qDebug()<<"file label changed"<<uri;
-//        }
-//    });
+    connect(FileLabelModel::getGlobalModel(), &FileLabelModel::fileLabelChanged, this, [=](const QString &uri) {
+        auto parentUri = FileUtils::getParentUri(uri);
+        if (parentUri == mUri || parentUri == mTargetUri) {
+            Q_EMIT fileChanged(uri);
+            CT_SYSLOG(LOG_DEBUG, "file '%s' label changed", uri.toUtf8().constData());
+        }
+    });
 
     //monitor target file if existed.
     prepare();
@@ -37,20 +39,12 @@ FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)
         mSupportMonitor = false;
     }
 
-    /**
-     * @todo 提供类
-     *
-     */
-//    FileOperationManager::getInstance()->registerFileWatcher(this);
+    FileOperationManager::getInstance()->registerFileWatcher(this);
 }
 
 FileWatcher::~FileWatcher()
 {
-    /**
-     * @todo 提供类
-     */
-//    FileOperationManager::getInstance()->unregisterFileWatcher(this);
-
+    FileOperationManager::getInstance()->unregisterFileWatcher(this);
     disconnect();
     stopMonitor();
     slotCancel();
