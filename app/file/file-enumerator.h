@@ -38,7 +38,7 @@ protected:
     void handleError (GError *err);
     void enumerateChildren (GFileEnumerator *enumerator);
     static GAsyncReadyCallback mountMountableCallback (GFile *file, GAsyncResult *res, FileEnumerator *pThis);
-    static GAsyncReadyCallback mountEnclosingVolume_callback (GFile *file, GAsyncResult *res, FileEnumerator *pThis);
+    static GAsyncReadyCallback mountEnclosingVolumeCallback (GFile *file, GAsyncResult *res, FileEnumerator *pThis);
     static GAsyncReadyCallback findChildrenAsyncReadyCallback (GFile *file, GAsyncResult *res, FileEnumerator *pThis);
     static GAsyncReadyCallback enumeratorNextFilesAsyncReadyCallback (GFileEnumerator *enumerator, GAsyncResult *res, FileEnumerator *pThis);
 
