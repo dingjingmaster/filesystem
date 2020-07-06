@@ -89,11 +89,11 @@ DesktopItemModel::DesktopItemModel(QObject *parent) : QAbstractListModel(parent)
     this->connect(mDesktopWatcher.get(), &FileWatcher::fileDeleted, [=](const QString &uri) {
         for (auto info : mFiles) {
             if (info->uri() == uri) {
-                //this->beginResetModel();
+//                this->beginResetModel();
                 this->beginRemoveRows(QModelIndex(), mFiles.indexOf(info), mFiles.indexOf(info));
                 mFiles.removeOne(info);
                 this->endRemoveRows();
-                //this->endResetModel();
+//                this->endResetModel();
                 Q_EMIT this->requestClearIndexWidget();
                 Q_EMIT this->requestUpdateItemPositions();
                 FileInfoManager::getInstance()->remove(info);

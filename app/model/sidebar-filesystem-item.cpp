@@ -6,7 +6,7 @@
 #include <password.h>
 #include <file-utils.h>
 #include <clib_syslog.h>
-#include <file-watcher.h>
+#include <file/file-watcher.h>
 #include <file/file-info.h>
 #include <QAbstractItemModel>
 #include <file/file-enumerator.h>
