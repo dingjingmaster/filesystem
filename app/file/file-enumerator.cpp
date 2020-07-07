@@ -127,7 +127,7 @@ void FileEnumerator::setEnumerateDirectory(GFile *file)
 
 void FileEnumerator::setAutoDelete(bool autoDelete)
 {
-
+    Q_UNUSED(autoDelete)
 }
 
 const QList<std::shared_ptr<FileInfo> > FileEnumerator::getChildren(bool addToHash)
@@ -203,46 +203,26 @@ void FileEnumerator::handleError(GError *err)
         }
 
         bool isMountable = false;
-        GFileInfo *file_mount_info = g_file_query_info(mRootFile, G_FILE_ATTRIBUTE_MOUNTABLE_CAN_MOUNT,
-                                     G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, nullptr, nullptr);
-
-        if (file_mount_info) {
-            isMountable = g_file_info_get_attribute_boolean(file_mount_info, G_FILE_ATTRIBUTE_MOUNTABLE_CAN_MOUNT);
-            g_object_unref(file_mount_info);
+        GFileInfo *fileMountInfo = g_file_query_info(mRootFile, G_FILE_ATTRIBUTE_MOUNTABLE_CAN_MOUNT, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, nullptr, nullptr);
+        if (fileMountInfo) {
+            isMountable = g_file_info_get_attribute_boolean(fileMountInfo, G_FILE_ATTRIBUTE_MOUNTABLE_CAN_MOUNT);
+            g_object_unref(fileMountInfo);
         }
 
         if (isMountable) {
-            g_file_mount_mountable(mRootFile,
-                                   G_MOUNT_MOUNT_NONE,
-                                   nullptr,
-                                   mCancellable,
-                                   GAsyncReadyCallback(mountMountableCallback),
-                                   this);
+            g_file_mount_mountable(mRootFile, G_MOUNT_MOUNT_NONE, nullptr, mCancellable, GAsyncReadyCallback(mountMountableCallback), this);
         } else {
-            g_file_mount_enclosing_volume(mRootFile,
-                                          G_MOUNT_MOUNT_NONE,
-                                          nullptr,
-                                          mCancellable,
-                                          GAsyncReadyCallback(mountEnclosingVolumeCallback),
-                                          this);
+            g_file_mount_enclosing_volume(mRootFile, G_MOUNT_MOUNT_NONE, nullptr, mCancellable, GAsyncReadyCallback(mountEnclosingVolumeCallback), this);
         }
         break;
     }
     case G_IO_ERROR_NOT_MOUNTED:
-        //we first trying mount volume without mount operation,
-        //because we might have saved password of target server.
-        g_file_mount_enclosing_volume(mRootFile,
-                                      G_MOUNT_MOUNT_NONE,
-                                      nullptr,
-                                      mCancellable,
-                                      GAsyncReadyCallback(mountEnclosingVolumeCallback),
-                                      this);
+        g_file_mount_enclosing_volume(mRootFile, G_MOUNT_MOUNT_NONE, nullptr, mCancellable, GAsyncReadyCallback(mountEnclosingVolumeCallback), this);
         break;
     case G_IO_ERROR_NOT_SUPPORTED:
         QMessageBox::critical(nullptr, tr("Error"), err->message);
         break;
     case G_IO_ERROR_PERMISSION_DENIED:
-        //FIXME: do i need add an auth function for this kind of errors?
         QMessageBox::critical(nullptr, tr("Error"), err->message);
         break;
     case G_IO_ERROR_NOT_FOUND:
@@ -394,16 +374,6 @@ GAsyncReadyCallback FileEnumerator::enumeratorNextFilesAsyncReadyCallback(GFileE
 
     GError *err = nullptr;
     GList *files = g_file_enumerator_next_files_finish(enumerator, res, &err);
-//    if (nullptr == files || nullptr == err) {
-//        CT_SYSLOG(LOG_DEBUG, "no files, error code: %d, mes: %s", err->code, err->message);
-//        return nullptr;
-//    } else {
-//        Q_EMIT pThis->enumerateFinished(true);
-//        CT_SYSLOG(LOG_WARNING, "findChildrenAsyncReadyCallback error end!");
-//        return nullptr;
-//    }
-
-//    auto errPtr = GerrorWrapper::wrapFrom(err);
     if (!files && !err) {
         Q_EMIT pThis->enumerateFinished(true);
         CT_SYSLOG(LOG_WARNING, "findChildrenAsyncReadyCallback error end!");
