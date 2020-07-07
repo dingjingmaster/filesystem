@@ -216,7 +216,7 @@ void DesktopIconView::resetAllItemPositionInfos()
         auto metaInfo = FileMetaInfo::fromUri(index.data(Qt::UserRole).toString());
         if (metaInfo) {
             QStringList tmp;
-            tmp<<"-1"<<"-1";
+            tmp << "-1" << "-1";
             metaInfo->setMetaInfoStringList(ITEM_POS_ATTRIBUTE, tmp);
         }
     }
@@ -328,15 +328,12 @@ void DesktopIconView::updateItemPosistions(const QString &uri)
     }
 
     auto index = mProxyModel->mapFromSource(mModel->indexFromUri(uri));
-    //qDebug()<<"update"<<uri<<index.data();
 
     if (!index.isValid()) {
-        //qDebug()<<"err: index invalid";
         return;
     }
     auto metaInfo = FileMetaInfo::fromUri(uri);
     if (!metaInfo) {
-        //qDebug()<<"err: no meta data";
         return;
     }
 
@@ -362,8 +359,9 @@ bool DesktopIconView::isItemsOverlapped()
         for (int i = 0; i < model()->rowCount(); i++) {
             auto index = model()->index(i, 0);
             auto rect = visualRect(index);
-            if (itemRects.contains(rect))
+            if (itemRects.contains(rect)) {
                 return true;
+            }
             itemRects<<visualRect(index);
         }
     }
@@ -380,8 +378,9 @@ void DesktopIconView::dropEvent(QDropEvent *e)
         auto index = indexAt(e->pos());
         if (index.isValid()) {
             auto info = FileInfo::fromUri(index.data(Qt::UserRole).toString());
-            if (!info->isDir())
+            if (!info->isDir()) {
                 return;
+            }
         }
 
         QListView::dropEvent(e);
@@ -392,7 +391,6 @@ void DesktopIconView::dropEvent(QDropEvent *e)
             currentIndexesRects.insert(tmp, visualRect(tmp));
         }
 
-        //fixme: handle overlapping.
         if (!mDragIndexes.isEmpty()) {
             QModelIndexList overlappedIndexes;
             for (auto value : currentIndexesRects.values()) {
@@ -417,7 +415,6 @@ void DesktopIconView::dropEvent(QDropEvent *e)
             for (auto dragedIndex : overlappedIndexes) {
                 auto indexRect = QListView::visualRect(dragedIndex);
                 if (notEmptyRegion.contains(indexRect.center())) {
-                    // move index to closest empty grid.
                     auto next = indexRect;
                     bool isEmptyPos = false;
                     while (!isEmptyPos) {
@@ -430,11 +427,12 @@ void DesktopIconView::dropEvent(QDropEvent *e)
                                 }
                                 top-=gridSize().height();
                             }
-                            //put item to next column first column
+
                             next.moveTo(next.x() + grid.width(), top);
                         }
-                        if (notEmptyRegion.contains(next.center()))
+                        if (notEmptyRegion.contains(next.center())) {
                             continue;
+                        }
 
                         isEmptyPos = true;
                         setPositionForIndex(next.topLeft(), dragedIndex);
@@ -448,8 +446,6 @@ void DesktopIconView::dropEvent(QDropEvent *e)
 
         auto urls = e->mimeData()->urls();
         for (auto url : urls) {
-//            if (url.path() == QStandardPaths::writableLocation(QStandardPaths::HomeLocation))
-//                continue;
             saveItemPositionInfo(url.toDisplayString());
         }
         return;

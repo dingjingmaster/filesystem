@@ -1,14 +1,16 @@
 #include "main-window.h"
 
 #include <QScreen>
-#include <QApplication>
-#include <global-settings.h>
 #include <QMouseEvent>
+#include <QApplication>
+#include <clib_syslog.h>
+#include <global-settings.h>
 
 static MainWindow* gLastResizeWindow = nullptr;
 
 MainWindow::MainWindow(const QString &uri, QWidget *parent)
 {
+    CT_SYSLOG(LOG_DEBUG, "MainWindow construct ...");
     installEventFilter(this);
 
     setWindowIcon(QIcon::fromTheme("system-file-manager"));
@@ -43,6 +45,7 @@ MainWindow::MainWindow(const QString &uri, QWidget *parent)
     slotSetShortCuts();
 
     initUI(uri);
+    CT_SYSLOG(LOG_DEBUG, "MainWindow construct ok!");
 }
 
 MainWindow::~MainWindow()

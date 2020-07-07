@@ -1,9 +1,12 @@
 #include "file-enumerator.h"
+
 #include "file-info.h"
+#include "mount-operation.h"
 
 #include <QTimer>
 #include <QMessageBox>
 #include <file-utils.h>
+#include <clib_syslog.h>
 
 #ifndef FM_FIND_NEXT_FILES_BATCH_SIZE
 #define FM_FIND_NEXT_FILES_BATCH_SIZE 100
@@ -11,29 +14,33 @@
 
 FileEnumerator::FileEnumerator(QObject *parent) : QObject(parent)
 {
+    CT_SYSLOG(LOG_DEBUG, "construct start...");
     mRootFile = g_file_new_for_uri("file:///");
     mCancellable = g_cancellable_new();
-
     mChildrenUris = new QList<QString>();
-
     connect(this, &FileEnumerator::enumerateFinished, this, [=]() {
+        CT_SYSLOG(LOG_DEBUG, "FileEnumerator::enumerateFinished");
         if (mAutoDelete) {
             this->deleteLater();
         }
     });
+    CT_SYSLOG(LOG_DEBUG, "construct end!");
 }
 
 FileEnumerator::~FileEnumerator()
 {
+    CT_SYSLOG(LOG_DEBUG, "free start...");
     disconnect();
     g_object_unref(mRootFile);
     g_object_unref(mCancellable);
 
     delete mChildrenUris;
+    CT_SYSLOG(LOG_DEBUG, "free end!");
 }
 
 void FileEnumerator::prepare()
 {
+    CT_SYSLOG(LOG_DEBUG, "prepare start...");
     GError *err = nullptr;
     GFileEnumerator *enumerator = g_file_enumerate_children(mRootFile, G_FILE_ATTRIBUTE_STANDARD_NAME, G_FILE_QUERY_INFO_NONE, mCancellable, &err);
     if (err) {
@@ -49,10 +56,12 @@ void FileEnumerator::prepare()
             Q_EMIT prepared(nullptr);
         });
     }
+    CT_SYSLOG(LOG_DEBUG, "prepare end!");
 }
 
 void FileEnumerator::enumerateSync()
 {
+    CT_SYSLOG(LOG_DEBUG, "enumerateSync start...");
     GFile *target = enumerateTargetFile();
 
     GFileEnumerator *enumerator = g_file_enumerate_children(target, G_FILE_ATTRIBUTE_STANDARD_NAME, G_FILE_QUERY_INFO_NONE, mCancellable, nullptr);
@@ -66,6 +75,7 @@ void FileEnumerator::enumerateSync()
     }
 
     g_object_unref(target);
+    CT_SYSLOG(LOG_DEBUG, "enumerateSync end!");
 }
 
 const QStringList FileEnumerator::getChildrenUris()
@@ -75,6 +85,7 @@ const QStringList FileEnumerator::getChildrenUris()
 
 void FileEnumerator::setEnumerateDirectory(QString uri)
 {
+    CT_SYSLOG(LOG_DEBUG, "setEnumerateDirectory start...");
     if (mCancellable) {
         g_cancellable_cancel(mCancellable);
         g_object_unref(mCancellable);
@@ -95,10 +106,12 @@ void FileEnumerator::setEnumerateDirectory(QString uri)
     else
         mRootFile = g_file_new_for_uri(uri.toUtf8());
 #endif
+    CT_SYSLOG(LOG_DEBUG, "setEnumerateDirectory end!");
 }
 
 void FileEnumerator::setEnumerateDirectory(GFile *file)
 {
+    CT_SYSLOG(LOG_DEBUG, "setEnumerateDirectory start...");
     if (mCancellable) {
         g_cancellable_cancel(mCancellable);
         g_object_unref(mCancellable);
@@ -109,6 +122,7 @@ void FileEnumerator::setEnumerateDirectory(GFile *file)
         g_object_unref(mRootFile);
     }
     mRootFile = g_file_dup(file);
+    CT_SYSLOG(LOG_DEBUG, "setEnumerateDirectory end!");
 }
 
 void FileEnumerator::setAutoDelete(bool autoDelete)
@@ -118,32 +132,43 @@ void FileEnumerator::setAutoDelete(bool autoDelete)
 
 const QList<std::shared_ptr<FileInfo> > FileEnumerator::getChildren(bool addToHash)
 {
+    CT_SYSLOG(LOG_DEBUG, "getChildren start...");
     QList<std::shared_ptr<FileInfo>> children;
     for (auto uri : *mChildrenUris) {
         auto file_info = FileInfo::fromUri(uri, addToHash);
         children<<file_info;
     }
+
+    CT_SYSLOG(LOG_DEBUG, "getChildren end!");
+
     return children;
 }
 
 void FileEnumerator::slotCancel()
 {
+    CT_SYSLOG(LOG_DEBUG, "slotCancel start...");
     g_cancellable_cancel(mCancellable);
     g_object_unref(mCancellable);
     mCancellable = g_cancellable_new();
 
     mChildrenUris->clear();
 
+    CT_SYSLOG(LOG_DEBUG, "slotCancel end!");
+
     Q_EMIT enumerateFinished(false);
 }
 
 void FileEnumerator::slotEnumerateAsync()
 {
+    CT_SYSLOG(LOG_DEBUG, "slotEnumerateAsync start...");
     g_file_enumerate_children_async(mRootFile, G_FILE_ATTRIBUTE_STANDARD_NAME, G_FILE_QUERY_INFO_NONE, G_PRIORITY_DEFAULT, mCancellable, GAsyncReadyCallback(findChildrenAsyncReadyCallback), this);
+
+    CT_SYSLOG(LOG_DEBUG, "slotEnumerateAsync end!");
 }
 
 GFile *FileEnumerator::enumerateTargetFile()
 {
+    CT_SYSLOG(LOG_DEBUG, "enumerateTargetFile start...");
     GFileInfo *info = g_file_query_info(mRootFile, G_FILE_ATTRIBUTE_STANDARD_TARGET_URI, G_FILE_QUERY_INFO_NONE, nullptr, nullptr);
     char *uri = nullptr;
     uri = g_file_info_get_attribute_as_string(info, G_FILE_ATTRIBUTE_STANDARD_TARGET_URI);
@@ -156,11 +181,15 @@ GFile *FileEnumerator::enumerateTargetFile()
     } else {
         target = g_file_dup(mRootFile);
     }
+
+    CT_SYSLOG(LOG_DEBUG, "enumerateTargetFile end!");
+
     return target;
 }
 
 void FileEnumerator::handleError(GError *err)
 {
+    CT_SYSLOG(LOG_DEBUG, "handleError start ...");
     switch (err->code) {
     case G_IO_ERROR_NOT_DIRECTORY: {
         auto uri = g_file_get_uri(mRootFile);
@@ -223,10 +252,12 @@ void FileEnumerator::handleError(GError *err)
         Q_EMIT prepared(GerrorWrapper::wrapFrom(err), nullptr, true);
         break;
     }
+    CT_SYSLOG(LOG_DEBUG, "handleError end!");
 }
 
 void FileEnumerator::enumerateChildren(GFileEnumerator *enumerator)
 {
+    CT_SYSLOG(LOG_DEBUG, "enumerateChildren start ...");
     GFileInfo *info = nullptr;
     GFile *child = nullptr;
     info = g_file_enumerator_next_file(enumerator, mCancellable, nullptr);
@@ -241,10 +272,10 @@ void FileEnumerator::enumerateChildren(GFileEnumerator *enumerator)
         g_object_unref(child);
         if (path) {
             QString localUri = QString("file://%1").arg(path);
-            *mChildrenUris<<localUri;
+            *mChildrenUris << localUri;
             g_free(path);
         } else {
-            *mChildrenUris<<uri;
+            *mChildrenUris << uri;
         }
 
         g_free(uri);
@@ -252,10 +283,12 @@ void FileEnumerator::enumerateChildren(GFileEnumerator *enumerator)
         info = g_file_enumerator_next_file(enumerator, mCancellable, nullptr);
     }
     Q_EMIT enumerateFinished(true);
+    CT_SYSLOG(LOG_DEBUG, "enumerateChildren end!");
 }
 
 GAsyncReadyCallback FileEnumerator::mountMountableCallback(GFile *file, GAsyncResult *res, FileEnumerator *pThis)
 {
+    CT_SYSLOG(LOG_DEBUG, "mountMountableCallback start ...");
     GError *err = nullptr;
     GFile *target = g_file_mount_mountable_finish(file, res, &err);
     if (err && err->code != 0) {
@@ -269,11 +302,13 @@ GAsyncReadyCallback FileEnumerator::mountMountableCallback(GFile *file, GAsyncRe
     }
 
 
+    CT_SYSLOG(LOG_DEBUG, "mountMountableCallback end!");
     return nullptr;
 }
 
 GAsyncReadyCallback FileEnumerator::mountEnclosingVolumeCallback(GFile *file, GAsyncResult *res, FileEnumerator *pThis)
 {
+    CT_SYSLOG(LOG_DEBUG, "mountEnclosingVolumeCallback start ...");
     GError *err = nullptr;
     if (g_file_mount_enclosing_volume_finish (file, res, &err)) {
         if (err) {
@@ -316,14 +351,18 @@ GAsyncReadyCallback FileEnumerator::mountEnclosingVolumeCallback(GFile *file, GA
                     Q_EMIT pThis->prepared(nullptr);
                 }
             });
-            op->start();
+            op->slotStart();
         }
     }
+
+    CT_SYSLOG(LOG_DEBUG, "mountEnclosingVolumeCallback end!!");
+
     return nullptr;
 }
 
 GAsyncReadyCallback FileEnumerator::findChildrenAsyncReadyCallback(GFile *file, GAsyncResult *res, FileEnumerator *pThis)
 {
+    CT_SYSLOG(LOG_DEBUG, "findChildrenAsyncReadyCallback start ...");
     GError *err = nullptr;
     GFileEnumerator *enumerator = g_file_enumerate_children_finish(file, res, &err);
     if (err) {
@@ -335,67 +374,89 @@ GAsyncReadyCallback FileEnumerator::findChildrenAsyncReadyCallback(GFile *file, 
         }
         g_error_free(err);
     }
-    //
-    g_file_enumerator_next_files_async(enumerator,
-                                       FM_FIND_NEXT_FILES_BATCH_SIZE,
-                                       G_PRIORITY_DEFAULT,
-                                       pThis->mCancellable,
-                                       GAsyncReadyCallback(enumeratorNextFilesAsyncReadyCallback),
-                                       pThis);
+
+    g_file_enumerator_next_files_async(enumerator, FM_FIND_NEXT_FILES_BATCH_SIZE, G_PRIORITY_DEFAULT, pThis->mCancellable, GAsyncReadyCallback(enumeratorNextFilesAsyncReadyCallback), pThis);
 
     g_object_unref(enumerator);
+
+    CT_SYSLOG(LOG_DEBUG, "findChildrenAsyncReadyCallback end!");
+
     return nullptr;
 }
 
 GAsyncReadyCallback FileEnumerator::enumeratorNextFilesAsyncReadyCallback(GFileEnumerator *enumerator, GAsyncResult *res, FileEnumerator *pThis)
 {
-    GError *err = nullptr;
-    GList *files = g_file_enumerator_next_files_finish(enumerator,
-                   res,
-                   &err);
-
-    auto errPtr = GerrorWrapper::wrapFrom(err);
-    if (!files && !err) {
-        Q_EMIT pThis->enumerateFinished(true);
+    CT_SYSLOG(LOG_DEBUG, "enumeratorNextFilesAsyncReadyCallback start ...");
+    if ((nullptr == enumerator) || (nullptr == res)) {
+        CT_SYSLOG(LOG_WARNING, "input param is nullptr!");
         return nullptr;
     }
+
+    GError *err = nullptr;
+    GList *files = g_file_enumerator_next_files_finish(enumerator, res, &err);
+//    if (nullptr == files || nullptr == err) {
+//        CT_SYSLOG(LOG_DEBUG, "no files, error code: %d, mes: %s", err->code, err->message);
+//        return nullptr;
+//    } else {
+//        Q_EMIT pThis->enumerateFinished(true);
+//        CT_SYSLOG(LOG_WARNING, "findChildrenAsyncReadyCallback error end!");
+//        return nullptr;
+//    }
+
+//    auto errPtr = GerrorWrapper::wrapFrom(err);
+    if (!files && !err) {
+        Q_EMIT pThis->enumerateFinished(true);
+        CT_SYSLOG(LOG_WARNING, "findChildrenAsyncReadyCallback error end!");
+        return nullptr;
+    }
+
     if (!files && err) {
-        //critical
+        CT_SYSLOG(LOG_DEBUG, "findChildrenAsyncReadyCallback end!");
         return nullptr;
     }
     if (err) {
+        CT_SYSLOG(LOG_DEBUG, "next files async, code:%d, msg:%s", err->code, err->message);
     }
 
     GList *l = files;
     QStringList uriList;
-    int files_count = 0;
-    while (l) {
+    int filesCount = 0;
+    while (nullptr != l) {
+        char* uri = nullptr;
+        char* path = nullptr;
         GFileInfo *info = static_cast<GFileInfo*>(l->data);
         GFile *file = g_file_enumerator_get_child(enumerator, info);
-        char *uri = g_file_get_uri(file);
-        char *path = g_file_get_path(file);
+        uri = g_file_get_uri(file);
+        CT_SYSLOG(LOG_DEBUG, "file:%s", uri);
+        path = g_file_get_path(file);
         g_object_unref(file);
         if (path) {
             QString localUri = QString("file://%1").arg(path);
-            uriList<<localUri;
-            *(pThis->mChildrenUris)<<localUri;
+            uriList << localUri;
+            *(pThis->mChildrenUris) << localUri;
             g_free(path);
         } else {
-            uriList<<uri;
-            *(pThis->mChildrenUris)<<uri;
+            uriList << uri;
+            *(pThis->mChildrenUris) << uri;
         }
 
         g_free(uri);
-        files_count++;
+        ++ filesCount;
         l = l->next;
     }
+
     g_list_free_full(files, g_object_unref);
+
     Q_EMIT pThis->childrenUpdated(uriList);
-    if (files_count == FM_FIND_NEXT_FILES_BATCH_SIZE) {
+
+    if (filesCount == FM_FIND_NEXT_FILES_BATCH_SIZE) {
         g_file_enumerator_next_files_async(enumerator, FM_FIND_NEXT_FILES_BATCH_SIZE, G_PRIORITY_DEFAULT, pThis->mCancellable, GAsyncReadyCallback(enumeratorNextFilesAsyncReadyCallback), pThis);
     } else {
         Q_EMIT pThis->enumerateFinished(true);
     }
+
+    CT_SYSLOG(LOG_DEBUG, "findChildrenAsyncReadyCallback end!");
+
     return nullptr;
 }
 

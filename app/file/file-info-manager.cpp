@@ -1,6 +1,8 @@
 #include "file-info-manager.h"
 
 #include <QHash>
+#include <clib_syslog.h>
+#include <thumbnail-manager.h>
 
 static FileInfoManager* gFileInfoManager = nullptr;
 static QHash<QString, std::shared_ptr<FileInfo>> *gInfoList = nullptr;
@@ -28,7 +30,9 @@ void FileInfoManager::showState()
 
 void FileInfoManager::remove(QString uri)
 {
-
+    ThumbnailManager::getInstance()->releaseThumbnail(uri);
+    Q_ASSERT(gInfoList);
+    gInfoList->remove(uri);
 }
 
 FileInfoManager *FileInfoManager::getInstance()
@@ -67,6 +71,8 @@ std::shared_ptr<FileInfo> FileInfoManager::insertFileInfo(std::shared_ptr<FileIn
     } else {
         gInfoList->insert(info->uri(), info);
     }
+
+    return info;
 }
 
 FileInfoManager::FileInfoManager()

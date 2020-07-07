@@ -8,16 +8,19 @@
 #include <QProcess>
 #include <QMessageBox>
 #include <QPushButton>
+#include <clib_syslog.h>
 
 
 FileLaunchAction::FileLaunchAction(const QString &uri, GAppInfo *app_info, bool forceWithArg, QObject *parent) : QAction(parent)
 {
+    CT_SYSLOG(LOG_DEBUG, "FileLaunchAction construct ...");
     mUri = uri;
     mAppInfo = static_cast<GAppInfo*>(g_object_ref(app_info));
     mForceWithArg = forceWithArg;
 
-    if (!isValid())
+    if (!isValid()) {
         return;
+    }
 
     GThemedIcon *icon = G_THEMED_ICON(g_app_info_get_icon(mAppInfo));
     const char * const * icon_names = g_themed_icon_get_names(icon);

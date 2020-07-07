@@ -28,7 +28,7 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
 {
     initGSettings();
 
-    CT_SYSLOG(LOG_DEBUG, "");
+    CT_SYSLOG(LOG_DEBUG, "DesktopWindow construct ...");
     setWindowTitle(tr("Desktop"));
     mOpacity = new QVariantAnimation(this);
     mOpacity->setDuration (1000);
@@ -107,10 +107,9 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
     connect(mScreen, &QScreen::geometryChanged, this, &DesktopWindow::slotGeometryChangedProcess);
     connect(mScreen, &QScreen::virtualGeometryChanged, this, &DesktopWindow::slotVirtualGeometryChangedProcess);
 
-    if (!mIsPrimary || true) {
-        slotSetBg(getCurrentBgPath());
-        return;
-    }
+    slotSetBg(getCurrentBgPath());
+
+    CT_SYSLOG(LOG_DEBUG, "DesktopWindow construct ok!");
 }
 
 DesktopWindow::~DesktopWindow()
@@ -120,6 +119,7 @@ DesktopWindow::~DesktopWindow()
 
 const QString DesktopWindow::getCurrentBgPath()
 {
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     if (mCurrentBgPath.isEmpty()) {
         if (mBgSettings) {
             mCurrentBgPath = mBgSettings->get("pictureFilename").toString();
@@ -127,6 +127,8 @@ const QString DesktopWindow::getCurrentBgPath()
             mCurrentBgPath = mBackupSetttings->value("pictrue").toString();
         }
     }
+    CT_SYSLOG(LOG_DEBUG, "end!");
+
     return mCurrentBgPath;
 }
 
@@ -137,7 +139,7 @@ void DesktopWindow::setIsPrimary(bool isPrimary)
 
 void DesktopWindow::slotUpdateView()
 {
-    CT_SYSLOG(LOG_DEBUG, "update view");
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     auto avaliableGeometry = mScreen->availableGeometry();
     auto geomerty = mScreen->geometry();
     int top = qAbs(avaliableGeometry.top() - geomerty.top());
@@ -149,27 +151,32 @@ void DesktopWindow::slotUpdateView()
         return;
     }
     setContentsMargins(left, top, right, bottom);
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotConnectSignal()
 {
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     connect(mScreen, &QScreen::geometryChanged, this, &DesktopWindow::slotGeometryChangedProcess);
     connect(mScreen, &QScreen::virtualGeometryChanged, this, &DesktopWindow::slotVirtualGeometryChangedProcess);
     connect(mScreen, &QScreen::availableGeometryChanged, this, &DesktopWindow::slotAvailableGeometryChangedProcess);
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotDisconnectSignal()
 {
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     disconnect(mScreen, &QScreen::geometryChanged, this, &DesktopWindow::slotGeometryChangedProcess);
     disconnect(mScreen, &QScreen::virtualGeometryChanged, this, &DesktopWindow::slotVirtualGeometryChangedProcess);
     if (mIsPrimary) {
         disconnect(mScreen, &QScreen::availableGeometryChanged, this, &DesktopWindow::slotAvailableGeometryChangedProcess);
     }
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotUpdateWinGeometry()
 {
-    CT_SYSLOG(LOG_DEBUG, "");
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     auto screenName = mScreen->name();
     auto screenSize = mScreen->size();
     auto g = getScreen()->geometry();
@@ -192,10 +199,12 @@ void DesktopWindow::slotUpdateWinGeometry()
     }
 
     //updateView();
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotScaleBg(const QRect &geometry)
 {
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     if (this->geometry() == geometry) {
         return;
     }
@@ -215,10 +224,12 @@ void DesktopWindow::slotScaleBg(const QRect &geometry)
     mBgBackCachePixmap = mBgBackPixmap.scaled(geometry.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     mBgFontCachePixmap = mBgFontPixmap.scaled(geometry.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     this->update();
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotSetBgPath(const QString &bgPath)
 {
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     if (mBgSettings) {
         mBgSettings->set(PICTRUE, bgPath);
     } else {
@@ -226,6 +237,7 @@ void DesktopWindow::slotSetBgPath(const QString &bgPath)
         mBackupSetttings->sync();
         Q_EMIT this->changeBg(bgPath);
     }
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotGeometryChangedProcess(const QRect &geometry)
@@ -285,6 +297,7 @@ void DesktopWindow::slotSetBg(const QColor &color)
         mOpacity->stop();
         mOpacity->start();
     }
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::slotSetBg(const QString &bgPath)
@@ -311,6 +324,7 @@ void DesktopWindow::slotSetBg(const QString &bgPath)
         mOpacity->stop();
         mOpacity->start();
     }
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 void DesktopWindow::initShortcut()
@@ -320,8 +334,9 @@ void DesktopWindow::initShortcut()
 
 void DesktopWindow::initGSettings()
 {
+    CT_SYSLOG(LOG_DEBUG, "beginning ...");
     if (!QGSettings::isSchemaInstalled(BACKGROUND_SETTINGS)) {
-        mBackupSetttings = new QSettings ("org.ukui", "peony-qt-desktop", this);
+        mBackupSetttings = new QSettings ("org.graceful", "desktop", this);
         if (mBackupSetttings->value("color").isNull()) {
             auto defaultColor = QColor(Qt::cyan).darker();
             mBackupSetttings->setValue("color", defaultColor);
@@ -357,6 +372,7 @@ void DesktopWindow::initGSettings()
             }
         }
     });
+    CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
 DesktopIconView *DesktopWindow::getView()

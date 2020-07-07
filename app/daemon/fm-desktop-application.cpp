@@ -22,6 +22,7 @@ static DesktopIconView *gDesktopIconView = nullptr;
  */
 FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *applicationName) : SingleApp(argc, argv, applicationName)
 {
+    CT_SYSLOG(LOG_DEBUG, "FMDesktopApplication construct ...");
     setApplicationVersion("v1.0.0");
     setApplicationName(applicationName);
 
@@ -43,6 +44,7 @@ FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *
 
     auto message = this->arguments().join(' ').toUtf8();
     parseCmd(this->instanceId(), message, isPrimary());
+    CT_SYSLOG(LOG_DEBUG, "FMDesktopApplication construct ok");
 }
 
 /**

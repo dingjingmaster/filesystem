@@ -314,6 +314,7 @@ void DesktopItemModel::refresh()
 
 void DesktopItemModel::onEnumerateFinished()
 {
+    CT_SYSLOG (LOG_DEBUG, "");
     FileInfoManager::getInstance()->clear();
     mFiles.clear();
 

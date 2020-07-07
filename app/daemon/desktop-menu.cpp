@@ -1,4 +1,5 @@
 #include "desktop-icon-view.h"
+
 #include "desktop-menu.h"
 #include "file/file-launch-action.h"
 #include "desktop-menu-plugin-manager.h"
@@ -11,12 +12,11 @@
 #include <QMessageBox>
 #include <file-utils.h>
 #include <QStandardPaths>
+#include <file/file-info.h>
+#include <clipbord-utils.h>
 #include <global-settings.h>
 #include <QFileIconProvider>
 #include <file-operation-utils.h>
-#include <clipbord-utils.h>
-
-#include <file/file-info.h>
 #include <file/file-enumerator.h>
 #include <file/file-launch-dialog.h>
 #include <file/file-launch-manager.h>

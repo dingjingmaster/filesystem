@@ -4,7 +4,6 @@
 #include <memory>
 #include <QMutex>
 #include <QObject>
-
 #include <gio/gio.h>
 
 class FileInfoJob;

@@ -25,6 +25,7 @@ public:
     const QList<std::shared_ptr<FileInfo>> getChildren (bool addToHash = false);
 
 Q_SIGNALS:
+    void mountSuccess (QString url);
     void enumerateFinished (bool successed = false);
     void childrenUpdated (const QStringList &uriList);
     void prepared (const std::shared_ptr<GerrorWrapper> &err = nullptr, const QString &targetUri = nullptr, bool critical = false);

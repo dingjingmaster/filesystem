@@ -1,7 +1,9 @@
 #include "file-info-manager.h"
-#include "file-info.h"
 
 #include <QUrl>
+#include <memory>
+#include "file-info.h"
+#include <clib_syslog.h>
 
 FileInfo::FileInfo(QObject *parent) : QObject(parent)
 {
@@ -10,7 +12,9 @@ FileInfo::FileInfo(QObject *parent) : QObject(parent)
 
 FileInfo::FileInfo(const QString &uri, QObject *parent) : QObject(parent)
 {
+    CT_SYSLOG(LOG_DEBUG, "FileInfo construct ...");
     QUrl url(uri);
+
     mCancellable = g_cancellable_new();
 
     mUri = url.toDisplayString();
@@ -18,6 +22,7 @@ FileInfo::FileInfo(const QString &uri, QObject *parent) : QObject(parent)
     mParent = g_file_get_parent(mFile);
     mIsRemote = !g_file_is_native(mFile);
     GFileType type = g_file_query_file_type(mFile, G_FILE_QUERY_INFO_NONE, nullptr);
+
     switch (type) {
     case G_FILE_TYPE_DIRECTORY:
         mIsDir = true;
@@ -28,10 +33,12 @@ FileInfo::FileInfo(const QString &uri, QObject *parent) : QObject(parent)
     default:
         break;
     }
+    CT_SYSLOG(LOG_DEBUG, "FileInfo construct ok");
 }
 
 FileInfo::~FileInfo()
 {
+    CT_SYSLOG(LOG_DEBUG, "FileInfo free ...");
     disconnect();
 
     g_object_unref(mCancellable);
@@ -46,10 +53,12 @@ FileInfo::~FileInfo()
     }
 
     mUri = nullptr;
+    CT_SYSLOG(LOG_DEBUG, "FileInfo free ok!");
 }
 
 std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
 {
+    CT_SYSLOG(LOG_DEBUG, "start ...");
     FileInfoManager *infoManager = FileInfoManager::getInstance();
     infoManager->lock();
     std::shared_ptr<FileInfo> info = infoManager->findFileInfoByUri(uri);
@@ -64,6 +73,7 @@ std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
         newlyInfo->mParent = g_file_get_parent(newlyInfo->mFile);
         newlyInfo->mIsRemote = !g_file_is_native(newlyInfo->mFile);
         GFileType type = g_file_query_file_type(newlyInfo->mFile, G_FILE_QUERY_INFO_NONE, nullptr);
+
         switch (type) {
         case G_FILE_TYPE_DIRECTORY:
             newlyInfo->mIsDir = true;
@@ -74,17 +84,21 @@ std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
         default:
             break;
         }
+
         if (addToHash) {
             newlyInfo = infoManager->insertFileInfo(newlyInfo);
         }
+
         infoManager->unlock();
+
         return newlyInfo;
     }
 }
 
 std::shared_ptr<FileInfo> FileInfo::fromPath(QString path, bool addToHash)
 {
-    QString uri = "file://"+path;
+    QString uri = "file://" + path;
+
     return fromUri(uri, addToHash);
 }
 
