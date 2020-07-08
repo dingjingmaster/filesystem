@@ -61,11 +61,10 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
 
 #if (QT_VERSION < QT_VERSION_CHECK(5, 7, 0))
     if (QX11Info::isPlatformX11()) {
-        Atom m_WindowType = XInternAtom(QX11Info::display(), "_NET_WM_WINDOW_TYPE", true);
-        Atom m_DesktopType = XInternAtom(QX11Info::display(), "_NET_WM_WINDOW_TYPE_DESKTOP", true);
-        XDeleteProperty(QX11Info::display(), winId(), m_WindowType);
-        XChangeProperty(QX11Info::display(), winId(), m_WindowType,
-                        XA_ATOM, 32, 1, (unsigned char *)&m_DesktopType, 1);
+        Atom mWindowType = XInternAtom(QX11Info::display(), "_NET_WM_WINDOW_TYPE", true);
+        Atom mDesktopType = XInternAtom(QX11Info::display(), "_NET_WM_WINDOW_TYPE_DESKTOP", true);
+        XDeleteProperty(QX11Info::display(), winId(), mWindowType);
+        XChangeProperty(QX11Info::display(), winId(), mWindowType, XA_ATOM, 32, 1, (unsigned char *)&mDesktopType, 1);
     }
 #endif
 
@@ -96,8 +95,7 @@ DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) :
             menu.exec(mapToGlobal(pos));
             auto urisToEdit = menu.urisToEdit();
             if (urisToEdit.count() == 1) {
-                QTimer::singleShot(
-                100, this, [=]() {
+                QTimer::singleShot( 100, this, [=]() {
                     FMDesktopApplication::getIconView()->editUri(urisToEdit.first());
                 });
             }
@@ -129,6 +127,8 @@ const QString DesktopWindow::getCurrentBgPath()
     }
     CT_SYSLOG(LOG_DEBUG, "end!");
 
+    // FIXME://
+    return "/usr/share/backgrounds/09.jpg";
     return mCurrentBgPath;
 }
 
@@ -148,9 +148,9 @@ void DesktopWindow::slotUpdateView()
     int right = qAbs(avaliableGeometry.right() - geomerty.right());
     if (top > 200 | left > 200 | bottom > 200 | right > 200) {
         setContentsMargins(0, 0, 0, 0);
-        return;
+    } else {
+        setContentsMargins(left, top, right, bottom);
     }
-    setContentsMargins(left, top, right, bottom);
     CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
@@ -198,7 +198,7 @@ void DesktopWindow::slotUpdateWinGeometry()
         }
     }
 
-    //updateView();
+//    slotUpdateView();
     CT_SYSLOG(LOG_DEBUG, "end!");
 }
 
@@ -304,13 +304,13 @@ void DesktopWindow::slotSetBg(const QString &bgPath)
 {
     CT_SYSLOG(LOG_DEBUG, "background path:%s", bgPath.toUtf8().data());
     if (bgPath.isNull()) {
+        CT_SYSLOG(LOG_WARNING, "current background image is not set!");
         slotSetBg(getCurrentColor());
         return;
     }
 
     mUsePureColor = false;
     mBgBackPixmap = mBgFontPixmap;
-
     mBgFontPixmap = QPixmap(bgPath);
 
     mBgBackCachePixmap = mBgBackPixmap.scaled(mScreen->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
@@ -324,7 +324,7 @@ void DesktopWindow::slotSetBg(const QString &bgPath)
         mOpacity->stop();
         mOpacity->start();
     }
-    CT_SYSLOG(LOG_DEBUG, "end!");
+    CT_SYSLOG(LOG_DEBUG, "set background end!");
 }
 
 void DesktopWindow::initShortcut()
@@ -372,7 +372,7 @@ void DesktopWindow::initGSettings()
             }
         }
     });
-    CT_SYSLOG(LOG_DEBUG, "end!");
+    CT_SYSLOG(LOG_DEBUG, "init settings ok!");
 }
 
 DesktopIconView *DesktopWindow::getView()

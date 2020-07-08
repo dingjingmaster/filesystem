@@ -47,10 +47,6 @@ FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *
     CT_SYSLOG(LOG_DEBUG, "FMDesktopApplication construct ok");
 }
 
-/**
- * @brief 获取桌面
- * @see DesktopIconView
- */
 DesktopIconView *FMDesktopApplication::getIconView()
 {
     if (!gDesktopIconView) {
@@ -60,9 +56,6 @@ DesktopIconView *FMDesktopApplication::getIconView()
     return gDesktopIconView;
 }
 
-/**
- * @brief 检测是否是第一个屏幕
- */
 bool FMDesktopApplication::isPrimaryScreen(QScreen *screen)
 {
     if (screen == this->primaryScreen()) {
@@ -72,9 +65,6 @@ bool FMDesktopApplication::isPrimaryScreen(QScreen *screen)
     return false;
 }
 
-/**
- * @brief 解析命令行参数
- */
 void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
 {
     QCommandLineParser parser;
@@ -150,7 +140,7 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
             CT_SYSLOG(LOG_DEBUG, "command line -w");
             if (!gHasDesktop) {
                 CT_SYSLOG(LOG_DEBUG, "begin get icon view");
-                getIconView();
+//                getIconView();
                 CT_SYSLOG(LOG_DEBUG, "get icon view ok");
                 for(auto screen : this->screens()) {
                     CT_SYSLOG(LOG_DEBUG, "add screen:%s", screen->name().toUtf8().data());
@@ -201,7 +191,8 @@ void FMDesktopApplication::screenRemovedProcess(QScreen *screen)
 
 void FMDesktopApplication::changeBgProcess(const QString &bgPath)
 {
-
+    Q_UNUSED(bgPath);
+    CT_SYSLOG(LOG_DEBUG, "change background process");
 }
 
 void FMDesktopApplication::primaryScreenChangedProcess(QScreen *screen)
@@ -255,7 +246,7 @@ void FMDesktopApplication::addWindow(QScreen *screen, bool checkPrimay)
         bool isPrimary = isPrimaryScreen(screen);
         window = new DesktopWindow(screen, isPrimary);
         if (isPrimary) {
-            CT_SYSLOG(LOG_DEBUG, "is primary screen");
+            CT_SYSLOG(LOG_DEBUG, "is primary screen!");
             window->setCentralWidget(gDesktopIconView);
             window->slotUpdateView();
         }
@@ -299,6 +290,7 @@ static void trySetDefaultFolderUrlHandler()
             }
 
             if (!hasFMQtAppInfo) {
+                CT_SYSLOG(LOG_DEBUG, "");
                 GAppInfo *fmDaemon = g_app_info_create_from_commandline("graceful-desktop", nullptr, G_APP_INFO_CREATE_SUPPORTS_URIS, nullptr);
                 g_app_info_set_as_default_for_type(fmDaemon, "inode/directory", nullptr);
                 g_object_unref(fmDaemon);
