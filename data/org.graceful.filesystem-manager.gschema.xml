@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <enum id=''>
+        <value nick='' value='0'/>
+    </enum>
+    <schema path="/org/graceful/filesystem-manager/" id="org.graceful.filesystem-manager">
+        <key type="s" name="background-image">
+            <default>"/usr/share/backgrounds/09.jpg"</default>
+            <summary>set desktop background image</summary>
+            <description>please set the image file name</description>
+        </key>
+    </schema>
+</schemalist>
