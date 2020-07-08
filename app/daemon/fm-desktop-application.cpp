@@ -140,7 +140,7 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
             CT_SYSLOG(LOG_DEBUG, "command line -w");
             if (!gHasDesktop) {
                 CT_SYSLOG(LOG_DEBUG, "begin get icon view");
-//                getIconView();
+                getIconView();
                 CT_SYSLOG(LOG_DEBUG, "get icon view ok");
                 for(auto screen : this->screens()) {
                     CT_SYSLOG(LOG_DEBUG, "add screen:%s", screen->name().toUtf8().data());

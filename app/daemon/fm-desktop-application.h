@@ -8,14 +8,16 @@
 
 #include <QScreen>
 
-
+/**
+ * @brief graceful-desktop 主类,保证系统上此进程唯一,管理所有显示器,解析命令行参数
+ * @see SingleApp
+ */
 class FMDesktopApplication : public SingleApp
 {
     Q_OBJECT
 public:
 
     /**
-     * @brief 整个桌面的主类,保证桌面进程的唯一,添加一系列要显示的 screen
      * @param argc 命令行参数个数
      * @param argv 命令行参数
      * @param applicationName 进程名, SingleApp 需要

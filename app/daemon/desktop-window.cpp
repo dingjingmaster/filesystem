@@ -188,6 +188,7 @@ void DesktopWindow::slotUpdateWinGeometry()
     auto name = mScreen->name();
     if (mScreen == qApp->primaryScreen()) {
         if (auto view = qobject_cast<DesktopIconView *>(centralWidget())) {
+            // show desktop centralWidget
             this->show();
         }
     } else {

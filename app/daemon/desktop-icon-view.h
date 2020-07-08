@@ -32,6 +32,9 @@ public:
     explicit DesktopIconView(QWidget *parent = nullptr);
     ~DesktopIconView();
 
+    /**
+     * @brief 初始化鼠标右键菜单
+     */
     void initMenu();
     int getSortType ();
     int getSortOrder ();
@@ -43,6 +46,9 @@ public:
      */
     void initShoutCut();
     void initDoubleClick();
+    /**
+     * @brief viewId
+     */
     const QString viewId ();
 
     /**
