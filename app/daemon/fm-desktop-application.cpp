@@ -30,10 +30,10 @@ FMDesktopApplication::FMDesktopApplication(int &argc, char *argv[], const char *
         connect(this, &SingleApp::receivedMessage, [=](quint32 id, QByteArray msg) {
             this->parseCmd(id, msg, true);
         });
-//        QFile file(":/desktop-icon-view.qss");
-//        file.open(QFile::ReadOnly);
-//        setStyleSheet(QString::fromLatin1(file.readAll()));
-//        file.close();
+        QFile file(":/desktop-icon-view.qss");
+        file.open(QFile::ReadOnly);
+        setStyleSheet(QString::fromLatin1(file.readAll()));
+        file.close();
         DesktopMenuPluginManager::getInstance();
     }
 

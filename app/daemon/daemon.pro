@@ -79,3 +79,6 @@ include($$PWD/../library/kwindow-system/kwindow-system.pri)
 
 DISTFILES += \
     README.md
+
+RESOURCES += \
+    desktop-style.qrc
