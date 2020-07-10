@@ -45,13 +45,14 @@ MenuPluginIface *DesktopMenuPluginManager::getPlugin(const QString &pluginId)
 
 void DesktopMenuPluginManager::loadAsync()
 {
-    QDir pluginsDir("/usr/lib/filesystem-extensions");
+    QDir pluginsDir("/usr/lib/peony-qt-extensions/");
     pluginsDir.setFilter(QDir::Files);
     Q_FOREACH(QString fileName, pluginsDir.entryList(QDir::Files)) {
         QPluginLoader pluginLoader(pluginsDir.absoluteFilePath(fileName));
         QObject *plugin = pluginLoader.instance();
-        if (!plugin)
+        if (!plugin) {
             continue;
+        }
 
         StylePluginIface *splugin = dynamic_cast<StylePluginIface*>(plugin);
         if (splugin) {

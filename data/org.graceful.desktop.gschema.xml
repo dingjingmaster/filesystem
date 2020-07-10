@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-    <enum id=''>
-        <value nick='' value='0'/>
-    </enum>
-    <schema path="/org/graceful/filesystem-manager/" id="org.graceful.filesystem-manager">
+    <schema path="/org/graceful/desktop/" id="org.graceful.desktop">
         <key type="s" name="background-image">
-            <default>"/usr/share/backgrounds/09.jpg"</default>
+            <default>"/usr/share/backgrounds/goldfish.png"</default>
             <summary>set desktop background image</summary>
             <description>please set the image file name</description>
         </key>

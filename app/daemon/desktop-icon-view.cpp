@@ -30,7 +30,7 @@
 #include <file/file-trash-operation.h>
 #include <file/file-operation-manager.h>
 
-#define ITEM_POS_ATTRIBUTE "metadata::filesystem-item-position"
+#define ITEM_POS_ATTRIBUTE "metadata::graceful-desktop-item-position"
 
 void DesktopIconView::bindModel(FileItemModel *sourceModel, FileItemProxyFilterSortModel *proxyModel)
 {
@@ -144,7 +144,7 @@ DesktopIconView::ZoomLevel DesktopIconView::zoomLevel() const
 
     auto metaInfo = FileMetaInfo::fromUri("computer:///");
     if (metaInfo) {
-        auto i = metaInfo->getMetaInfoInt("filesystem-desktop-zoom-level");
+        auto i = metaInfo->getMetaInfoInt("graceful-desktop-zoom-level");
         return ZoomLevel(i);
     }
 
@@ -195,8 +195,8 @@ void DesktopIconView::saveAllItemPosistionInfos()
         auto index = mProxyModel->index(i, 0);
         auto indexRect = QListView::visualRect(index);
         QStringList topLeft;
-        topLeft<<QString::number(indexRect.top());
-        topLeft<<QString::number(indexRect.left());
+        topLeft << QString::number(indexRect.top());
+        topLeft << QString::number(indexRect.left());
 
         auto metaInfo = FileMetaInfo::fromUri(index.data(Qt::UserRole).toString());
         if (metaInfo) {
@@ -262,7 +262,7 @@ void DesktopIconView::setDefaultZoomLevel(DesktopIconView::ZoomLevel level)
     clearAllIndexWidgets();
     auto metaInfo = FileMetaInfo::fromUri("computer:///");
     if (metaInfo) {
-        metaInfo->setMetaInfoInt("filesystem-desktop-zoom-level", int(mZoomLevel));
+        metaInfo->setMetaInfoInt("graceful-desktop-zoom-level", int(mZoomLevel));
     } else {
 
     }

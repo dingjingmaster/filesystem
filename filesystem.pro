@@ -21,7 +21,7 @@ OTHER_FILES +=                                              \
     $$PWD/data/graceful-desktop-trash.desktop               \
     $$PWD/data/graceful-desktop-desktop.desktop             \
     $$PWD/data/graceful-desktop-computer.desktop            \
-    $$PWD/data/org.graceful.filesystem-manager.gschema.xml  \
+    $$PWD/data/org.graceful.desktop.gschema.xml             \
 
 # 安装相关文件
 data_graceful_desktop_icon.path = /usr/share/applications/

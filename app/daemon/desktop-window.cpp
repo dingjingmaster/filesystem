@@ -22,7 +22,7 @@
 
 #define PICTRUE                 "picture-filename"
 #define FALLBACK_COLOR          "primary-color"
-#define BACKGROUND_SETTINGS     "org.graceful.background"
+#define BACKGROUND_SETTINGS     "org.graceful.desktop.background"
 
 DesktopWindow::DesktopWindow(QScreen *screen, bool isPrimary, QWidget *parent) : QMainWindow(parent)
 {
@@ -128,6 +128,7 @@ const QString DesktopWindow::getCurrentBgPath()
     CT_SYSLOG(LOG_DEBUG, "end!");
 
     // FIXME://
+    return "/usr/share/backgrounds/goldfish.png";
     return "/usr/share/backgrounds/09.jpg";
     return mCurrentBgPath;
 }
@@ -311,7 +312,7 @@ void DesktopWindow::slotSetBg(const QString &bgPath)
     }
 
     mUsePureColor = false;
-    mBgBackPixmap = mBgFontPixmap;
+    mBgBackPixmap = QPixmap(bgPath);
     mBgFontPixmap = QPixmap(bgPath);
 
     mBgBackCachePixmap = mBgBackPixmap.scaled(mScreen->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
@@ -337,6 +338,7 @@ void DesktopWindow::initGSettings()
 {
     CT_SYSLOG(LOG_DEBUG, "beginning ...");
     if (!QGSettings::isSchemaInstalled(BACKGROUND_SETTINGS)) {
+        CT_SYSLOG(LOG_DEBUG, "schema: '%s' installed!", BACKGROUND_SETTINGS);
         mBackupSetttings = new QSettings ("org.graceful", "desktop", this);
         if (mBackupSetttings->value("color").isNull()) {
             auto defaultColor = QColor(Qt::cyan).darker();
@@ -344,6 +346,8 @@ void DesktopWindow::initGSettings()
         }
 
         return;
+    } else {
+        CT_SYSLOG(LOG_ERR, "you hadn't install schema: %s", BACKGROUND_SETTINGS);
     }
 
     mBgSettings = new QGSettings(BACKGROUND_SETTINGS, QByteArray(), this);
@@ -389,7 +393,7 @@ void DesktopWindow::setScreen(QScreen *screen)
 void DesktopWindow::gotoSetBackground ()
 {
     CT_SYSLOG(LOG_DEBUG, "open control center for select background");
-#if 0
+#if 1
     QProcess p;
     p.setProgram("控制面板");
     //old version use -a, new version use -b as para
