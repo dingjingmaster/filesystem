@@ -1,4 +1,5 @@
 doc/
+app/daemon/graceful-desktop
 # C++ objects and libs
 *.slo
 *.lo

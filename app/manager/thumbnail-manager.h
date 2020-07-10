@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QIcon>
 #include <QMutex>
+#include <memory>
 
 class QSemaphore;
 class QThreadPool;

@@ -1,4 +1,5 @@
 #include "gerror-wrapper.h"
+#include <QString>
 
 
 GerrorWrapper::GerrorWrapper()
