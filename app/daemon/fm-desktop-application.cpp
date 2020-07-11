@@ -255,6 +255,7 @@ void FMDesktopApplication::addWindow(QScreen *screen, bool checkPrimay)
     }
 
     connect(window, &DesktopWindow::checkWindow, this, &FMDesktopApplication::checkWindowProcess);
+    window->showFullScreen();
     mWindowList << window;
 
     for (auto window : mWindowList) {
@@ -276,6 +277,7 @@ static void trySetDefaultFolderUrlHandler()
             bool hasFMQtAppInfo = false;
             GList *l = apps;
             while (l) {
+                qDebug() << "--->" << l->data;
                 GAppInfo *info = static_cast<GAppInfo*>(l->data);
                 QString cmd = g_app_info_get_executable(info);
                 if (cmd.contains("graceful-desktop")) {

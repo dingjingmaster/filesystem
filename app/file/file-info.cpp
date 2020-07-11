@@ -64,6 +64,7 @@ std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
     std::shared_ptr<FileInfo> info = infoManager->findFileInfoByUri(uri);
     if (info != nullptr) {
         infoManager->unlock();
+        CT_SYSLOG(LOG_DEBUG, "find file stop!");
         return info;
     } else {
         std::shared_ptr<FileInfo> newlyInfo = std::make_shared<FileInfo>();
@@ -76,9 +77,11 @@ std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
 
         switch (type) {
         case G_FILE_TYPE_DIRECTORY:
+            CT_SYSLOG(LOG_DEBUG, "is directory!");
             newlyInfo->mIsDir = true;
             break;
         case G_FILE_TYPE_MOUNTABLE:
+            CT_SYSLOG(LOG_DEBUG, "mountable");
             newlyInfo->mIsVolume = true;
             break;
         default:
@@ -91,6 +94,7 @@ std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
 
         infoManager->unlock();
 
+        CT_SYSLOG(LOG_DEBUG, "new file stop!");
         return newlyInfo;
     }
 }

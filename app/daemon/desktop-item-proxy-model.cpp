@@ -8,8 +8,9 @@ static bool startWithChinese(const QString &displayName);
 
 DesktopItemProxyModel::DesktopItemProxyModel(QObject *parent) : QSortFilterProxyModel(parent)
 {
-    CT_SYSLOG(LOG_DEBUG, "");
+    CT_SYSLOG(LOG_DEBUG, "DesktopItemProxyModel construct ...");
     setSortCaseSensitivity(Qt::CaseInsensitive);
+    CT_SYSLOG(LOG_DEBUG, "DesktopItemProxyModel construct ok!");
 }
 
 void DesktopItemProxyModel::setSortType(int type)
@@ -17,13 +18,14 @@ void DesktopItemProxyModel::setSortType(int type)
     mSortType = type;
 }
 
-bool DesktopItemProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex &source_parent) const
+bool DesktopItemProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const
 {
     if (!sourceModel()) {
+        CT_SYSLOG(LOG_WARNING, "source model is nullptr");
         return false;
     }
 
-    auto sourceIndex = sourceModel()->index(sourceRow, 0, source_parent);
+    auto sourceIndex = sourceModel()->index(sourceRow, 0, sourceParent);
     auto uri = sourceIndex.data(Qt::UserRole).toString();
     auto info = FileInfo::fromUri(uri);
     if (info->displayName().isNull()) {
@@ -114,7 +116,6 @@ int DesktopItemProxyModel::getSortType()
 
 bool startWithChinese(const QString &displayName)
 {
-    //NOTE: a newly created file might could not get display name soon.
     if (displayName.isEmpty()) {
         return false;
     }

@@ -28,6 +28,7 @@ Q_SIGNALS:
 public Q_SLOTS:
     void cancel ();
     void queryAsync ();
+    QString getAppName(QString desktopfp);
 
 protected:
     static GAsyncReadyCallback queryInfoAsyncCallback(GFile *file, GAsyncResult *res, FileInfoJob *thisJob);

@@ -48,8 +48,6 @@ private:
     GFile *mRootFile = nullptr;
     GCancellable *mCancellable = nullptr;
     QList<QString> *mChildrenUris = nullptr;
-
-
 };
 
 #endif // FILEENUMERATOR_H

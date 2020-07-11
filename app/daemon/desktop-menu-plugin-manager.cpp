@@ -3,9 +3,8 @@
 #include <QDir>
 #include <QProxyStyle>
 #include <QtConcurrent>
-#include <QPluginLoader>
 #include <QApplication>
-
+#include <QPluginLoader>
 #include <plugin-iface/style-plugin-iface.h>
 
 static bool mIsLoading = false;
