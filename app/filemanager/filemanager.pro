@@ -1,16 +1,16 @@
 TEMPLATE = app
 
-QT += core gui
+QT += core gui gui-private x11extras dbus concurrent widgets
 
 TARGET = graceful-filemanager
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets widgets-private
 
-
 PKGCONFIG +=                                        \
     gio-2.0                                         \
     glib-2.0                                        \
-    gio-unix-2.0
+    poppler-qt5                                     \
+    gio-unix-2.0                                    \
 
 LIBS +=                                             \
     -lX11                                           \

@@ -10,11 +10,11 @@ class FMWindowFactory : public QObject
     Q_OBJECT
 public:
     static FMWindowFactory *getInstance();
+    explicit FMWindowFactory (QObject *parent = nullptr);
     virtual FMWindowIface *create (const QStringList &uris);
     virtual FMWindowIface *create (const QString &uri = nullptr);
 
 private:
-    explicit FMWindowFactory (QObject *parent = nullptr);
 
 private:
     static FMWindowFactory  *mGlobalInstance;
