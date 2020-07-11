@@ -1,5 +1,6 @@
 HEADERS += \
-    $$PWD/thumbnail-manager.h
+    $$PWD/thumbnail-manager.h                   \
+
 
 SOURCES += \
-    $$PWD/thumbnail-manager.cpp
+    $$PWD/thumbnail-manager.cpp                 \

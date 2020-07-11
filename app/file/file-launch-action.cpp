@@ -17,16 +17,17 @@ FileLaunchAction::FileLaunchAction(const QString &uri, GAppInfo *app_info, bool 
     mUri = uri;
     mAppInfo = static_cast<GAppInfo*>(g_object_ref(app_info));
     mForceWithArg = forceWithArg;
-
     if (!isValid()) {
+        CT_SYSLOG(LOG_WARNING, "is valid!");
         return;
     }
 
     GThemedIcon *icon = G_THEMED_ICON(g_app_info_get_icon(mAppInfo));
-    const char * const * icon_names = g_themed_icon_get_names(icon);
+    const char * const * iconNames = g_themed_icon_get_names(icon);
 
-    if (icon_names)
-        mIcon = QIcon::fromTheme(*icon_names);
+    if (iconNames) {
+        mIcon = QIcon::fromTheme(*iconNames);
+    }
     setIcon(mIcon);
     mInfoName = g_app_info_get_name(mAppInfo);
     setText(mInfoName);

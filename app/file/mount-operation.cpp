@@ -4,8 +4,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 
+#include <gio/gio.h>
 #include <gobject/gerror-wrapper.h>
-
 #include <dialog/connect-remote-filesystem.h>
 
 
@@ -35,35 +35,35 @@ void MountOperation::setAutoDelete(bool isAuto)
 
 void MountOperation::slotStart()
 {
-    ConnectRemoteFilesystem *dlg = new ConnectRemoteFilesystem;
-    connect(dlg, &QDialog::accepted, [=]() {
-        g_mount_operation_set_username(mOp, dlg->user().toUtf8().constData());
-        g_mount_operation_set_password(mOp, dlg->password().toUtf8().constData());
-//        g_mount_operation_set_domain(mOp, dlg->domain().toUtf8().constData());
-//        g_mount_operation_set_anonymous(mOp, false);
-        if (nullptr != mVolume) {
-            g_object_unref(mVolume);
-        }
-        remoteUri = dlg->uri();
-        mVolume = g_file_new_for_uri(dlg->uri().toUtf8().constData());
-        //TODO: when FileEnumerator::prepare(), trying mount volume without password dialog first.
-        g_mount_operation_set_password_save(mOp, G_PASSWORD_SAVE_FOR_SESSION);
-    });
+//    ConnectRemoteFilesystem *dlg = new ConnectRemoteFilesystem;
+//    connect(dlg, &QDialog::accepted, [=]() {
+//        g_mount_operation_set_username(mOp, dlg->user().toUtf8().constData());
+//        g_mount_operation_set_password(mOp, dlg->password().toUtf8().constData());
+////        g_mount_operation_set_domain(mOp, dlg->domain().toUtf8().constData());
+////        g_mount_operation_set_anonymous(mOp, false);
+//        if (nullptr != mVolume) {
+//            g_object_unref(mVolume);
+//        }
+//        remoteUri = dlg->uri();
+//        mVolume = g_file_new_for_uri(dlg->uri().toUtf8().constData());
+//        //TODO: when FileEnumerator::prepare(), trying mount volume without password dialog first.
+//        g_mount_operation_set_password_save(mOp, G_PASSWORD_SAVE_FOR_SESSION);
+//    });
 
-    auto code = dlg->exec();
-    if (code == QDialog::Rejected) {
-        slotCancel();
-        QMessageBox msg;
-        msg.setText(tr("Operation Cancelled"));
-        msg.exec();
-        return;
-    }
-    dlg->deleteLater();
-    g_file_mount_enclosing_volume(mVolume, G_MOUNT_MOUNT_NONE, mOp, mCancellable, GAsyncReadyCallback(mountEnclosingVolumeCallback), this);
+//    auto code = dlg->exec();
+//    if (code == QDialog::Rejected) {
+//        slotCancel();
+//        QMessageBox msg;
+//        msg.setText(tr("Operation Cancelled"));
+//        msg.exec();
+//        return;
+//    }
+//    dlg->deleteLater();
+//    g_file_mount_enclosing_volume(mVolume, G_MOUNT_MOUNT_NONE, mOp, mCancellable, GAsyncReadyCallback(mountEnclosingVolumeCallback), this);
 
-    g_signal_connect (mOp, "ask-question", G_CALLBACK(askQuestionCB), this);
-    g_signal_connect (mOp, "ask-password", G_CALLBACK (askPasswordCB), this);
-    g_signal_connect (mOp, "aborted", G_CALLBACK (abortedCB), this);
+//    g_signal_connect (mOp, "ask-question", G_CALLBACK(askQuestionCB), this);
+//    g_signal_connect (mOp, "ask-password", G_CALLBACK (askPasswordCB), this);
+//    g_signal_connect (mOp, "aborted", G_CALLBACK (abortedCB), this);
 }
 
 void MountOperation::slotCancel()
@@ -96,8 +96,8 @@ void MountOperation::askQuestionCB(GMountOperation *op, char *message, char **ch
         connect(button, &QPushButton::clicked, [=]() {
             g_mount_operation_set_choice(op, i);
         });
-        *choice++;
-        i++;
+        ++(*choice);
+        ++i;
     }
     //block ui
     msg_box->exec();

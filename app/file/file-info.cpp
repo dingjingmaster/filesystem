@@ -58,13 +58,13 @@ FileInfo::~FileInfo()
 
 std::shared_ptr<FileInfo> FileInfo::fromUri(QString uri, bool addToHash)
 {
-    CT_SYSLOG(LOG_DEBUG, "start ...");
+//    CT_SYSLOG(LOG_DEBUG, "start ...");
     FileInfoManager *infoManager = FileInfoManager::getInstance();
     infoManager->lock();
     std::shared_ptr<FileInfo> info = infoManager->findFileInfoByUri(uri);
     if (info != nullptr) {
         infoManager->unlock();
-        CT_SYSLOG(LOG_DEBUG, "find file stop!");
+//        CT_SYSLOG(LOG_DEBUG, "find file stop!");
         return info;
     } else {
         std::shared_ptr<FileInfo> newlyInfo = std::make_shared<FileInfo>();

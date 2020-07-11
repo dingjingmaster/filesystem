@@ -10,13 +10,14 @@ public:
     explicit ConnectRemoteFilesystem(QWidget *parent = nullptr);
     ~ConnectRemoteFilesystem();
 
-Q_SIGNALS:
-
-public:
     QString uri();
     QString user();
     QString domain();
     QString password();
+
+Q_SIGNALS:
+
+public:
 
 private:
 };

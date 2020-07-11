@@ -23,14 +23,13 @@ CONFIG +=                                           \
     link_pkgconfig
 
 INCLUDEPATH +=                                      \
-    $$PWD/..                                        \
+    $$PWD/../                                       \
     $$PWD/../common                                 \
+    $$PWD/../manager                                \
     $$PWD/../library
 
 SOURCES +=                                          \
     $$PWD/main.cpp                                  \
-
-
 
 include($$PWD/../vfs/vfs.pri)
 include($$PWD/../file/file.pri)
@@ -39,8 +38,10 @@ include($$PWD/../main/main.pri)
 include($$PWD/../model/model.pri)
 include($$PWD/../window/window.pri)
 include($$PWD/../common/common.pri)
+include($$PWD/../manager/manager.pri)
 include($$PWD/../delegate/delegate.pri)
 include($$PWD/../controls/controls.pri)
+include($$PWD/../thumbnail/thumbnail.pri)
 include($$PWD/../library/syslog/syslog.pri)
 include($$PWD/../library/gobject/gobject.pri)
 include($$PWD/../plugin-iface/plugin-iface.pri)

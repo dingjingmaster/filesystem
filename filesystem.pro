@@ -7,8 +7,8 @@ CONFIG(debug,debug|release) {
 }
 
 SUBDIRS =                                                   \
-#    $$PWD/app/gui/gui.pro                                   \
     $$PWD/app/desktop/desktop.pro                           \
+    $$PWD/app/filemanager/filemanager.pro                   \
 
 OTHER_FILES +=                                              \
     $$PWD/LICENSE                                           \

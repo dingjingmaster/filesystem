@@ -12,20 +12,20 @@ ConnectRemoteFilesystem::~ConnectRemoteFilesystem()
 
 QString ConnectRemoteFilesystem::uri()
 {
-
+    return "";
 }
 
 QString ConnectRemoteFilesystem::user()
 {
-
+    return "";
 }
 
 QString ConnectRemoteFilesystem::domain()
 {
-
+    return "";
 }
 
 QString ConnectRemoteFilesystem::password()
 {
-
+    return "";
 }

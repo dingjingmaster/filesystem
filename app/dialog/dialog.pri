@@ -1,5 +1,7 @@
+
+
 HEADERS += \
-    $$PWD/connect-remote-filesystem.h
+    $$PWD/connect-remote-filesystem.h               \
 
 SOURCES += \
-    $$PWD/connect-remote-filesystem.cpp
+    $$PWD/connect-remote-filesystem.cpp             \
