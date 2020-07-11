@@ -15,4 +15,4 @@ SOURCES += \
     $$PWD/x11-window-manager.cpp
 
 RESOURCES += \
-    $$PWD/filemanager-style.qrc
+    $$PWD/desktop-style.qrc

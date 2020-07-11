@@ -94,9 +94,6 @@ bool X11WindowManager::eventFilter(QObject *watched, QEvent *event)
 
                 mIsDraging = false;
 
-                //NOTE: use x11 move will ungrab the window focus
-                //hide and show will restore the focus and it seems
-                //there is no bad effect for peony main window.
                 if (isTouchMove) {
                     if (!mCurrentWidget->mouseGrabber()) {
                         mCurrentWidget->grabMouse();

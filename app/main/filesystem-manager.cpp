@@ -26,8 +26,9 @@ FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appNam
     setApplicationVersion("v1.0.0");
     setApplicationName(appName);
 
-    QFile file(":/filemanager-style.qss");
+    QFile file(":/desktop-style.qss");
     file.open(QFile::ReadOnly);
+    qDebug() << file.readAll();
     setStyleSheet(QString::fromLatin1(file.readAll()));
     file.close();
 
