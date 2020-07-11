@@ -2,7 +2,7 @@ TEMPLATE = app
 
 QT += core gui
 
-TARGET = file-manager
+TARGET = graceful-filemanager
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets widgets-private
 
@@ -48,3 +48,5 @@ include($$PWD/../plugin-iface/plugin-iface.pri)
 include($$PWD/../library/single-app/single-app.pri)
 include($$PWD/../library/qgsettings/qgsettings-lib.pri)
 include($$PWD/../library/kwindow-system/kwindow-system.pri)
+
+RESOURCES +=

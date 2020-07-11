@@ -6,17 +6,19 @@
 #include <clib_syslog.h>
 #include <glib/gprintf.h>
 #include <window/main-window.h>
-#include <window/properties-window.h>
 #include <vfs/search-vfs-register.h>
+#include <window/properties-window.h>
+#include <view/directory-view-widget.h>
 #include <kwindow-system/kwindowsystem.h>
 #include <view/directory-view-container.h>
-#include <view/directory-view-widget.h>
 
+#include <QFile>
 #include <QTimer>
 #include <QObject>
 #include <QTranslator>
 #include <QMessageBox>
 #include <QApplication>
+#include <QStyleFactory>
 
 
 FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appName) : SingleApp(argc, argv, appName, true)
@@ -24,8 +26,13 @@ FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appNam
     setApplicationVersion("v1.0.0");
     setApplicationName(appName);
 
+    QFile file(":/filemanager-style.qss");
+    file.open(QFile::ReadOnly);
+    setStyleSheet(QString::fromLatin1(file.readAll()));
+    file.close();
+
     QTranslator *ts = new QTranslator (this);
-    ts->load("/usr/share/filesystem-manager/filesystem-manager_" + QLocale::system().name());
+    ts->load("/usr/share/graceful/filesystem-manager_" + QLocale::system().name());
     QApplication::installTranslator(ts);
 
     mParser.addOption(mQuitOption);
@@ -36,13 +43,13 @@ FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appNam
     mParser.addPositionalArgument("files", tr("open Files or directories"), tr("[FILE1, FILE2, ...]"));
 
     if (this->isSecondary()) {
-        CT_SYSLOG(LOG_DEBUG, "%s", "第二个filesystem-manager实例");
+        CT_SYSLOG(LOG_DEBUG, "%s", "second file-manager instance");
         mParser.addHelpOption();
         mParser.addVersionOption();
         if (this->arguments().count() == 2 && arguments().last() == ".") {
             QStringList args;
             auto dir = g_get_current_dir();
-            args << "filesystem manager" << dir;
+            args << "graceful-filemanager" << dir;
             g_free(dir);
             auto message = args.join(' ').toUtf8();
             sendMessage(message);
@@ -61,12 +68,21 @@ FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appNam
     auto message = this->arguments().join(' ').toUtf8();
     slotParseCommandLine(this->instanceId(), message);
 
+    auto testIcon = QIcon::fromTheme("folder");
+    if (testIcon.isNull()) {
+        QIcon::setThemeName("ukui-icon-theme-default");
+        if (QStyleFactory::keys().contains("gtk2")) {
+            setStyle("gtk2");
+        }
+        CT_SYSLOG(LOG_WARNING, "cannot get system icon theme");
+    }
+
     SearchVFSRegister::registSearchVFS();
 }
 
 void FilesystemManager::about()
 {
-    QMessageBox::about(nullptr, "graceful filesystem", "Author:\n\tding jing <dingjing@live.cn>\n");
+    QMessageBox::about(nullptr, "graceful filemanager", "Author:\t\t\t\n\n\n");
 }
 
 void FilesystemManager::help()
@@ -88,25 +104,26 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
     parser.addOption(mShowPropertiesOption);
 
     const QStringList args = QString(msg).split(' ');
-    CT_SYSLOG(LOG_DEBUG, "process: %s", QString(msg).toUtf8().data())
+    CT_SYSLOG(LOG_DEBUG, "process: %s", QString(msg).toUtf8().data());
+
     parser.process(args);
     if (parser.isSet(mQuitOption)) {
-        CT_SYSLOG(LOG_DEBUG, "退出");
+        CT_SYSLOG(LOG_DEBUG, "graceful-filemanager -q");
         QTimer::singleShot(1, [=]() {
             qApp->quit();
         });
         return;
     }
 
-    if (!mParser.optionNames().isEmpty()) {
-        if (mParser.isSet(mShowItemsOption)) {
+    if (!parser.optionNames().isEmpty()) {
+        if (parser.isSet(mShowItemsOption)) {
             QHash<QString, QStringList> itemHash;
             auto uris = FileUtils::toDisplayUris(parser.positionalArguments());
             for (auto uri : uris) {
                 auto parentUri = FileUtils::getParentUri(uri);
                 if (itemHash.value(parentUri).isEmpty()) {
                     QStringList l;
-                    l << uri;
+                    l<<uri;
                     itemHash.insert(parentUri, l);
                 } else {
                     auto l = itemHash.value(parentUri);
@@ -115,7 +132,6 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                     itemHash.insert(parentUri, l);
                 }
             }
-
             auto parentUris = itemHash.keys();
 
             for (auto parentUri : parentUris) {
@@ -129,41 +145,49 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
                 window->show();
                 KWindowSystem::raiseWindow(window->winId());
             }
-            if (parser.isSet(mShowFoldersOption)) {
-                QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
-                auto window = new MainWindow(uris.first());
-                uris.removeAt(0);
-                if (!uris.isEmpty()) {
-                    CT_SYSLOG(LOG_DEBUG, "添加新的widget到tabwidget")
-                    window->slotAddNewTabs(uris);
-                }
-                window->show();
-                KWindowSystem::raiseWindow(window->winId());
+        }
+
+        if (parser.isSet(mShowFoldersOption)) {
+            QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
+            auto window = new MainWindow(uris.first());
+            uris.removeAt(0);
+            if (!uris.isEmpty()) {
+                window->slotAddNewTabs(uris);
             }
-            if (parser.isSet(mShowPropertiesOption)) {
-                QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
-                CT_SYSLOG(LOG_DEBUG, "展示属性窗口");
-                PropertiesWindow *window = new PropertiesWindow(uris);
-                window->show();
-                KWindowSystem::raiseWindow(window->winId());
+            window->show();
+            KWindowSystem::raiseWindow(window->winId());
+        }
+        if (parser.isSet(mShowPropertiesOption)) {
+            QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
+
+            PropertiesWindow *window = new PropertiesWindow(uris);
+            window->show();
+            KWindowSystem::raiseWindow(window->winId());
+        }
+    } else {
+        if (!parser.positionalArguments().isEmpty()) {
+            QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
+            CT_SYSLOG(LOG_DEBUG, "show in directory: '%s'", uris.first().toUtf8().constData());
+            auto window = new MainWindow(uris.first());
+            uris.removeAt(0);
+            if (!uris.isEmpty()) {
+                window->slotAddNewTabs(uris);
             }
+            window->setAttribute(Qt::WA_DeleteOnClose);
+            window->show();
+            KWindowSystem::raiseWindow(window->winId());
         } else {
-            if (!parser.positionalArguments().isEmpty()) {
-                QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
-                auto window = new FMWindow(uris.first());
-                uris.removeAt(0);
-                if (!uris.isEmpty()) {
-                    window->slotAddNewTabs(uris);
-                }
-                window->setAttribute(Qt::WA_DeleteOnClose);
-                window->show();
-                KWindowSystem::raiseWindow(window->winId());
-            } else {
-                auto window = new MainWindow;
-                window->setAttribute(Qt::WA_DeleteOnClose);
-                window->show();
-                KWindowSystem::raiseWindow(window->winId());
-            }
+            auto window = new MainWindow;
+            window->setAttribute(Qt::WA_DeleteOnClose);
+            window->show();
+            KWindowSystem::raiseWindow(window->winId());
         }
     }
+
+    connect(this, &QApplication::paletteChanged, this, [=](const QPalette &pal) {
+        for (auto w : allWidgets()) {
+            w->setPalette(pal);
+            w->update();
+        }
+    });
 }

@@ -11,3 +11,6 @@ SOURCES += \
     $$PWD/fm-window-factory.cpp                 \
     $$PWD/filesystem-manager.cpp                \
     $$PWD/prop-window-tabpage-plugin-iface.cpp
+
+RESOURCES += \
+    $$PWD/filemanager-style.qrc

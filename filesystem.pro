@@ -6,11 +6,11 @@ CONFIG(debug,debug|release) {
     QMAKE_CXXFLAGS += -DLOG_LEVEL=7
 }
 
-SUBDIRS =                                                   \
+SUBDIRS = \
     $$PWD/app/desktop/desktop.pro                           \
     $$PWD/app/filemanager/filemanager.pro                   \
 
-OTHER_FILES +=                                              \
+OTHER_FILES += \
     $$PWD/LICENSE                                           \
     $$PWD/Doxyfile                                          \
     $$PWD/README.md                                         \
@@ -31,6 +31,20 @@ data_graceful_desktop_icon.files = $$PWD/data/graceful-desktop-*
 data_graceful_desktop_schema.path = /usr/share/glib-2.0/schemas/
 data_graceful_desktop_schema.files = $$PWD/data/org.graceful.*.xml
 
-INSTALLS +=                                                 \
+# install graceful-desktop
+bin_graceful_desktop.path = /usr/bin/
+bin_graceful_desktop.files = $$PWD/app/desktop/graceful-desktop
+
+# install graceful-filemanager
+bin_graceful_filemanager.path = /usr/bin/
+bin_graceful_filemanager.files = $$PWD/app/filemanager/graceful-filemanager
+
+# install binary
+INSTALLS += \
+    bin_graceful_desktop                                    \
+    bin_graceful_filemanager                                \
+
+# install data
+INSTALLS += \
     data_graceful_desktop_icon                              \
-    data_graceful_desktop_schema
+    data_graceful_desktop_schema                            \

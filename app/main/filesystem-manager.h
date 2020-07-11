@@ -16,7 +16,7 @@ public:
      * @param argv 命令参数
      * @param appName app名
      */
-    FilesystemManager (int& argc, char* argv[], const char* appName = "graceful-filesystem");
+    FilesystemManager (int& argc, char* argv[], const char* appName = "graceful-filemanager");
 
     /**
      * @brief 关于
@@ -37,10 +37,10 @@ protected Q_SLOTS:
 
 private:
     QCommandLineParser mParser;
-    QCommandLineOption mQuitOption = QCommandLineOption(QStringList()<<"q"<<"quit", tr("关闭所有filesystem manager窗口并退出"));
-    QCommandLineOption mShowItemsOption = QCommandLineOption(QStringList()<<"i"<<"show-items", tr(""));
-    QCommandLineOption mShowFoldersOption = QCommandLineOption(QStringList()<<"f"<<"show-folders", tr("显示文件夹"));
-    QCommandLineOption mShowPropertiesOption = QCommandLineOption(QStringList()<<"p"<<"show-properties", tr("显示属性"));
+    QCommandLineOption mQuitOption = QCommandLineOption(QStringList() << "q" << "quit", tr("close all windows and exit"));
+    QCommandLineOption mShowItemsOption = QCommandLineOption(QStringList() << "i" << "show-items", tr(""));
+    QCommandLineOption mShowFoldersOption = QCommandLineOption(QStringList() << "f" << "show-folders", tr("show directory"));
+    QCommandLineOption mShowPropertiesOption = QCommandLineOption(QStringList() << "p" << "show-properties", tr("show property"));
 
     bool mFirstParse = true;
 
