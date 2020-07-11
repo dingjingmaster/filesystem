@@ -2,7 +2,7 @@ TEMPLATE = app
 
 QT += core gui
 
-TARGET = fm
+TARGET = file-manager
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets widgets-private
 
