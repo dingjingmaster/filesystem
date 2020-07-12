@@ -4,7 +4,7 @@
 
 #include <glib.h>
 #include <gio/gio.h>
-#include <clib_syslog.h>
+#include <syslog/clib_syslog.h>
 
 #include <QString>
 #include <QStringList>
@@ -22,7 +22,9 @@ SearchVFSRegister::SearchVFSRegister()
 
 void SearchVFSRegister::registSearchVFS()
 {
-    if (isregisted) return;
+    if (isregisted) {
+        return;
+    }
 
     SearchVFSManager::getInstance();
 
@@ -55,6 +57,9 @@ static GFile* test_vfs_lookup (GVfs* vfs, const char *uri, gpointer udata)
 
 static GFile* test_vfs_parse_name (GVfs* vfs, const char *parseName, gpointer udata)
 {
+    Q_UNUSED(vfs);
+    Q_UNUSED(udata);
+
     QString tmp = parseName;
 
     if (tmp.contains("real-uri:")) {

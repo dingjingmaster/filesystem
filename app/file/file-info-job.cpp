@@ -1,9 +1,9 @@
 #include "file-info-job.h"
 
 #include "file-info.h"
-#include "clib_syslog.h"
 #include "file-meta-info.h"
 #include "file-info-manager.h"
+#include <syslog/clib_syslog.h>
 
 #include <QUrl>
 #include <QIcon>

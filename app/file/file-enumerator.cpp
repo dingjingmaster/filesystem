@@ -6,7 +6,7 @@
 #include <QTimer>
 #include <QMessageBox>
 #include <file-utils.h>
-#include <clib_syslog.h>
+#include <syslog/clib_syslog.h>
 
 #ifndef FM_FIND_NEXT_FILES_BATCH_SIZE
 #define FM_FIND_NEXT_FILES_BATCH_SIZE 100

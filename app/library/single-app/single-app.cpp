@@ -1,9 +1,8 @@
 #include "single-app.h"
 
-#include "clib_syslog.h"
-
 #include <pwd.h>
 #include <unistd.h>
+#include <syslog/clib_syslog.h>
 
 #include <QTime>
 #include <QThread>

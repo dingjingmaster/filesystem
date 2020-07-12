@@ -1,8 +1,8 @@
 #include "file-info-manager.h"
 
 #include <QHash>
-#include <clib_syslog.h>
 #include <thumbnail-manager.h>
+#include <syslog/clib_syslog.h>
 
 static FileInfoManager* gFileInfoManager = nullptr;
 static QHash<QString, std::shared_ptr<FileInfo>> *gInfoList = nullptr;

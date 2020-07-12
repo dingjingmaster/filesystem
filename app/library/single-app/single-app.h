@@ -3,9 +3,9 @@
 
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QApplication>
 #include <QSharedMemory>
 #include <QCoreApplication>
-#include <QApplication>
 
 /**
  * @brief 此类使系统只运行一个此类的实例

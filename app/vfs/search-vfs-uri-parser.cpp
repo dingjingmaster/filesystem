@@ -1,5 +1,5 @@
 #include "search-vfs-uri-parser.h"
-#include "clib_syslog.h"
+#include <syslog/clib_syslog.h>
 
 #include <QStringList>
 #include <file-utils.h>
@@ -17,7 +17,7 @@ const QString SearchVFSUriParser::getSearchUriNameRegexp(const QString &searchUr
     QString ret = "";
     for (auto arg : list) {
         if (arg.startsWith("name_regexp=")) {
-            CT_SYSLOG(LOG_DEBUG, "搜索 - name: %s", arg.toUtf8().constData())
+            CT_SYSLOG(LOG_DEBUG, "search - name: %s", arg.toUtf8().constData())
             auto tmp = arg.remove("name_regexp=");
             if (ret == "") {
                 ret = tmp;
@@ -27,7 +27,7 @@ const QString SearchVFSUriParser::getSearchUriNameRegexp(const QString &searchUr
         }
 
         if (arg.startsWith("extend_regexp")) {
-            CT_SYSLOG(LOG_DEBUG, "搜索 - extend: %s", arg.toUtf8().constData())
+            CT_SYSLOG(LOG_DEBUG, "search - extend: %s", arg.toUtf8().constData())
             auto tmp = arg.remove("extend_regexp=");
             if (ret == "") {
                 ret = tmp;

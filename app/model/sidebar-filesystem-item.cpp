@@ -5,12 +5,12 @@
 
 #include <password.h>
 #include <file-utils.h>
-#include <clib_syslog.h>
-#include <file/file-watcher.h>
 #include <file/file-info.h>
 #include <QAbstractItemModel>
-#include <file/file-enumerator.h>
+#include <file/file-watcher.h>
+#include <syslog/clib_syslog.h>
 #include <file/file-info-job.h>
+#include <file/file-enumerator.h>
 #include <window/volume-manager.h>
 
 static GAsyncReadyCallback eject_cb(GFile *file, GAsyncResult *res, SideBarFileSystemItem *pThis);

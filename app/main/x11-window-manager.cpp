@@ -7,7 +7,6 @@
 #include <QApplication>
 #include <QStyleOptionTabBarBase>
 
-
 #include <QX11Info>
 #include <X11/Xlib.h>
 

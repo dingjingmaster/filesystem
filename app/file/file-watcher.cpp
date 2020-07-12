@@ -3,8 +3,7 @@
 
 #include <QUrl>
 #include <file-utils.h>
-
-#include <clib_syslog.h>
+#include <syslog/clib_syslog.h>
 #include <model/filelabel-model.h>
 
 FileWatcher::FileWatcher(QString uri, QObject *parent) : QObject(parent)

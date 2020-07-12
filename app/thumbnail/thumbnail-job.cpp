@@ -1,9 +1,9 @@
 #include "thumbnail-job.h"
 
 #include <QApplication>
-#include <clib_syslog.h>
 #include <thumbnail-manager.h>
 #include <file/file-watcher.h>
+#include <syslog/clib_syslog.h>
 
 static int runCount = 0;
 static int endCount = 0;

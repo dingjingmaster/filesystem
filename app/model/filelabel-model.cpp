@@ -1,8 +1,8 @@
 #include "filelabel-model.h"
 
 #include <QMessageBox>
-#include <clib_syslog.h>
 #include "filelabel-model.h"
+#include <syslog/clib_syslog.h>
 #include <file/file-meta-info.h>
 
 static FileLabelModel *gInstance = nullptr;

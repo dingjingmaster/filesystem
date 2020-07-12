@@ -1,13 +1,13 @@
 #include "file-item-model.h"
-
 #include "file-item.h"
+
+#include <QUrl>
 #include <QIcon>
 #include <QMimeData>
-#include <QUrl>
-#include <clib_syslog.h>
 #include <file-utils.h>
-#include <file-operation-utils.h>
 #include <thumbnail-manager.h>
+#include <syslog/clib_syslog.h>
+#include <file-operation-utils.h>
 #include <file/file-copy-operation.h>
 #include <file/file-operation-manager.h>
 

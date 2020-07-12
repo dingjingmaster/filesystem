@@ -3,7 +3,7 @@
 #include <QUrl>
 #include <memory>
 #include "file-info.h"
-#include <clib_syslog.h>
+#include <syslog/clib_syslog.h>
 
 FileInfo::FileInfo(QObject *parent) : QObject(parent)
 {

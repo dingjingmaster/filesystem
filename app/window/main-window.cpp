@@ -19,9 +19,9 @@
 #include <QStandardPaths>
 
 #include <file-utils.h>
-#include <clib_syslog.h>
 #include <clipbord-utils.h>
 #include <global-settings.h>
+#include <syslog/clib_syslog.h>
 #include <file-operation-utils.h>
 #include <directory-view-widget.h>
 #include <directory-view-container.h>
@@ -657,8 +657,8 @@ void MainWindow::validBorder()
 
 QRect MainWindow::sideBarRect()
 {
-    auto pos = mTransparentAreaWidget->mapTo(this, QPoint());
-    return QRect(pos, mTransparentAreaWidget->size());
+//    auto pos = mTransparentAreaWidget->mapTo(this, QPoint());
+//    return QRect(pos, mTransparentAreaWidget->size());
 }
 
 void MainWindow::initAdvancePage()

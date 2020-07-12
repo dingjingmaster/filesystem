@@ -8,7 +8,7 @@
 #include <QProcess>
 #include <QMessageBox>
 #include <QPushButton>
-#include <clib_syslog.h>
+#include <syslog/clib_syslog.h>
 
 
 FileLaunchAction::FileLaunchAction(const QString &uri, GAppInfo *app_info, bool forceWithArg, QObject *parent) : QAction(parent)

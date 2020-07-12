@@ -3,9 +3,9 @@
 
 #include <glib.h>
 #include <file-utils.h>
-#include <clib_syslog.h>
 #include <glib/gprintf.h>
 #include <window/main-window.h>
+#include <syslog/clib_syslog.h>
 #include <vfs/search-vfs-register.h>
 #include <window/properties-window.h>
 #include <view/directory-view-widget.h>
@@ -26,11 +26,11 @@ FilesystemManager::FilesystemManager(int& argc, char *argv[], const char *appNam
     setApplicationVersion("v1.0.0");
     setApplicationName(appName);
 
-    QFile file(":/desktop-style.qss");
-    file.open(QFile::ReadOnly);
-    qDebug() << file.readAll();
-    setStyleSheet(QString::fromLatin1(file.readAll()));
-    file.close();
+//    QFile file(":/desktop-style.qss");
+//    file.open(QFile::ReadOnly);
+////    qDebug() << file.readAll();
+//    setStyleSheet(QString::fromLatin1(file.readAll()));
+//    file.close();
 
     QTranslator *ts = new QTranslator (this);
     ts->load("/usr/share/graceful/filesystem-manager_" + QLocale::system().name());
@@ -166,6 +166,7 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
             KWindowSystem::raiseWindow(window->winId());
         }
     } else {
+        CT_SYSLOG(LOG_DEBUG, "There is no param set.");
         if (!parser.positionalArguments().isEmpty()) {
             QStringList uris = FileUtils::toDisplayUris(parser.positionalArguments());
             CT_SYSLOG(LOG_DEBUG, "show in directory: '%s'", uris.first().toUtf8().constData());
@@ -180,6 +181,7 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
         } else {
             auto window = new MainWindow;
             window->setAttribute(Qt::WA_DeleteOnClose);
+            CT_SYSLOG(LOG_DEBUG, "show window!");
             window->show();
             KWindowSystem::raiseWindow(window->winId());
         }
@@ -191,4 +193,6 @@ void FilesystemManager::slotParseCommandLine (quint32 id, QByteArray msg)
             w->update();
         }
     });
+
+    Q_UNUSED(id);
 }
