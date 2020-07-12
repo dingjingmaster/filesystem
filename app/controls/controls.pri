@@ -1,6 +1,7 @@
 HEADERS += \
     $$PWD/headerbar.h \
     $$PWD/menu-plugin-manager.h \
+    $$PWD/navigation-sidebar.h \
     $$PWD/navigation-tab-bar.h \
     $$PWD/sidebar-menu.h \
     $$PWD/sidebar.h \
@@ -10,6 +11,7 @@ HEADERS += \
 SOURCES += \
     $$PWD/headerbar.cpp \
     $$PWD/menu-plugin-manager.cpp \
+    $$PWD/navigation-sidebar.cpp \
     $$PWD/navigation-tab-bar.cpp \
     $$PWD/sidebar-menu.cpp \
     $$PWD/sidebar.cpp \

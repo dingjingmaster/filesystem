@@ -1,6 +1,8 @@
 #ifndef TABWIDGET_H
 #define TABWIDGET_H
 
+#include "navigation-tab-bar.h"
+
 #include <QList>
 #include <QLabel>
 #include <memory>
@@ -128,7 +130,7 @@ private:
     QPushButton *mClearButton;
     QPushButton *mSearchClose;
     QPushButton *mSearchChild;
-//    NavigationTabBar *mTabBar;
+    NavigationTabBar *mTabBar;
     QPushButton *mRecoverButton;
     QHBoxLayout *mTrashBarLayout;
     QHBoxLayout *mSearchBarLayout;
