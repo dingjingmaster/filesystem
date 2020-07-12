@@ -11,6 +11,7 @@
 #include <view/directory-view-widget.h>
 #include <kwindow-system/kwindowsystem.h>
 #include <view/directory-view-container.h>
+#include <QtWidgets/private/qwidgetresizehandler_p.h>
 
 #include <QFile>
 #include <QTimer>

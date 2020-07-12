@@ -1,7 +1,8 @@
-#include "directory-view-factory-manager2.h"
-#include "previewpage-factory-manager.h"
-#include "tab-statusbar.h"
 #include "tabwidget.h"
+
+#include "tab-statusbar.h"
+#include "previewpage-factory-manager.h"
+#include "directory-view-factory-manager2.h"
 
 #include <QTimer>
 #include <QToolBar>
@@ -541,7 +542,6 @@ void TabWidget::updateSearchBar(bool showSearch)
 
 void TabWidget::updateSearchPathButton(const QString &uri)
 {
-    //search path not update
     if (uri.startsWith("search://")) {
         return;
     }
@@ -587,7 +587,7 @@ void TabWidget::updateSearchList()
     } else {
         //hide search list
         mSearchMore->setIcon(QIcon::fromTheme("go-down"));
-        for(int i=0; i<mSearchBarList.count(); i++) {
+        for(int i=0; i<mSearchBarList.count(); ++i) {
             mConditionsList[i]->hide();
             mLinkLabelList[i]->hide();
             mClassifyList[i]->hide();
@@ -729,7 +729,6 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
     updateTrashBarVisible(uri);
 
     if (hasCurrentPage) {
-        // perfer to use current page view type
         auto internalViews = DirectoryViewFactoryManager2::getInstance()->internalViews();
         if (internalViews.contains(currentPage()->getView()->viewId())) {
             viewContainer->switchViewType(currentPage()->getView()->viewId());

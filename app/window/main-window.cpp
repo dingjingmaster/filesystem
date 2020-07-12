@@ -1,11 +1,11 @@
 #include "main-window.h"
 
-#include "main-window-factory.h"
-#include "main-window.h"
 #include "properties-window.h"
+#include "main-window-factory.h"
 
 #include <QDir>
 #include <QTimer>
+#include <QSlider>
 #include <QAction>
 #include <QScreen>
 #include <QTabBar>
@@ -18,18 +18,20 @@
 #include <QMouseEvent>
 #include <QMessageBox>
 #include <QApplication>
-#include <QStandardPaths>
-
 #include <file-utils.h>
+#include <QStandardPaths>
+#include <tab-statusbar.h>
 #include <clipbord-utils.h>
 #include <global-settings.h>
 #include <syslog/clib_syslog.h>
 #include <file-operation-utils.h>
 #include <directory-view-widget.h>
+#include <main/x11-window-manager.h>
 #include <directory-view-container.h>
 #include <file/file-operation-manager.h>
+#include <previewpage-factory-manager.h>
+#include <private/qwidgetresizehandler_p.h>
 #include <file/file-operation-error-dialog.h>
-//#include <QtWidgets/private/qwidgetresizehandler_p.h>
 
 #include <X11/X.h>
 #include <X11/Xlib.h>
@@ -55,17 +57,17 @@ MainWindow::MainWindow(const QString &uri, QWidget *parent) : QMainWindow(parent
     setAnimated(false);
     setAttribute(Qt::WA_DeleteOnClose);
     setAttribute(Qt::WA_TranslucentBackground);
-    //setAttribute(Qt::WA_OpaquePaintEvent);
+    setAttribute(Qt::WA_OpaquePaintEvent);
     //fix double window base buttons issue, not effect MinMax button hints
     auto flags = windowFlags() & ~Qt::WindowMinMaxButtonsHint;
     setWindowFlags(flags | Qt::FramelessWindowHint);
-    //setWindowFlags(windowFlags()|Qt::FramelessWindowHint);
+    setWindowFlags(windowFlags()|Qt::FramelessWindowHint);
     setContentsMargins(4, 4, 4, 4);
 
     //bind resize handler
-//    auto handler = new QWidgetResizeHandler(this);
-//    handler->setMovingEnabled(false);
-//    mResizeHandler = handler;
+    auto handler = new QWidgetResizeHandler(this);
+    handler->setMovingEnabled(false);
+    mResizeHandler = handler;
 
     //disable style window manager
     setProperty("useStyleWindowManager", false);
@@ -96,7 +98,7 @@ QSize MainWindow::sizeHint() const
 
 int MainWindow::getCurrentSortColumn()
 {
-//    return mTab->getSortType();
+    return mTab->getSortType();
 }
 
 bool MainWindow::getWindowShowHidden()
@@ -111,17 +113,17 @@ bool MainWindow::getWindowUseDefaultNameSortOrder()
 
 DirectoryViewContainer *MainWindow::getCurrentPage()
 {
-//    return mTab->currentPage();
+    return mTab->currentPage();
 }
 
 const QStringList MainWindow::getCurrentSelections()
 {
-//    return mTab->getCurrentSelections();
+    return mTab->getCurrentSelections();
 }
 
 const QStringList MainWindow::getCurrentAllFileUris()
 {
-//    return mTab->getAllFileUris();
+    return mTab->getAllFileUris();
 }
 
 FMWindowIface *MainWindow::create(const QString &uri)
@@ -150,7 +152,7 @@ FMWindowIface *MainWindow::create(const QStringList &uris)
         window->slotSetCurrentViewZoomLevel(this->currentViewZoomLevel());
     }
 
-//    window->addNewTabs(l);
+    window->slotAddNewTabs(l);
 
     return window;
 }
@@ -214,7 +216,7 @@ FMWindowIface *MainWindow::createWithZoomLevel(const QStringList &uris, int zoom
         window->slotSetCurrentViewZoomLevel(zoomLevel);
     }
 
-//    window->addNewTabs(l);
+    window->slotAddNewTabs(l);
 
     return window;
 }
@@ -336,35 +338,35 @@ void MainWindow::slotSetShortCuts()
     auto closeTabAction = new QAction(this);
     closeTabAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_W));
     connect(closeTabAction, &QAction::triggered, this, [=]() {
-//        if (mTab->count() <= 1) {
-//            this->close();
-//        } else {
-//            mTab->removeTab(mTab->currentIndex());
-//        }
+        if (mTab->count() <= 1) {
+            this->close();
+        } else {
+            mTab->removeTab(mTab->currentIndex());
+        }
     });
     addAction(closeTabAction);
 
     auto nextTabAction = new QAction(this);
     nextTabAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Tab));
     connect(nextTabAction, &QAction::triggered, this, [=]() {
-//        int currentIndex = mTab->currentIndex();
-//        if (currentIndex + 1 < mTab->count()) {
-//            mTab->setCurrentIndex(currentIndex + 1);
-//        } else {
-//            mTab->setCurrentIndex(0);
-//        }
+        int currentIndex = mTab->currentIndex();
+        if (currentIndex + 1 < mTab->count()) {
+            mTab->setCurrentIndex(currentIndex + 1);
+        } else {
+            mTab->setCurrentIndex(0);
+        }
     });
     addAction(nextTabAction);
 
     auto previousTabAction = new QAction(this);
     previousTabAction->setShortcuts(QList<QKeySequence>()<<QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_Tab));
     connect(previousTabAction, &QAction::triggered, this, [=]() {
-//        int currentIndex = mTab->currentIndex();
-//        if (currentIndex > 0) {
-//            mTab->setCurrentIndex(currentIndex - 1);
-//        } else {
-//            mTab->setCurrentIndex(mTab->count() - 1);
-//        }
+        int currentIndex = mTab->currentIndex();
+        if (currentIndex > 0) {
+            mTab->setCurrentIndex(currentIndex - 1);
+        } else {
+            mTab->setCurrentIndex(mTab->count() - 1);
+        }
     });
     addAction(previousTabAction);
 
@@ -399,16 +401,16 @@ void MainWindow::slotSetShortCuts()
     auto previewPageAction = new QAction(this);
     previewPageAction->setShortcuts(QList<QKeySequence>()<<Qt::Key_F3<<QKeySequence(Qt::ALT + Qt::Key_P));
     connect(previewPageAction, &QAction::triggered, this, [=]() {
-//        auto triggered = mTab->getTriggeredPreviewPage();
-//        if (triggered) {
-//            mTab->setPreviewPage(nullptr);
-//        } else {
-//            auto instance = PreviewPageFactoryManager::getInstance();
-//            auto lastPreviewPageId  = instance->getLastPreviewPageId();
-//            auto *page = instance->getPlugin(lastPreviewPageId)->createPreviewPage();
-//            mTab->setPreviewPage(page);
-//        }
-//        mTab->setTriggeredPreviewPage(!triggered);
+        auto triggered = mTab->getTriggeredPreviewPage();
+        if (triggered) {
+            mTab->setPreviewPage(nullptr);
+        } else {
+            auto instance = PreviewPageFactoryManager::getInstance();
+            auto lastPreviewPageId  = instance->getLastPreviewPageId();
+            auto *page = instance->getPlugin(lastPreviewPageId)->createPreviewPage();
+            mTab->setPreviewPage(page);
+        }
+        mTab->setTriggeredPreviewPage(!triggered);
     });
     addAction(previewPageAction);
 
@@ -479,7 +481,7 @@ void MainWindow::slotUpdateHeaderBar()
 
 void MainWindow::slotForceStopLoading()
 {
-//    mTab->stopLoading();
+    mTab->stopLoading();
 }
 
 void MainWindow::slotRecoverFromTrash()
@@ -514,7 +516,7 @@ void MainWindow::slotSetSortFolderFirst()
 
 void MainWindow::slotUpdateTabPageTitle()
 {
-//    mTab->updateTabPageTitle();
+    mTab->updateTabPageTitle();
     auto show = FileUtils::getFileDisplayName(getCurrentUri());
     QString title = show + "-" + tr("File Manager");
     setWindowTitle(title);
@@ -539,7 +541,7 @@ void MainWindow::slotCreateFolderOperation()
 
 void MainWindow::slotEditUri(const QString &uri)
 {
-//    mTab->editUri(uri);
+    mTab->editUri(uri);
 }
 
 void MainWindow::slotSetUseDefaultNameSortOrder()
@@ -555,19 +557,19 @@ void MainWindow::slotSetLabelNameFilter(QString name)
 
 void MainWindow::slotEditUris(const QStringList &uris)
 {
-//    mTab->editUris(uris);
+    mTab->editUris(uris);
 }
 
 void MainWindow::slotAddNewTabs(const QStringList &uris)
 {
     for (auto uri : uris) {
-//        mTab->addPage(uri, false);
+        mTab->addPage(uri, false);
     }
 }
 
 void MainWindow::slotSetCurrentSortColumn(int sortColumn)
 {
-//    mTab->setSortType(sortColumn);
+    mTab->setSortType(sortColumn);
 }
 
 void MainWindow::slotSetCurrentViewZoomLevel(int zoomLevel)
@@ -580,26 +582,26 @@ void MainWindow::slotSetCurrentViewZoomLevel(int zoomLevel)
 void MainWindow::slotBeginSwitchView(const QString &viewId)
 {
     auto selection = getCurrentSelections();
-//    mTab->switchViewType(viewId);
-//    // save zoom level
-//    GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ZOOM_LEVEL, currentViewZoomLevel());
-//    mTab->setCurrentSelections(selection);
-//    mTab->m_status_bar->m_slider->setEnabled(mTab->currentPage()->getView()->supportZoom());
+    mTab->switchViewType(viewId);
+    // save zoom level
+    GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ZOOM_LEVEL, currentViewZoomLevel());
+    mTab->setCurrentSelections(selection);
+//    mTab->mStatusBar->mSlider->setEnabled(mTab->currentPage()->getView()->supportZoom());
 }
 
 void MainWindow::slotSyncControlsLocation(const QString &uri)
 {
-//    mTab->goToUri(uri, false, false);
+    mTab->goToUri(uri, false, false);
 }
 
 void MainWindow::slotSetCurrentSortOrder(Qt::SortOrder order)
 {
-//    mTab->setSortOrder(order);
+    mTab->setSortOrder(order);
 }
 
 void MainWindow::slotSetCurrentSelectionUris(const QStringList &uris)
 {
-//    mTab->setCurrentSelections(uris);
+    mTab->setCurrentSelections(uris);
 }
 
 void MainWindow::slotFilterUpdate(int type_index, int time_index, int size_index)
@@ -631,7 +633,7 @@ void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
     }
 
     locationChangeStart();
-//    mTab->goToUri(realUri, addHistory, force);
+    mTab->goToUri(realUri, addHistory, force);
     mHeaderBar->setLocation(uri);
 }
 
@@ -676,9 +678,9 @@ void MainWindow::initUI(const QString &uri)
         QCursor c;
         c.setShape(Qt::WaitCursor);
         this->setCursor(c);
-//        mTab->setCursor(c);
+        mTab->setCursor(c);
 //        mSideBar->setCursor(c);
-        //mStatusBar->update();
+        mStatusBar->update();
     });
 
     connect(this, &MainWindow::locationChangeEnd, this, [=]() {
@@ -687,29 +689,29 @@ void MainWindow::initUI(const QString &uri)
         QCursor c;
         c.setShape(Qt::ArrowCursor);
         this->setCursor(c);
-//        mTab->setCursor(c);
+        mTab->setCursor(c);
 //        mSideBar->setCursor(c);
 //        updateHeaderBar();
-        //m_status_bar->update();
+        mStatusBar->update();
     });
 
     //HeaderBar
     auto headerBar = new HeaderBar(this);
     mHeaderBar = headerBar;
-//    auto headerBarContainer = new HeaderBarContainer(this);
-//    headerBarContainer->addHeaderBar(headerBar);
-//    addToolBar(headerBarContainer);
+    auto headerBarContainer = new HeaderBarContainer(this);
+    headerBarContainer->addHeaderBar(headerBar);                    // 最大化、最小化、关闭
+    addToolBar(headerBarContainer);
     mHeaderBar->setVisible(false);
 
     connect(mHeaderBar, &HeaderBar::updateLocationRequest, this, &MainWindow::slotGoToUri);
     connect(mHeaderBar, &HeaderBar::viewTypeChangeRequest, this, &MainWindow::slotBeginSwitchView);
     connect(mHeaderBar, &HeaderBar::updateZoomLevelHintRequest, this, [=](int zoomLevelHint) {
-//        if (zoomLevelHint >= 0) {
-//            mTab->m_status_bar->m_slider->setEnabled(true);
-//            mTab->m_status_bar->m_slider->setValue(zoomLevelHint);
+        if (zoomLevelHint >= 0) {
+//            mTab->mStatusBar->mSlider->setEnabled(true);
+//            mTab->mStatusBar->mSlider->setValue(zoomLevelHint);
 //        } else {
-//            mTab->m_status_bar->m_slider->setEnabled(false);
-//        }
+//            mTab->mStatusBar->mSlider->setEnabled(false);
+        }
     });
 
     //SideBar
@@ -719,10 +721,10 @@ void MainWindow::initUI(const QString &uri)
     auto palette = sidebarContainer->palette();
     palette.setColor(QPalette::Window, Qt::transparent);
     sidebarContainer->setPalette(palette);
-//    sidebarContainer->setStyleSheet("{"
-//                                    "background-color: transparent;"
-//                                    "border: 0px solid transparent"
-//                                    "}");
+    sidebarContainer->setStyleSheet("{"
+                                    "background-color: transparent;"
+                                    "border: 0px solid transparent"
+                                    "}");
     sidebarContainer->setTitleBarWidget(new QWidget(this));
     sidebarContainer->titleBarWidget()->setFixedHeight(0);
     sidebarContainer->setAttribute(Qt::WA_TranslucentBackground);
@@ -766,17 +768,17 @@ void MainWindow::initUI(const QString &uri)
     sidebarContainer->setWidget(splitter);
     addDockWidget(Qt::LeftDockWidgetArea, sidebarContainer);
 
-//    m_status_bar = new Peony::StatusBar(this, this);
-//    setStatusBar(m_status_bar);
+    mStatusBar = new StatusBar(this, this);
+    setStatusBar(mStatusBar);
 
-//    auto views = new TabWidget;
-//    mTab = views;
-//    if (uri.isNull()) {
-//        auto home = "file://" + QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    auto views = new TabWidget;
+    mTab = views;
+    if (uri.isNull()) {
+        auto home = "file://" + QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
 //        mTab->addPage(home, true);
-//    } else {
+    } else {
 //        mTab->addPage(uri, true);
-//    }
+    }
 //    QTimer::singleShot(1, this, [=]() {
 //        // FIXME:
 //        // it is strange that if we set size hint by qsettings,
@@ -788,53 +790,52 @@ void MainWindow::initUI(const QString &uri)
 //        mTab->updateStatusBarGeometry();
 //    });
 
-//    connect(views->tabBar(), &QTabBar::tabBarDoubleClicked, this, [=](int index) {
+    connect(views->tabBar(), &QTabBar::tabBarDoubleClicked, this, [=](int index) {
 //        if (index == -1)
 //            maximizeOrRestore();
-//    });
-//    connect(views, &TabWidget::closeWindowRequest, this, &QWidget::close);
-//    connect(mHeaderBar, &HeaderBar::updateSearchRequest, mTab, &TabWidget::updateSearchBar);
+    });
+    connect(views, &TabWidget::closeWindowRequest, this, &QWidget::close);
+    connect(mHeaderBar, &HeaderBar::updateSearchRequest, mTab, &TabWidget::updateSearchBar);
 
-//    X11WindowManager *tabBarHandler = X11WindowManager::getInstance();
-//    tabBarHandler->registerWidget(views->tabBar());
+    X11WindowManager *tabBarHandler = X11WindowManager::getInstance();
+    tabBarHandler->registerWidget(views->tabBar());
 
-//    setCentralWidget(views);
+    setCentralWidget(views);
 
     // check slider zoom level
-//    if (currentViewSupportZoom()) {
-//        setCurrentViewZoomLevel(currentViewZoomLevel());
-//    }
+    if (currentViewSupportZoom()) {
+        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
+    }
 
     //bind signals
-//    connect(mTab, &TabWidget::closeSearch, headerBar, &HeaderBar::closeSearch);
-//    connect(mTab, &TabWidget::clearTrash, this, &MainWindow::cleanTrash);
-//    connect(mTab, &TabWidget::recoverFromTrash, this, &MainWindow::recoverFromTrash);
-//    connect(mTab, &TabWidget::updateWindowLocationRequest, this, &MainWindow::goToUri);
-//    connect(mTab, &TabWidget::activePageLocationChanged, this, &MainWindow::locationChangeEnd);
-//    connect(mTab, &TabWidget::activePageViewTypeChanged, this, &MainWindow::updateHeaderBar);
-//    connect(mTab, &TabWidget::activePageChanged, this, &MainWindow::updateHeaderBar);
-//    connect(mTab, &TabWidget::activePageChanged, this, [=](){
-//        // check slider zoom level
-//        setCurrentViewZoomLevel(currentViewZoomLevel());
-//    });
-//    connect(mTab, &TabWidget::menuRequest, this, [=]() {
+    connect(mTab, &TabWidget::closeSearch, headerBar, &HeaderBar::closeSearch);
+    connect(mTab, &TabWidget::clearTrash, this, &MainWindow::slotCleanTrash);
+    connect(mTab, &TabWidget::recoverFromTrash, this, &MainWindow::slotRecoverFromTrash);
+    connect(mTab, &TabWidget::updateWindowLocationRequest, this, &MainWindow::slotGoToUri);
+    connect(mTab, &TabWidget::activePageLocationChanged, this, &MainWindow::locationChangeEnd);
+    connect(mTab, &TabWidget::activePageViewTypeChanged, this, &MainWindow::slotUpdateHeaderBar);
+    connect(mTab, &TabWidget::activePageChanged, this, &MainWindow::slotUpdateHeaderBar);
+    connect(mTab, &TabWidget::activePageChanged, this, [=](){
+        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
+    });
+    connect(mTab, &TabWidget::menuRequest, this, [=]() {
 //        DirectoryViewMenu menu(this);
 //        menu.exec(QCursor::pos());
 //        auto urisToEdit = menu.urisToEdit();
 //        if (!urisToEdit.isEmpty()) {
-//#if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
-//            QTimer::singleShot(100, this, [=]() {
-//#else
-//            QTimer::singleShot(100, [=]() {
-//#endif
+#if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
+            QTimer::singleShot(100, this, [=]() {
+#else
+            QTimer::singleShot(100, [=]() {
+#endif
 //                this->getCurrentPage()->getView()->scrollToSelection(urisToEdit.first());
 //                this->editUri(urisToEdit.first());
-//            });
+            });
 //        }
-//    });
-//    connect(mTab, &TabWidget::currentSelectionChanged, this, [=](){
-//        mStatusBar->update();
-//    });
+    });
+    connect(mTab, &TabWidget::currentSelectionChanged, this, [=](){
+        mStatusBar->update();
+    });
 }
 
 void MainWindow::paintEvent(QPaintEvent *e)
@@ -899,13 +900,13 @@ void MainWindow::keyPressEvent(QKeyEvent *e)
         auto uri = FileUtils::getParentUri(getCurrentUri());
         if (uri.isNull())
             return;
-//        mTab->goToUri(uri, true, true);
+        mTab->goToUri(uri, true, true);
     }
 
     if (e->key() == Qt::Key_Enter || e->key() == Qt::Key_Return) {
         auto selections = this->getCurrentSelections();
         if (selections.count() == 1) {
-//            Q_EMIT mTab->currentPage()->viewDoubleClicked(selections.first());
+            Q_EMIT mTab->currentPage()->viewDoubleClicked(selections.first());
         } else {
             QStringList files;
             QStringList dirs;
@@ -918,10 +919,10 @@ void MainWindow::keyPressEvent(QKeyEvent *e)
                 }
             }
             for (auto uri : dirs) {
-//                mTab->addPage(uri);
+                mTab->addPage(uri);
             }
             for (auto uri : files) {
-//                Q_EMIT mTab->currentPage()->viewDoubleClicked(uri);
+                Q_EMIT mTab->currentPage()->viewDoubleClicked(uri);
             }
         }
     }
@@ -947,7 +948,6 @@ void MainWindow::mouseMoveEvent(QMouseEvent *e)
     //NOTE: when starting a X11 window move, the mouse move event
     //will unreachable when draging, and after draging we could not
     //get the release event correctly.
-    //qDebug()<<"mouse move";
     QMainWindow::mouseMoveEvent(e);
     if (!mIsDraging) {
         return;
@@ -975,7 +975,7 @@ void MainWindow::mouseMoveEvent(QMouseEvent *e)
         XSendEvent(display, QX11Info::appRootWindow(QX11Info::appScreen()),
                    False, SubstructureNotifyMask | SubstructureRedirectMask,
                    &xEvent);
-        //XFlush(display);
+        XFlush(display);
 
         XEvent xevent;
         memset(&xevent, 0, sizeof(XEvent));
@@ -1034,7 +1034,7 @@ bool MainWindow::getWindowSortFolderFirst()
 
 Qt::SortOrder MainWindow::getCurrentSortOrder()
 {
-//    return mTab->getSortOrder();
+    return mTab->getSortOrder();
 }
 
 int MainWindow::currentViewZoomLevel()
@@ -1051,7 +1051,7 @@ int MainWindow::currentViewZoomLevel()
         return defaultZoomLevel;
     }
 
-//    return mTab->mStatusBar->mSlider->value();
+    return mTab->mStatusBar->mSlider->value();
 }
 
 FMWindowFactory *MainWindow::getFactory()
@@ -1061,7 +1061,7 @@ FMWindowFactory *MainWindow::getFactory()
 
 const QString MainWindow::getCurrentUri()
 {
-//    return mTab->getCurrentUri();
+    return mTab->getCurrentUri();
 }
 
 bool MainWindow::currentViewSupportZoom()
@@ -1071,6 +1071,6 @@ bool MainWindow::currentViewSupportZoom()
             return view->supportZoom();
         }
     }
-//    return mTab->mStatusBar->mSlider->isEnabled();
+    return mTab->mStatusBar->mSlider->isEnabled();
 }
 

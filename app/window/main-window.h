@@ -8,6 +8,8 @@
 #include <controls/tabwidget.h>
 #include <main/fm-window-iface.h>
 
+class QWidgetResizeHandler;
+
 /**
  * @brief 文件管理器主要界面布局在此类中完成
  */
@@ -103,7 +105,7 @@ private:
     QStackedWidget *mSideBarContainer;
     bool mShouldSaveWindowSize = false;
     bool mShouldSaveSideBarWidth = false;
-//    QWidgetResizeHandler *mResizeHandler;
+    QWidgetResizeHandler *mResizeHandler;
 };
 
 #endif // MAINWINDOW_H
