@@ -11,10 +11,8 @@
 #include <QButtonGroup>
 #include <QSignalMapper>
 #include <QStackedWidget>
-#include <directory-view-container.h>
-
 #include <file/file-info.h>
-
+#include <directory-view-container.h>
 #include <plugin-iface/preview-page-plugin-iface.h>
 
 class TabWidget : public QMainWindow
