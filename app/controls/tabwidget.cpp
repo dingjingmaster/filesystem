@@ -1,3 +1,6 @@
+#include "directory-view-factory-manager2.h"
+#include "previewpage-factory-manager.h"
+#include "tab-statusbar.h"
 #include "tabwidget.h"
 
 #include <QTimer>
@@ -23,37 +26,36 @@ TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
 
     setAttribute(Qt::WA_TranslucentBackground);
 
-//    mTabBar = new NavigationTabBar(this);
-//    mTabBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    mTabBar = new NavigationTabBar(this);
+    mTabBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     mStack = new QStackedWidget(this);
     mStack->setContentsMargins(0, 0, 0, 0);
-//    mButtons = new PreviewPageButtonGroups(this);
+    mButtons = new PreviewPageButtonGroups(this);
     mPreviewPageContainer = new QStackedWidget(this);
     mPreviewPageContainer->setMinimumWidth(200);
 
     //status bar
-//    mStatusBar = new TabStatusBar(this, this);
-//    connect(this, &TabWidget::zoomRequest, mStatusBar, &TabStatusBar::onZoomRequest);
-//    connect(mStatusBar, &TabStatusBar::zoomLevelChangedRequest, this, &TabWidget::handleZoomLevel);
-    //setStatusBar(mStatusBar);
+    mStatusBar = new TabStatusBar(this, this);
+    connect(this, &TabWidget::zoomRequest, mStatusBar, &TabStatusBar::onZoomRequest);
+    connect(mStatusBar, &TabStatusBar::zoomLevelChangedRequest, this, &TabWidget::handleZoomLevel);
+    setStatusBar(mStatusBar);
 
-//    connect(mButtons, &PreviewPageButtonGroups::previewPageButtonTrigger, [=](bool trigger, const QString &id) {
-//        setTriggeredPreviewPage(trigger);
-//        if (trigger) {
-//            auto plugin = PreviewPageFactoryManager::getInstance()->getPlugin(id);
-//            setPreviewPage(plugin->createPreviewPage());
-//        } else {
-//            setPreviewPage(nullptr);
-//        }
-//    });
+    connect(mButtons, &PreviewPageButtonGroups::previewPageButtonTrigger, [=](bool trigger, const QString &id) {
+        setTriggeredPreviewPage(trigger);
+        if (trigger) {
+            auto plugin = PreviewPageFactoryManager::getInstance()->getPlugin(id);
+            setPreviewPage(plugin->createPreviewPage());
+        } else {
+            setPreviewPage(nullptr);
+        }
+    });
 
-//    connect(mTabBar, &QTabBar::currentChanged, this, &TabWidget::changeCurrentIndex);
-//    connect(mTabBar, &QTabBar::tabMoved, this, &TabWidget::moveTab);
-//    connect(mTabBar, &QTabBar::tabCloseRequested, this, &TabWidget::removeTab);
-//    connect(mTabBar, &NavigationTabBar::addPageRequest, this, &TabWidget::addPage);
-//    connect(mTabBar, &NavigationTabBar::locationUpdated, this, &TabWidget::updateSearchPathButton);
-
-//    connect(mTabBar, &NavigationTabBar::closeWindowRequest, this, &TabWidget::closeWindowRequest);
+    connect(mTabBar, &QTabBar::tabMoved, this, &TabWidget::moveTab);
+    connect(mTabBar, &QTabBar::tabCloseRequested, this, &TabWidget::removeTab);
+    connect(mTabBar, &NavigationTabBar::addPageRequest, this, &TabWidget::addPage);
+    connect(mTabBar, &QTabBar::currentChanged, this, &TabWidget::changeCurrentIndex);
+    connect(mTabBar, &NavigationTabBar::closeWindowRequest, this, &TabWidget::closeWindowRequest);
+    connect(mTabBar, &NavigationTabBar::locationUpdated, this, &TabWidget::updateSearchPathButton);
 
     QHBoxLayout *t = new QHBoxLayout(this);
     QActionGroup *group = new QActionGroup(this);
@@ -61,36 +63,37 @@ TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
     mTabBarBg = new QWidget(this);
     mTabBarBg->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     QToolBar *previewButtons = new QToolBar(this);
-    //previewButtons->setFixedHeight(mTabBar->height());
+    previewButtons->setFixedHeight(mTabBar->height());
     t->setContentsMargins(0, 0, 5, 0);
     t->addWidget(mTabBarBg);
 
     updateTabBarGeometry();
 
-//    auto manager = PreviewPageFactoryManager::getInstance();
-//    auto pluginNames = manager->getPluginNames();
-//    for (auto name : pluginNames) {
-//        auto factory = manager->getPlugin(name);
-//        auto action = group->addAction(factory->icon(), factory->name());
-//        action->setCheckable(true);
-//        connect(action, &QAction::triggered, [=](/*bool checked*/) {
-//            if (!mCurrentPreviewAction) {
-//                mCurrentPreviewAction = action;
-//                action->setChecked(true);
-//                Q_EMIT mButtons->previewPageButtonTrigger(true, factory->name());
-//            } else {
-//                if (mCurrentPreviewAction == action) {
-//                    mCurrentPreviewAction = nullptr;
-//                    action->setChecked(false);
-//                    Q_EMIT mButtons->previewPageButtonTrigger(false, factory->name());
-//                } else {
-//                    mCurrentPreviewAction = action;
-//                    action->setChecked(true);
-//                    Q_EMIT mButtons->previewPageButtonTrigger(true, factory->name());
-//                }
-//            }
-//        });
-//    }
+    auto manager = PreviewPageFactoryManager::getInstance();
+    auto pluginNames = manager->getPluginNames();
+    for (auto name : pluginNames) {
+        auto factory = manager->getPlugin(name);
+        auto action = group->addAction(factory->icon(), factory->name());
+        action->setCheckable(true);
+        connect(action, &QAction::triggered, [=](/*bool checked*/) {
+            if (!mCurrentPreviewAction) {
+                mCurrentPreviewAction = action;
+                action->setChecked(true);
+                Q_EMIT mButtons->previewPageButtonTrigger(true, factory->name());
+            } else {
+                if (mCurrentPreviewAction == action) {
+                    mCurrentPreviewAction = nullptr;
+                    action->setChecked(false);
+                    Q_EMIT mButtons->previewPageButtonTrigger(false, factory->name());
+                } else {
+                    mCurrentPreviewAction = action;
+                    action->setChecked(true);
+                    Q_EMIT mButtons->previewPageButtonTrigger(true, factory->name());
+                }
+            }
+        });
+    }
+
     previewButtons->addActions(group->actions());
     for (auto action : group->actions()) {
         auto button = qobject_cast<QToolButton *>(previewButtons->widgetForAction(action));
@@ -120,7 +123,7 @@ TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
     recover->setFixedWidth(TRASH_BUTTON_WIDTH);
     recover->setFixedHeight(TRASH_BUTTON_HEIGHT);
     mRecoverButton = recover;
-    //trash->addSpacing(10);
+    trash->addSpacing(10);
     trash->addWidget(Label, Qt::AlignLeft);
     trash->setContentsMargins(10, 0, 10, 0);
     trash->addWidget(trashButtons);
@@ -165,20 +168,20 @@ TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
     //bind preview page
     connect(this, &TabWidget::activePageSelectionChanged, this, [=]() {
         updatePreviewPage();
-//        mStatusBar->update();
+        mStatusBar->update();
         Q_EMIT this->currentSelectionChanged();
     });
 
     connect(this, &TabWidget::activePageChanged, this, [=]() {
         QTimer::singleShot(100, this, [=]() {
-//            mStatusBar->update();
+            mStatusBar->update();
             this->updatePreviewPage();
         });
     });
 
-//    connect(this, &TabWidget::activePageLocationChanged, mStatusBar, [=]() {
-////        mStatusBar->update();
-//    });
+    connect(this, &TabWidget::activePageLocationChanged, mStatusBar, [=]() {
+        mStatusBar->update();
+    });
 }
 
 void TabWidget::initAdvanceSearch()
@@ -214,11 +217,9 @@ void TabWidget::initAdvanceSearch()
     mSearchChild = childButton;
     childButton->setFixedHeight(TRASH_BUTTON_HEIGHT);
     childButton->setFixedWidth(TRASH_BUTTON_HEIGHT);
-    //qDebug() << QIcon(":/custom/icons/child-folder").name();
     childButton->setIcon(QIcon(":/custom/icons/child-folder"));
     childButton->setToolTip(tr("Search recursively"));
     connect(childButton, &QPushButton::clicked, this, &TabWidget::searchChildUpdate);
-    //default select recursive
     searchChildUpdate();
 
     QPushButton *moreButton = new QPushButton(tr("more options"),searchButtons);
@@ -255,10 +256,11 @@ void TabWidget::searchUpdate()
     QString keyList = "";
     for(int i=0; i<mLayoutList.count(); i++) {
         if (mConditionsList[i]->currentIndex() == 0 && mInputList[i]->text() != "") {
-            if (keyList == "")
+            if (keyList == "") {
                 keyList = mInputList[i]->text();
-            else
+            } else {
                 keyList += "," + mInputList[i]->text();
+            }
         }
     }
 
@@ -400,7 +402,7 @@ void TabWidget::addNewConditionBar()
 
     connect(classifyCombox, &QComboBox::currentTextChanged, this, &TabWidget::updateAdvanceConditions);
     connect(inputBox, &QLineEdit::textChanged, this, &TabWidget::searchKeyUpdate);
-    //connect(inputBox, &QLineEdit::returnPressed, this, &TabWidget::searchKeyUpdate);
+    connect(inputBox, &QLineEdit::returnPressed, this, &TabWidget::searchKeyUpdate);
 
     mTopLayout->insertLayout(mTopLayout->count()-1, layout);
     mSearchBarCount++;
@@ -501,9 +503,9 @@ void TabWidget::handleZoomLevel(int zoomLevel)
         currentPage()->getView()->setCurrentZoomLevel(zoomLevel);
     } else {
         //check which view to switch.
-//        auto directoryViewManager = DirectoryViewFactoryManager2::getInstance();
-//        auto viewId = directoryViewManager->getDefaultViewId(zoomLevel, getCurrentUri());
-//        switchViewType(viewId);
+        auto directoryViewManager = DirectoryViewFactoryManager2::getInstance();
+        auto viewId = directoryViewManager->getDefaultViewId(zoomLevel, getCurrentUri());
+        switchViewType(viewId);
         currentPage()->getView()->setCurrentZoomLevel(zoomLevel);
     }
 }
@@ -664,7 +666,7 @@ bool TabWidget::eventFilter(QObject *obj, QEvent *e)
 
 void TabWidget::setCurrentIndex(int index)
 {
-//    mTabBar->setCurrentIndex(index);
+    mTabBar->setCurrentIndex(index);
     mStack->setCurrentIndex(index);
 }
 
@@ -703,7 +705,7 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
     c.setShape(Qt::WaitCursor);
     this->setCursor(c);
 
-//    mTabBar->addPage(uri, jumpTo);
+    mTabBar->addPage(uri, jumpTo);
     int zoomLevel = -1;
 
     bool hasCurrentPage = false;
@@ -728,10 +730,10 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
 
     if (hasCurrentPage) {
         // perfer to use current page view type
-//        auto internalViews = DirectoryViewFactoryManager2::getInstance()->internalViews();
-//        if (internalViews.contains(currentPage()->getView()->viewId())) {
-//            viewContainer->switchViewType(currentPage()->getView()->viewId());
-//        }
+        auto internalViews = DirectoryViewFactoryManager2::getInstance()->internalViews();
+        if (internalViews.contains(currentPage()->getView()->viewId())) {
+            viewContainer->switchViewType(currentPage()->getView()->viewId());
+        }
     }
 
     if (zoomLevel > 0) {
@@ -747,13 +749,13 @@ void TabWidget::goToUri(const QString &uri, bool addHistory, bool forceUpdate)
         mLastNonSearchPath = uri;
     }
     currentPage()->goToUri(uri, addHistory, forceUpdate);
-//    mTabBar->updateLocation(mTabBar->currentIndex(), uri);
+    mTabBar->updateLocation(mTabBar->currentIndex(), uri);
     updateTrashBarVisible(uri);
 }
 
 void TabWidget::updateTabPageTitle()
 {
-//    mTabBar->updateLocation(mTabBar->currentIndex(), getCurrentUri());
+    mTabBar->updateLocation(mTabBar->currentIndex(), getCurrentUri());
     updateTrashBarVisible(getCurrentUri());
 }
 
@@ -766,14 +768,14 @@ void TabWidget::switchViewType(const QString &viewId)
     currentPage()->switchViewType(viewId);
 
     // change default view id
-//    auto factoryManager = DirectoryViewFactoryManager2::getInstance();
-//    auto internalViews = factoryManager->internalViews();
-//    if (internalViews.contains(viewId)) {
-//        GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ID, viewId);
-//    }
+    auto factoryManager = DirectoryViewFactoryManager2::getInstance();
+    auto internalViews = factoryManager->internalViews();
+    if (internalViews.contains(viewId)) {
+        GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ID, viewId);
+    }
 
-//    bool supportZoom = this->currentPage()->getView()->supportZoom();
-//    this->mStatusBar->m_slider->setEnabled(this->currentPage()->getView()->supportZoom());
+    bool supportZoom = this->currentPage()->getView()->supportZoom();
+    this->mStatusBar->mSlider->setEnabled(this->currentPage()->getView()->supportZoom());
 }
 
 void TabWidget::goBack()
@@ -903,7 +905,7 @@ void TabWidget::onViewDoubleClicked(const QString &uri)
 
 void TabWidget::changeCurrentIndex(int index)
 {
-//    mTabBar->setCurrentIndex(index);
+    mTabBar->setCurrentIndex(index);
     mStack->setCurrentIndex(index);
     Q_EMIT currentIndexChanged(index);
     Q_EMIT activePageChanged();
@@ -922,8 +924,9 @@ int TabWidget::currentIndex()
 void TabWidget::moveTab(int from, int to)
 {
     auto w = mStack->widget(from);
-    if (!w)
+    if (!w) {
         return;
+    }
     mStack->removeWidget(w);
     mStack->insertWidget(to, w);
     Q_EMIT tabMoved(from, to);
@@ -931,12 +934,13 @@ void TabWidget::moveTab(int from, int to)
 
 void TabWidget::removeTab(int index)
 {
-//    mTabBar->removeTab(index);
+    mTabBar->removeTab(index);
     auto widget = mStack->widget(index);
     mStack->removeWidget(widget);
     widget->deleteLater();
-    if (mStack->count() > 0)
+    if (mStack->count() > 0) {
         Q_EMIT activePageChanged();
+    }
 }
 
 void TabWidget::bindContainerSignal(DirectoryViewContainer *container)
@@ -948,22 +952,24 @@ void TabWidget::bindContainerSignal(DirectoryViewContainer *container)
     connect(container, &DirectoryViewContainer::viewDoubleClicked, this, &TabWidget::onViewDoubleClicked);
     connect(container, &DirectoryViewContainer::menuRequest, this, &TabWidget::menuRequest);
     connect(container, &DirectoryViewContainer::zoomRequest, this, &TabWidget::zoomRequest);
-//    connect(container, &DirectoryViewContainer::setZoomLevelRequest, mStatusBar, &TabStatusBar::updateZoomLevelState);
+    connect(container, &DirectoryViewContainer::setZoomLevelRequest, mStatusBar, &TabStatusBar::updateZoomLevelState);
     connect(container, &DirectoryViewContainer::updateStatusBarSliderStateRequest, this, [=]() {
         bool enable = currentPage()->getView()->supportZoom();
-//        mStatusBar->m_slider->setEnabled(enable);
-//        mStatusBar->m_slider->setVisible(enable);
+        mStatusBar->mSlider->setEnabled(enable);
+        mStatusBar->mSlider->setVisible(enable);
     });
 }
 
 void TabWidget::updatePreviewPage()
 {
-    if (!mPreviewPage)
+    if (!mPreviewPage) {
         return;
+    }
     auto selection = getCurrentSelections();
     mPreviewPage->cancel();
-    if (selection.isEmpty())
+    if (selection.isEmpty()) {
         return ;
+    }
     mPreviewPage->prepare(selection.first());
     mPreviewPage->startPreview();
 }
@@ -972,22 +978,22 @@ void TabWidget::resizeEvent(QResizeEvent *e)
 {
     QMainWindow::resizeEvent(e);
     updateTabBarGeometry();
-    //updateStatusBarGeometry();
+    updateStatusBarGeometry();
 }
 
 void TabWidget::updateTabBarGeometry()
 {
-//    mTabBar->setGeometry(0, 4, mTabBarBg->width(), mTabBar->height());
-//    mTabBarBg->setFixedHeight(mTabBar->height());
-//    mTabBar->raise();
+    mTabBar->setGeometry(0, 4, mTabBarBg->width(), mTabBar->height());
+    mTabBarBg->setFixedHeight(mTabBar->height());
+    mTabBar->raise();
 }
 
 void TabWidget::updateStatusBarGeometry()
 {
     auto font = qApp->font();
     QFontMetrics fm(font);
-//    mStatusBar->setGeometry(0, this->height() - fm.height() - 10, mStack->width(), fm.height() + 10);
-//    mStatusBar->raise();
+    mStatusBar->setGeometry(0, this->height() - fm.height() - 10, mStack->width(), fm.height() + 10);
+    mStatusBar->raise();
 }
 
 const QList<std::shared_ptr<FileInfo>> TabWidget::getCurrentSelectionFileInfos()
@@ -996,7 +1002,7 @@ const QList<std::shared_ptr<FileInfo>> TabWidget::getCurrentSelectionFileInfos()
     QList<std::shared_ptr<FileInfo>> infos;
     for(auto uri : uris) {
         auto info = FileInfo::fromUri(uri);
-        infos<<info;
+        infos << info;
     }
     return infos;
 }
@@ -1013,7 +1019,7 @@ PreviewPageButtonGroups::PreviewPageButtonGroups(QWidget *parent) : QButtonGroup
 
 QTabBar *TabWidget::tabBar()
 {
-//    return mTabBar;
+    return mTabBar;
 }
 
 bool TabWidget::getTriggeredPreviewPage()

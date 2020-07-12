@@ -17,6 +17,9 @@
 #include <directory-view-container.h>
 #include <plugin-iface/preview-page-plugin-iface.h>
 
+class TabStatusBar;
+class PreviewPageButtonGroups;
+
 class TabWidget : public QMainWindow
 {
     friend class MainWindow;
@@ -134,7 +137,7 @@ private:
     QPushButton *mRecoverButton;
     QHBoxLayout *mTrashBarLayout;
     QHBoxLayout *mSearchBarLayout;
-//    PreviewPageButtonGroups *mButtons;
+    PreviewPageButtonGroups *mButtons;
     QStackedWidget *mPreviewPageContainer;
     PreviewPageIface *mPreviewPage = nullptr;
     QAction *mCurrentPreviewAction = nullptr;
@@ -153,7 +156,7 @@ private:
     QList<QSignalMapper*> mRemoveMapperList;
 
 
-//    TabStatusBar *mStatusBar = nullptr;
+    TabStatusBar *mStatusBar = nullptr;
 
     bool mShowSearchBar = false;
     bool mShowSearchList = false;
