@@ -1,3 +1,5 @@
+#include "main-window.h"
+
 #include "main-window-factory.h"
 #include "main-window.h"
 #include "properties-window.h"
@@ -25,8 +27,8 @@
 #include <file-operation-utils.h>
 #include <directory-view-widget.h>
 #include <directory-view-container.h>
-#include <file/file-operation-error-dialog.h>
 #include <file/file-operation-manager.h>
+#include <file/file-operation-error-dialog.h>
 //#include <QtWidgets/private/qwidgetresizehandler_p.h>
 
 #include <X11/X.h>
@@ -297,7 +299,7 @@ void MainWindow::slotSetShortCuts()
     searchAction->setShortcuts(QList<QKeySequence>()<<QKeySequence(Qt::CTRL + Qt::Key_F));
     connect(searchAction, &QAction::triggered, this, [=]() {
         mIsSearch = ! mIsSearch;
-//        mHeaderBar->startEdit(mIsSearch);
+        mHeaderBar->startEdit(mIsSearch);
     });
     addAction(searchAction);
 
@@ -305,7 +307,7 @@ void MainWindow::slotSetShortCuts()
     auto locationAction = new QAction(this);
     locationAction->setShortcuts(QList<QKeySequence>()<<Qt::Key_F4<<QKeySequence(Qt::ALT + Qt::Key_D));
     connect(locationAction, &QAction::triggered, this, [=]() {
-//        mHeaderBar->startEdit();
+        mHeaderBar->startEdit();
     });
     addAction(locationAction);
 
@@ -471,8 +473,8 @@ void MainWindow::slotCheckSettings()
 
 void MainWindow::slotUpdateHeaderBar()
 {
-//    mHeaderBar->setLocation(getCurrentUri());
-//    mHeaderBar->updateIcons();
+    mHeaderBar->setLocation(getCurrentUri());
+    mHeaderBar->updateIcons();
 }
 
 void MainWindow::slotForceStopLoading()
@@ -501,7 +503,7 @@ void MainWindow::slotMaximizeOrRestore()
     } else {
         this->showNormal();
     }
-//    mHeaderBar->updateIcons();
+    mHeaderBar->updateIcons();
 }
 
 void MainWindow::slotSetSortFolderFirst()
@@ -630,7 +632,7 @@ void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
 
     locationChangeStart();
 //    mTab->goToUri(realUri, addHistory, force);
-//    mHeaderBar->setLocation(uri);
+    mHeaderBar->setLocation(uri);
 }
 
 void MainWindow::slotSearchFilter(QString target_path, QString keyWord, bool search_file_name, bool search_content)
@@ -670,7 +672,7 @@ void MainWindow::initUI(const QString &uri)
 {
     connect(this, &MainWindow::locationChangeStart, this, [=]() {
 //        mSideBar->blockSignals(true);
-//        mHeaderBar->blockSignals(true);
+        mHeaderBar->blockSignals(true);
         QCursor c;
         c.setShape(Qt::WaitCursor);
         this->setCursor(c);
@@ -681,7 +683,7 @@ void MainWindow::initUI(const QString &uri)
 
     connect(this, &MainWindow::locationChangeEnd, this, [=]() {
 //        mSideBar->blockSignals(false);
-//        mHeaderBar->blockSignals(false);
+        mHeaderBar->blockSignals(false);
         QCursor c;
         c.setShape(Qt::ArrowCursor);
         this->setCursor(c);
@@ -692,23 +694,23 @@ void MainWindow::initUI(const QString &uri)
     });
 
     //HeaderBar
-//    auto headerBar = new HeaderBar(this);
-//    mHeaderBar = headerBar;
+    auto headerBar = new HeaderBar(this);
+    mHeaderBar = headerBar;
 //    auto headerBarContainer = new HeaderBarContainer(this);
 //    headerBarContainer->addHeaderBar(headerBar);
 //    addToolBar(headerBarContainer);
-    //mHeaderBar->setVisible(false);
+    mHeaderBar->setVisible(false);
 
-//    connect(mHeaderBar, &HeaderBar::updateLocationRequest, this, &MainWindow::goToUri);
-//    connect(mHeaderBar, &HeaderBar::viewTypeChangeRequest, this, &MainWindow::beginSwitchView);
-//    connect(mHeaderBar, &HeaderBar::updateZoomLevelHintRequest, this, [=](int zoomLevelHint) {
+    connect(mHeaderBar, &HeaderBar::updateLocationRequest, this, &MainWindow::slotGoToUri);
+    connect(mHeaderBar, &HeaderBar::viewTypeChangeRequest, this, &MainWindow::slotBeginSwitchView);
+    connect(mHeaderBar, &HeaderBar::updateZoomLevelHintRequest, this, [=](int zoomLevelHint) {
 //        if (zoomLevelHint >= 0) {
 //            mTab->m_status_bar->m_slider->setEnabled(true);
 //            mTab->m_status_bar->m_slider->setValue(zoomLevelHint);
 //        } else {
 //            mTab->m_status_bar->m_slider->setEnabled(false);
 //        }
-//    });
+    });
 
     //SideBar
     QDockWidget *sidebarContainer = new QDockWidget(this);
@@ -930,7 +932,7 @@ void MainWindow::keyPressEvent(QKeyEvent *e)
 void MainWindow::resizeEvent(QResizeEvent *e)
 {
     QMainWindow::resizeEvent(e);
-//    mHeaderBar->updateMaximizeState();
+    mHeaderBar->updateMaximizeState();
     validBorder();
     update();
 

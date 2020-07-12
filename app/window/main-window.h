@@ -2,9 +2,15 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <headerbar.h>
+#include <statusbar.h>
 #include <QStackedWidget>
+#include <controls/tabwidget.h>
 #include <main/fm-window-iface.h>
 
+/**
+ * @brief 文件管理器主要界面布局在此类中完成
+ */
 class MainWindow : public QMainWindow, public FMWindowIface
 {
     Q_OBJECT
@@ -83,11 +89,11 @@ protected:
 
 private:
     QPoint mOffset;
-//    TabWidget *mTab;
+    TabWidget *mTab;
     bool mFolderFirst;
     bool mShowHiddenFile;
-//    HeaderBar *mHeaderBar;
-//    StatusBar *mStatusBar;
+    HeaderBar *mHeaderBar;
+    StatusBar *mStatusBar;
     bool mIsSearch = false;
     bool mIsDraging = false;
 //    BorderShadowEffect *mEffect;
