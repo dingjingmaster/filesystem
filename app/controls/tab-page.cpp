@@ -49,11 +49,7 @@ void TabPage::addPage(const QString &uri)
     container->switchViewType(DirectoryViewFactoryManager2::getInstance()->getDefaultViewId());
     container->getView()->setDirectoryUri(uri);
     container->getView()->beginLocationChange();
-
-    addTab(container,
-           QIcon::fromTheme(FileUtils::getFileIconName(uri), QIcon::fromTheme("folder")),
-           FileUtils::getFileDisplayName(uri));
-
+    addTab(container, QIcon::fromTheme(FileUtils::getFileIconName(uri), QIcon::fromTheme("folder")), FileUtils::getFileDisplayName(uri));
     rebindContainer();
 }
 
@@ -83,26 +79,18 @@ void TabPage::rebindContainer()
         }
     });
 
-    container->connect(container, &DirectoryViewContainer::updateWindowLocationRequest,
-                       this, &TabPage::updateWindowLocationRequest);
-    container->connect(container, &DirectoryViewContainer::directoryChanged,
-                       this, &TabPage::currentLocationChanged);
-    container->connect(container, &DirectoryViewContainer::selectionChanged,
-                       this, &TabPage::currentSelectionChanged);
-    container->connect(container, &DirectoryViewContainer::menuRequest,
-                       this, &TabPage::menuRequest);
-
-    container->connect(container, &DirectoryViewContainer::viewTypeChanged,
-                       this, &TabPage::viewTypeChanged);
+    container->connect(container, &DirectoryViewContainer::updateWindowLocationRequest, this, &TabPage::updateWindowLocationRequest);
+    container->connect(container, &DirectoryViewContainer::directoryChanged, this, &TabPage::currentLocationChanged);
+    container->connect(container, &DirectoryViewContainer::selectionChanged, this, &TabPage::currentSelectionChanged);
+    container->connect(container, &DirectoryViewContainer::menuRequest, this, &TabPage::menuRequest);
+    container->connect(container, &DirectoryViewContainer::viewTypeChanged, this, &TabPage::viewTypeChanged);
 }
 
 void TabPage::refreshCurrentTabText()
 {
     auto uri = getActivePage()->getCurrentUri();
     setTabText(currentIndex(), FileUtils::getFileDisplayName(uri));
-    setTabIcon(currentIndex(),
-               QIcon::fromTheme(FileUtils::getFileIconName(uri),
-                                QIcon::fromTheme("folder")));
+    setTabIcon(currentIndex(), QIcon::fromTheme(FileUtils::getFileIconName(uri), QIcon::fromTheme("folder")));
 }
 
 void TabPage::stopLocationChange()

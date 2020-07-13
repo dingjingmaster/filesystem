@@ -803,7 +803,7 @@ void MainWindow::initUI(const QString &uri)
 
     // check slider zoom level
     if (currentViewSupportZoom()) {
-        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
+//        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
     }
 
     //bind signals
