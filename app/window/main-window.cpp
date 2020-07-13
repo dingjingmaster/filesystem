@@ -69,7 +69,6 @@ MainWindow::MainWindow(const QString &uri, QWidget *parent) : QMainWindow(parent
     handler->setMovingEnabled(false);
     mResizeHandler = handler;
 
-    //disable style window manager
     setProperty("useStyleWindowManager", false);
 
     slotSetShortCuts();
@@ -140,8 +139,9 @@ FMWindowIface *MainWindow::create(const QStringList &uris)
 {
     if (uris.isEmpty()) {
         auto window = new MainWindow;
-        if (currentViewSupportZoom())
+        if (currentViewSupportZoom()) {
             window->slotSetCurrentViewZoomLevel(this->currentViewZoomLevel());
+        }
         return window;
     }
     auto uri = uris.first();
@@ -170,7 +170,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     if (event->type() == QEvent::MouseButtonRelease) {
         if (mShouldSaveSideBarWidth) {
             auto settings = GlobalSettings::getInstance();
-//            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
+            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
         }
         mShouldSaveSideBarWidth = false;
     }
@@ -436,8 +436,6 @@ void MainWindow::slotSetShortCuts()
     pasteAction->setShortcut(QKeySequence::Paste);
     connect(pasteAction, &QAction::triggered, [=]() {
         if (ClipbordUtils::isClipboardHasFiles()) {
-            //FIXME: how about duplicated copy?
-            //FIXME: how to deal with a failed move?
             ClipbordUtils::pasteClipboardFiles(this->getCurrentUri());
         }
     });
@@ -575,7 +573,7 @@ void MainWindow::slotSetCurrentSortColumn(int sortColumn)
 void MainWindow::slotSetCurrentViewZoomLevel(int zoomLevel)
 {
     if (currentViewSupportZoom()) {
-//        mTab->mStatusBar->mSlider->setValue(zoomLevel);
+        mTab->mStatusBar->mSlider->setValue(zoomLevel);
     }
 }
 
@@ -586,7 +584,7 @@ void MainWindow::slotBeginSwitchView(const QString &viewId)
     // save zoom level
     GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ZOOM_LEVEL, currentViewZoomLevel());
     mTab->setCurrentSelections(selection);
-//    mTab->mStatusBar->mSlider->setEnabled(mTab->currentPage()->getView()->supportZoom());
+    mTab->mStatusBar->mSlider->setEnabled(mTab->currentPage()->getView()->supportZoom());
 }
 
 void MainWindow::slotSyncControlsLocation(const QString &uri)
@@ -661,8 +659,8 @@ void MainWindow::validBorder()
 
 QRect MainWindow::sideBarRect()
 {
-//    auto pos = mTransparentAreaWidget->mapTo(this, QPoint());
-//    return QRect(pos, mTransparentAreaWidget->size());
+    auto pos = mTransparentAreaWidget->mapTo(this, QPoint());
+    return QRect(pos, mTransparentAreaWidget->size());
 }
 
 void MainWindow::initAdvancePage()
@@ -673,25 +671,25 @@ void MainWindow::initAdvancePage()
 void MainWindow::initUI(const QString &uri)
 {
     connect(this, &MainWindow::locationChangeStart, this, [=]() {
-//        mSideBar->blockSignals(true);
+        mSideBar->blockSignals(true);
         mHeaderBar->blockSignals(true);
         QCursor c;
         c.setShape(Qt::WaitCursor);
         this->setCursor(c);
         mTab->setCursor(c);
-//        mSideBar->setCursor(c);
+        mSideBar->setCursor(c);
         mStatusBar->update();
     });
 
     connect(this, &MainWindow::locationChangeEnd, this, [=]() {
-//        mSideBar->blockSignals(false);
+        mSideBar->blockSignals(false);
         mHeaderBar->blockSignals(false);
         QCursor c;
         c.setShape(Qt::ArrowCursor);
         this->setCursor(c);
         mTab->setCursor(c);
-//        mSideBar->setCursor(c);
-//        updateHeaderBar();
+        mSideBar->setCursor(c);
+        slotUpdateHeaderBar();
         mStatusBar->update();
     });
 
@@ -707,10 +705,10 @@ void MainWindow::initUI(const QString &uri)
     connect(mHeaderBar, &HeaderBar::viewTypeChangeRequest, this, &MainWindow::slotBeginSwitchView);
     connect(mHeaderBar, &HeaderBar::updateZoomLevelHintRequest, this, [=](int zoomLevelHint) {
         if (zoomLevelHint >= 0) {
-//            mTab->mStatusBar->mSlider->setEnabled(true);
-//            mTab->mStatusBar->mSlider->setValue(zoomLevelHint);
-//        } else {
-//            mTab->mStatusBar->mSlider->setEnabled(false);
+            mTab->mStatusBar->mSlider->setEnabled(true);
+            mTab->mStatusBar->mSlider->setValue(zoomLevelHint);
+        } else {
+            mTab->mStatusBar->mSlider->setEnabled(false);
         }
     });
 
@@ -730,15 +728,16 @@ void MainWindow::initUI(const QString &uri)
     sidebarContainer->setAttribute(Qt::WA_TranslucentBackground);
     sidebarContainer->setContentsMargins(0, 0, 0, 0);
 
-//    NavigationSideBar *sidebar = new NavigationSideBar(this);
-//    mSideBar = sidebar;
+    NavigationSideBar *sidebar = new NavigationSideBar(this);
+    mSideBar = sidebar;
 
-//    auto navigationSidebarContainer = new NavigationSideBarContainer(this);
-//    navigationSidebarContainer->addSideBar(mSideBar);
+    auto navigationSidebarContainer = new NavigationSideBarContainer(this);
+    navigationSidebarContainer->addSideBar(mSideBar);
 
-//    mTransparentAreaWidget = navigationSidebarContainer;
+    CT_SYSLOG(LOG_ERR, "1");
+    mTransparentAreaWidget = navigationSidebarContainer;
 
-//    connect(mSideBar, &NavigationSideBar::updateWindowLocationRequest, this, &MainWindow::goToUri);
+    connect(mSideBar, &NavigationSideBar::updateWindowLocationRequest, this, &MainWindow::slotGoToUri);
 
 //    auto labelDialog = new FileLabelBox(this);
 //    labelDialog->hide();
@@ -746,11 +745,10 @@ void MainWindow::initUI(const QString &uri)
     auto splitter = new QSplitter(this);
     splitter->setChildrenCollapsible(false);
     splitter->setHandleWidth(0);
-//    splitter->addWidget(navigationSidebarContainer);
+    splitter->addWidget(navigationSidebarContainer);
 //    splitter->addWidget(labelDialog);
 
-//    connect(labelDialog->selectionModel(), &QItemSelectionModel::selectionChanged, [=]()
-//    {
+//    connect(labelDialog->selectionModel(), &QItemSelectionModel::selectionChanged, [=]() {
 //        auto selected = labelDialog->selectionModel()->selectedIndexes();
 //        //qDebug() << "FileLabelBox selectionChanged:" <<selected.count();
 //        if (selected.count() > 0) {
@@ -791,8 +789,9 @@ void MainWindow::initUI(const QString &uri)
 //    });
 
     connect(views->tabBar(), &QTabBar::tabBarDoubleClicked, this, [=](int index) {
-//        if (index == -1)
-//            maximizeOrRestore();
+        if (index == -1) {
+            slotMaximizeOrRestore();
+        }
     });
     connect(views, &TabWidget::closeWindowRequest, this, &QWidget::close);
     connect(mHeaderBar, &HeaderBar::updateSearchRequest, mTab, &TabWidget::updateSearchBar);
@@ -886,7 +885,7 @@ void MainWindow::paintEvent(QPaintEvent *e)
 //    mEffect->setTransParentPath(sidebarPath);
 //    mEffect->setTransParentAreaBg(colorBase);
 
-    //color.setAlphaF(0.5);
+    color.setAlphaF(0.5);
 //    mEffect->setWindowBackground(color);
     QPainter p(this);
 
@@ -937,10 +936,10 @@ void MainWindow::resizeEvent(QResizeEvent *e)
     validBorder();
     update();
 
-//    if (mResizeHandler->isButtonDown()) {
-//        // set save window size flag
-//        lastResizeWindow = this;
-//    }
+    if (mResizeHandler->isButtonDown()) {
+        // set save window size flag
+        gLastResizeWindow = this;
+    }
 }
 
 void MainWindow::mouseMoveEvent(QMouseEvent *e)

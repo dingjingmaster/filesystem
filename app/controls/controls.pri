@@ -11,6 +11,7 @@ HEADERS += \
     $$PWD/sidebar-menu.h \
     $$PWD/sidebar.h \
     $$PWD/statusbar.h \
+    $$PWD/tab-page.h \
     $$PWD/tab-statusbar.h \
     $$PWD/tabwidget.h
 
@@ -27,5 +28,6 @@ SOURCES += \
     $$PWD/sidebar-menu.cpp \
     $$PWD/sidebar.cpp \
     $$PWD/statusbar.cpp \
+    $$PWD/tab-page.cpp \
     $$PWD/tab-statusbar.cpp \
     $$PWD/tabwidget.cpp

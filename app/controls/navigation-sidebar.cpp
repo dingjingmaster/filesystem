@@ -18,7 +18,6 @@ NavigationSideBar::NavigationSideBar(QWidget *parent) : QTreeView(parent)
     setIconSize(QSize(16, 16));
 
     setProperty("useIconHighlightEffect", true);
-    //both default and highlight.
     setProperty("iconHighlightEffectMode", 1);
 
     this->verticalScrollBar()->setProperty("drawScrollBarGroove", false);
@@ -52,53 +51,53 @@ NavigationSideBar::NavigationSideBar(QWidget *parent) : QTreeView(parent)
     mProxyModel = new SideBarProxyFilterSortModel(this);
     mProxyModel->setSourceModel(mModel);
 
-    this->setModel(mProxyModel);
+//    this->setModel(mProxyModel);
 
-    connect(this, &QTreeView::expanded, [=](const QModelIndex &index) {
-        auto item = mProxyModel->itemFromIndex(index);
-        item->findChildrenAsync();
-    });
+//    connect(this, &QTreeView::expanded, [=](const QModelIndex &index) {
+//        auto item = mProxyModel->itemFromIndex(index);
+//        item->findChildrenAsync();
+//    });
 
-    connect(this, &QTreeView::collapsed, [=](const QModelIndex &index) {
-        auto item = mProxyModel->itemFromIndex(index);
-        item->clearChildren();
-    });
+//    connect(this, &QTreeView::collapsed, [=](const QModelIndex &index) {
+//        auto item = mProxyModel->itemFromIndex(index);
+//        item->clearChildren();
+//    });
 
-    connect(this, &QTreeView::clicked, [=](const QModelIndex &index) {
-        switch (index.column()) {
-        case 0: {
-            auto item = mProxyModel->itemFromIndex(index);
-            if (!item->uri().isNull()) {
-                Q_EMIT this->updateWindowLocationRequest(item->uri());
-            }
-            break;
-        }
-        case 1: {
-            auto item = mProxyModel->itemFromIndex(index);
-            if (item->isMounted()) {
-                auto leftIndex = mProxyModel->index(index.row(), 0, index.parent());
-                this->collapse(leftIndex);
-                item->unmount();
-            }
-            break;
-        }
-        default:
-            break;
-        }
-    });
+//    connect(this, &QTreeView::clicked, [=](const QModelIndex &index) {
+//        switch (index.column()) {
+//        case 0: {
+//            auto item = mProxyModel->itemFromIndex(index);
+//            if (!item->uri().isNull()) {
+//                Q_EMIT this->updateWindowLocationRequest(item->uri());
+//            }
+//            break;
+//        }
+//        case 1: {
+//            auto item = mProxyModel->itemFromIndex(index);
+//            if (item->isMounted()) {
+//                auto leftIndex = mProxyModel->index(index.row(), 0, index.parent());
+//                this->collapse(leftIndex);
+//                item->unmount();
+//            }
+//            break;
+//        }
+//        default:
+//            break;
+//        }
+//    });
 
-    connect(this, &QTreeView::customContextMenuRequested, this, [=](const QPoint &pos) {
-        auto index = indexAt(pos);
-        auto item = mProxyModel->itemFromIndex(index);
-        if (item) {
-            if (item->type() != SideBarAbstractItem::SeparatorItem) {
-                SideBarMenu menu(item, nullptr);
-                menu.exec(QCursor::pos());
-            }
-        }
-    });
+//    connect(this, &QTreeView::customContextMenuRequested, this, [=](const QPoint &pos) {
+//        auto index = indexAt(pos);
+//        auto item = mProxyModel->itemFromIndex(index);
+//        if (item) {
+//            if (item->type() != SideBarAbstractItem::SeparatorItem) {
+//                SideBarMenu menu(item, nullptr);
+//                menu.exec(QCursor::pos());
+//            }
+//        }
+//    });
 
-    expandAll();
+//    expandAll();
 }
 
 bool NavigationSideBar::eventFilter(QObject *obj, QEvent *e)

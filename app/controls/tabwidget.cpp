@@ -1006,10 +1006,10 @@ const QList<std::shared_ptr<FileInfo>> TabWidget::getCurrentSelectionFileInfos()
     return infos;
 }
 
-PreviewPageContainer::PreviewPageContainer(QWidget *parent) : QStackedWidget(parent)
-{
-
-}
+//PreviewPageContainer::PreviewPageContainer(QWidget *parent) : QStackedWidget(parent)
+//{
+//    setMinimumWidth(300);
+//}
 
 PreviewPageButtonGroups::PreviewPageButtonGroups(QWidget *parent) : QButtonGroup(parent)
 {

@@ -8,6 +8,7 @@
 #include <QMainWindow>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QToolBar>
 
 class TabPage;
 class SideBar;
@@ -101,6 +102,29 @@ private:
     QTimer mOperationMinimumInterval;
     QStackedWidget *mSideBarContainer = nullptr;
     PreviewPageContainer *mPreviewPageContainer = nullptr;
+};
+
+class PreviewPageContainer : public QStackedWidget
+{
+    friend class FMWindow;
+    Q_OBJECT
+    explicit PreviewPageContainer(QWidget *parent = nullptr);
+
+    void setCurrentPage(PreviewPageIface *page);
+    void removePage(PreviewPageIface *page);
+    PreviewPageIface *getCurrentPage();
+    bool isHidden() {
+        return isVisible();
+    }
+};
+
+class ToolBarContainer : public QToolBar
+{
+    friend class FMWindow;
+    explicit ToolBarContainer(QWidget *parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent *e);
 };
 
 #endif // FMWINDOW_H
