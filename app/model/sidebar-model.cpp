@@ -1,36 +1,33 @@
 #include "sidebar-model.h"
 
+#include <QUrl>
+#include <QIcon>
+#include <qmimedata.h>
+#include <file/file-info.h>
+#include <file/file-info-job.h>
+#include <window/bookmark-manager.h>
+
 #include "file-operation-utils.h"
 #include "sidebar-personal-item.h"
 #include "sidebar-favorite-item.h"
 #include "sidebar-separator-item.h"
 #include "sidebar-filesystem-item.h"
 
-#include <QUrl>
-#include <QIcon>
-#include <qmimedata.h>
-
-#include <file/file-info-job.h>
-#include <file/file-info.h>
-
-#include <window/bookmark-manager.h>
-
-
 SideBarModel::SideBarModel(QObject *parent) : QAbstractItemModel (parent)
 {
-    beginResetModel();
+//    beginResetModel();
 
     mRootChildren = new QVector<SideBarAbstractItem*>();
-    SideBarFavoriteItem *favorite_root_item = new SideBarFavoriteItem(nullptr, nullptr, this);
-    mRootChildren->append(favorite_root_item);
+    SideBarFavoriteItem *favoriteRootItem = new SideBarFavoriteItem(nullptr, nullptr, this);
+    mRootChildren->append(favoriteRootItem);
 
-    SideBarPersonalItem *personal_root_item = new SideBarPersonalItem(nullptr, nullptr, this);
-    mRootChildren->append(personal_root_item);
+    SideBarPersonalItem *personalRootItem = new SideBarPersonalItem(nullptr, nullptr, this);
+    mRootChildren->append(personalRootItem);
 
     SideBarFileSystemItem *computerItem = new SideBarFileSystemItem(nullptr, nullptr, this);
     mRootChildren->append(computerItem);
 
-    endResetModel();
+//    endResetModel();
 
     connect(this, &SideBarModel::indexUpdated, this, &SideBarModel::onIndexUpdated);
 }

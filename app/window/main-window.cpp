@@ -170,7 +170,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     if (event->type() == QEvent::MouseButtonRelease) {
         if (mShouldSaveSideBarWidth) {
             auto settings = GlobalSettings::getInstance();
-            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
+//            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
         }
         mShouldSaveSideBarWidth = false;
     }
@@ -815,7 +815,7 @@ void MainWindow::initUI(const QString &uri)
     connect(mTab, &TabWidget::activePageViewTypeChanged, this, &MainWindow::slotUpdateHeaderBar);
     connect(mTab, &TabWidget::activePageChanged, this, &MainWindow::slotUpdateHeaderBar);
     connect(mTab, &TabWidget::activePageChanged, this, [=](){
-        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
+//        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
     });
     connect(mTab, &TabWidget::menuRequest, this, [=]() {
 //        DirectoryViewMenu menu(this);

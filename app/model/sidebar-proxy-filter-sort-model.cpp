@@ -21,7 +21,8 @@ bool SideBarProxyFilterSortModel::lessThan(const QModelIndex &left, const QModel
     }
     auto leftItem = static_cast<SideBarAbstractItem*>(left.internalPointer());
     auto rightItem = static_cast<SideBarAbstractItem*>(right.internalPointer());
-    if (leftItem->type() != SideBarAbstractItem::FileSystemItem || rightItem->type() != SideBarAbstractItem::FileSystemItem) {
+    if (leftItem->type() != SideBarAbstractItem::FileSystemItem ||
+            rightItem->type() != SideBarAbstractItem::FileSystemItem) {
         return false;
     }
 
@@ -33,12 +34,14 @@ bool SideBarProxyFilterSortModel::filterAcceptsRow(int sourceRow, const QModelIn
     auto index = sourceModel()->index(sourceRow, 0, sourceParent);
     auto item = static_cast<SideBarAbstractItem*>(index.internalPointer());
     if (item->type() != SideBarAbstractItem::SeparatorItem) {
-        if (item->displayName().isNull())
+        if (item->displayName() == "" || item->displayName().isNull()) {
             return false;
+        }
     }
     if (item) {
         if (!item->displayName().isEmpty()) {
-            if (QString(item->displayName().at(0)) == ".") {
+            QString dn = item->displayName();
+            if (dn.length() > 0 && dn.at(0) == ".") {
                 return false;
             }
         }
