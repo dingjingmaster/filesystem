@@ -14,7 +14,6 @@
 SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSecondary, Options options, int timeout) : QApplication (argc, argv)
 {
     bool            ret = false;
-    unsigned long   blockSize = 0;
 
     mServer = nullptr;
     mSocket = nullptr;
@@ -26,6 +25,7 @@ SingleApp::SingleApp(int &argc, char *argv[], const char *appName, bool allowSec
     genBlockServerName(appName);
 
     syslog_init(appName, LOG_DEBUG, LOG_LOCAL6);
+    CT_SYSLOG(LOG_DEBUG, "init app '%s'", appName);
 
 #ifdef Q_OS_UNIX
     // 防止异常退出后, 没有销毁共享内存

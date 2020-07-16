@@ -1,6 +1,6 @@
 #include "fm-desktop-application.h"
 
-#include <clib_syslog.h>
+#include <syslog/clib_syslog.h>
 #include <QGuiApplication>
 
 int main (int argc, char* argv[])

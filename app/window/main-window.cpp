@@ -30,8 +30,8 @@
 #include <directory-view-container.h>
 #include <file/file-operation-manager.h>
 #include <previewpage-factory-manager.h>
-#include <private/qwidgetresizehandler_p.h>
 #include <file/file-operation-error-dialog.h>
+#include <QtWidgets/private/qwidgetresizehandler_p.h>
 
 #include <X11/X.h>
 #include <X11/Xlib.h>
@@ -609,6 +609,7 @@ void MainWindow::slotFilterUpdate(int type_index, int time_index, int size_index
 
 void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
 {
+    CT_SYSLOG(LOG_DEBUG, "go to uri: %s", uri.toUtf8().constData());
     QUrl url(uri);
     auto realUri = uri;
     if (url.scheme().isEmpty()) {
@@ -635,7 +636,7 @@ void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
     mHeaderBar->setLocation(uri);
 }
 
-void MainWindow::slotSearchFilter(QString target_path, QString keyWord, bool search_file_name, bool search_content)
+void MainWindow::slotSearchFilter(QString targetPath, QString keyWord, bool search_file_name, bool search_content)
 {
 
 }

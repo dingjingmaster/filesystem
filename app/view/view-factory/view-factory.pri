@@ -1,6 +1,3 @@
-INCLUDEPATH +=                              \
-    $$PWD/../../
-
 HEADERS += \
     $$PWD/directory-view-factory-manager.h  \
     $$PWD/icon-view-factory.h \

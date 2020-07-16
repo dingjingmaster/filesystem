@@ -1,3 +1,7 @@
+INCLUDEPATH += \
+    /usr/include/x86_64-linux-gnu/qt5/QtGui/5.12.8/ \
+    /usr/include/x86_64-linux-gnu/qt5/QtCore/5.12.8/
+
 HEADERS += \
     $$PWD/fm-window.h                           \
     $$PWD/fm-window-iface.h                     \

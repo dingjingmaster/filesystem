@@ -3,10 +3,10 @@
 #include <QUrl>
 #include <QIcon>
 #include <QMimeData>
-#include <clib_syslog.h>
 #include <QStandardPaths>
 #include <file/file-info.h>
 #include <file/file-watcher.h>
+#include <syslog/clib_syslog.h>
 #include <file/file-info-job.h>
 #include <file/file-enumerator.h>
 #include <file/file-info-manager.h>

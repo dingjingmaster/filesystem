@@ -75,7 +75,7 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
     QCommandLineOption daemonOption(QStringList() << "d" << "daemon", tr("Take over the dbus service."));
     parser.addOption(daemonOption);
 
-    QCommandLineOption desktopOption(QStringList() << "w" << "desktop-window", tr("Take over the desktop displaying"));
+    QCommandLineOption desktopOption(QStringList() << "w" << "desktop window", tr("Take over the desktop displaying"));
     parser.addOption(desktopOption);
 
     if (isPrimary) {
@@ -105,31 +105,32 @@ void FMDesktopApplication::parseCmd(quint32 id, QByteArray msg, bool isPrimary)
                 connect(service, &FMDBusService::showItemsRequest, [=](const QStringList &urisList) {
                     QProcess p;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-                    p.setProgram("graceful-desktop");
+                    p.setProgram("graceful-filemanager");
                     p.setArguments(QStringList() << "--show-items" << urisList);
                     p.startDetached();
 #else
-                    p.startDetached("graceful-desktop", QStringList() << "--show-items" << urisList, nullptr);
+                    p.startDetached("graceful-filemanager", QStringList() << "--show-items" << urisList, nullptr);
 #endif
                 });
                 connect(service, &FMDBusService::showFolderRequest, [=](const QStringList &urisList) {
                     QProcess p;
+                    CT_SYSLOG(LOG_DEBUG, "graceful-filemanager --show-folders");
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-                    p.setProgram("graceful-desktop");
+                    p.setProgram("graceful-filemanager");
                     p.setArguments(QStringList() << "--show-folders" << urisList);
                     p.startDetached();
 #else
-                    p.startDetached("graceful-desktop", QStringList() << "--show-folders" << urisList, nullptr);
+                    p.startDetached("graceful-filemanager", QStringList() << "--show-folders" << urisList, nullptr);
 #endif
                 });
                 connect(service, &FMDBusService::showItemPropertiesRequest, [=](const QStringList &urisList) {
                     QProcess p;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-                    p.setProgram("graceful-desktop");
+                    p.setProgram("graceful-filemanager");
                     p.setArguments(QStringList() << "--show-properties" << urisList);
                     p.startDetached();
 #else
-                    p.startDetached("graceful-desktop", QStringList() << "--show-properties" << urisList, nullptr);
+                    p.startDetached("graceful-filemanager", QStringList() << "--show-properties" << urisList, nullptr);
 #endif
                 });
             }
@@ -271,16 +272,16 @@ void FMDesktopApplication::layoutDirectionChangedProcess(Qt::LayoutDirection dir
 
 static void trySetDefaultFolderUrlHandler()
 {
+    CT_SYSLOG(LOG_DEBUG, "try set default folder url handler");
     QTimer::singleShot(1000, []() {
         QtConcurrent::run([=]() {
             GList *apps = g_app_info_get_all_for_type("inode/directory");
             bool hasFMQtAppInfo = false;
             GList *l = apps;
             while (l) {
-                qDebug() << "--->" << l->data;
                 GAppInfo *info = static_cast<GAppInfo*>(l->data);
                 QString cmd = g_app_info_get_executable(info);
-                if (cmd.contains("graceful-desktop")) {
+                if (cmd.contains("graceful-filemanager")) {
                     hasFMQtAppInfo = true;
                     g_app_info_set_as_default_for_type(info, "inode/directory", nullptr);
                     break;
@@ -293,7 +294,7 @@ static void trySetDefaultFolderUrlHandler()
 
             if (!hasFMQtAppInfo) {
                 CT_SYSLOG(LOG_DEBUG, "");
-                GAppInfo *fmDaemon = g_app_info_create_from_commandline("graceful-desktop", nullptr, G_APP_INFO_CREATE_SUPPORTS_URIS, nullptr);
+                GAppInfo *fmDaemon = g_app_info_create_from_commandline("graceful-filemanager", nullptr, G_APP_INFO_CREATE_SUPPORTS_URIS, nullptr);
                 g_app_info_set_as_default_for_type(fmDaemon, "inode/directory", nullptr);
                 g_object_unref(fmDaemon);
             }

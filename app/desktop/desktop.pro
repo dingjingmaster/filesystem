@@ -1,5 +1,7 @@
 TEMPLATE = app
 
+export("QT_SELECT=5")
+
 QT       += core gui x11extras dbus concurrent network
 
 TARGET = graceful-desktop
@@ -17,7 +19,7 @@ INCLUDEPATH +=                                      \
     $$PWD/../                                       \
     $$PWD/../common                                 \
     $$PWD/../manager                                \
-    $$PWD/../library
+    $$PWD/../library                                \
 
 PKGCONFIG +=                                        \
     gio-2.0                                         \

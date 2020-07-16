@@ -26,7 +26,7 @@ INCLUDEPATH +=                                      \
     $$PWD/../                                       \
     $$PWD/../common                                 \
     $$PWD/../manager                                \
-    $$PWD/../library
+    $$PWD/../library                                \
 
 SOURCES +=                                          \
     $$PWD/main.cpp                                  \
