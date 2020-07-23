@@ -45,6 +45,10 @@ public:
      * @todo 需要整合到 settings-daemon
      */
     void initShoutCut();
+
+    /**
+     * @brief open graceful-filemanager
+     */
     void initDoubleClick();
     /**
      * @brief viewId

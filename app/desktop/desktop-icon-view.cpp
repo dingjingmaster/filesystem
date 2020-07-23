@@ -1081,8 +1081,8 @@ void DesktopIconView::initDoubleClick()
 #if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
                 QProcess p;
                 QUrl url = uri;
-                p.setProgram("graceful-desktop");
-                p.setArguments(QStringList() << url.toEncoded() <<"%U&");
+                p.setProgram("/home/dingjing/code/build-filesystem-unknown-Debug/app/filemanager/graceful-filemanager");
+                p.setArguments(QStringList() << url.toEncoded() <<"%U &");
                 p.startDetached();
 #else
                 QProcess p;
