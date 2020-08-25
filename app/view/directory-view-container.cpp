@@ -1,12 +1,11 @@
 #include "directory-view-container.h"
-#include "directory-view-widget.h"
-
-#include <model/fileitem-proxy-filter-sort-model.h>
 
 #include <QAction>
-#include <directory-view-factory-manager2.h>
 #include <file-utils.h>
-
+#include <syslog/clib_syslog.h>
+#include "directory-view-widget.h"
+#include <directory-view-factory-manager2.h>
+#include <model/fileitem-proxy-filter-sort-model.h>
 #include <plugin-iface/directory-view-plugin-iface2.h>
 
 DirectoryViewContainer::DirectoryViewContainer(QWidget *parent) : QWidget(parent)
@@ -58,6 +57,8 @@ const QString DirectoryViewContainer::getCurrentUri()
     if (mView) {
         return mView->getDirectoryUri();
     }
+
+    CT_SYSLOG(LOG_WARNING, "return nullptr");
     return nullptr;
 }
 

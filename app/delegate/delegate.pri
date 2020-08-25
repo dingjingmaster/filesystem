@@ -6,9 +6,13 @@ INCLUDEPATH += \
 HEADERS += \
     $$PWD/icon-view-delegate.h \
     $$PWD/icon-view-editor.h \
-    $$PWD/list-view-delegate.h
+    $$PWD/icon-view-index-widget.h \
+    $$PWD/list-view-delegate.h \
+    $$PWD/sidebar-delegate.h
 
 SOURCES += \
     $$PWD/icon-view-delegate.cpp \
     $$PWD/icon-view-editor.cpp \
-    $$PWD/list-view-delegate.cpp
+    $$PWD/icon-view-index-widget.cpp \
+    $$PWD/list-view-delegate.cpp \
+    $$PWD/sidebar-delegate.cpp

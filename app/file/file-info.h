@@ -110,12 +110,13 @@ private:
     bool mCanMount = false;
     bool mCanEject = false;
     bool mCanStart = false;
-    GFile *mFile = nullptr;
     bool mCanRename = false;
     bool mCanExcute = false;
     bool mCanDelete = false;
-    GFile *mParent = nullptr;
     bool mCanUnmount = false;
+
+    GFile *mFile = nullptr;
+    GFile *mParent = nullptr;
     GFile *mTargetFile = nullptr;
     GCancellable *mCancellable = nullptr;
     std::shared_ptr<FileMetaInfo> mMetaInfo = nullptr;

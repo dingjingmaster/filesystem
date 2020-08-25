@@ -48,12 +48,6 @@ MainWindow::MainWindow(const QString &uri, QWidget *parent) : QMainWindow(parent
 
     slotCheckSettings();
 
-//    mEffect = new BorderShadowEffect(this);
-//    mEffect->setPadding(4);
-//    mEffect->setBorderRadius(6);
-//    mEffect->setBlurRadius(4);
-//    setGraphicsEffect(m_effect);
-
     setAnimated(false);
     setAttribute(Qt::WA_DeleteOnClose);
     setAttribute(Qt::WA_TranslucentBackground);
@@ -631,8 +625,11 @@ void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
         }
     }
 
+    CT_SYSLOG(LOG_DEBUG, "real uri: %s locationChangeStart!", realUri.toUtf8().constData());
     locationChangeStart();
+    CT_SYSLOG(LOG_DEBUG, "real uri: %s locationChangeStart!", realUri.toUtf8().constData());
     mTab->goToUri(realUri, addHistory, force);
+    CT_SYSLOG(LOG_DEBUG, "real uri: %s locationChangeStart!", realUri.toUtf8().constData());
     mHeaderBar->setLocation(uri);
 }
 

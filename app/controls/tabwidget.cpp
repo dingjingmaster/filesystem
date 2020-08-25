@@ -744,6 +744,7 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
 
 void TabWidget::goToUri(const QString &uri, bool addHistory, bool forceUpdate)
 {
+    CT_SYSLOG(LOG_DEBUG, "goToUri");
     if (! uri.startsWith("search://")) {
         mLastNonSearchPath = uri;
     }

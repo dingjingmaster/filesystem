@@ -13,18 +13,16 @@
 #include <QPushButton>
 #include <QTextOption>
 #include <QApplication>
-#include "clipbord-utils.h"
+#include <clipbord-utils.h>
 #include <view/icon-view.h>
 #include <QGraphicsTextItem>
 #include <model/file-item.h>
-#include "icon-view-editor.h"
 #include <model/file-item-model.h>
+#include <delegate/icon-view-editor.h>
 #include <file/file-rename-operation.h>
 #include <file/file-operation-manager.h>
-#include <view/icon-view-index-widget.h>
+#include <delegate/icon-view-index-widget.h>
 #include <model/fileitem-proxy-filter-sort-model.h>
-
-#include <QTimer>
 
 IconViewDelegate::IconViewDelegate(QObject *parent) : QStyledItemDelegate (parent)
 {

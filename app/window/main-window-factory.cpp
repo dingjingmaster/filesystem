@@ -5,7 +5,6 @@ MainWindowFactory *gInstance = nullptr;
 
 FMWindowFactory *MainWindowFactory::getInstance()
 {
-    auto g = gInstance;
     if (!gInstance) {
         gInstance = new MainWindowFactory;
     }

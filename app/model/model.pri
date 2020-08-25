@@ -6,7 +6,6 @@ HEADERS += \
     $$PWD/path-complete.h \
     $$PWD/pathbar-model.h \
     $$PWD/sidebar-abstract-item.h \
-    $$PWD/sidebar-delegate.h \
     $$PWD/sidebar-favorite-item.h \
     $$PWD/sidebar-filesystem-item.h \
     $$PWD/sidebar-model.h \
@@ -22,7 +21,6 @@ SOURCES += \
     $$PWD/path-complete.cpp \
     $$PWD/pathbar-model.cpp \
     $$PWD/sidebar-abstract-item.cpp \
-    $$PWD/sidebar-delegate.cpp \
     $$PWD/sidebar-favorite-item.cpp \
     $$PWD/sidebar-filesystem-item.cpp \
     $$PWD/sidebar-model.cpp \

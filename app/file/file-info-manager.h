@@ -1,11 +1,10 @@
 #ifndef FILEINFOMANAGER_H
 #define FILEINFOMANAGER_H
 
-#include "file-info.h"
-
 #include <QMutex>
 #include <memory>
 
+#include "file-info.h"
 
 class FileInfoManager
 {
