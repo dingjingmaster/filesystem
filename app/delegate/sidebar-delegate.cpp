@@ -1,10 +1,12 @@
 #include "sidebar-delegate.h"
-#include "sidebar-proxy-filter-sort-model.h"
-#include "sidebar-separator-item.h"
+#include "model/sidebar-proxy-filter-sort-model.h"
+#include "model/sidebar-separator-item.h"
 
 #include <controls/sidebar.h>
 
 #include <QPainter>
+
+#include <model/sidebar-separator-item.h>
 
 
 SideBarDelegate::SideBarDelegate(QObject *parent) : QStyledItemDelegate(parent)

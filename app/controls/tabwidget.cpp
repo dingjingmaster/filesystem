@@ -2,7 +2,6 @@
 
 #include "tab-statusbar.h"
 #include "previewpage-factory-manager.h"
-#include "directory-view-factory-manager2.h"
 
 #include <QTimer>
 #include <QToolBar>
@@ -20,6 +19,7 @@
 #include <file/file-launch-manager.h>
 #include <window/properties-window.h>
 #include <vfs/search-vfs-uri-parser.h>
+#include <view-factory/directory-view-factory-manager.h>
 
 TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
 {
@@ -728,12 +728,12 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
     bindContainerSignal(viewContainer);
     updateTrashBarVisible(uri);
 
-    if (hasCurrentPage) {
-        auto internalViews = DirectoryViewFactoryManager2::getInstance()->internalViews();
-        if (internalViews.contains(currentPage()->getView()->viewId())) {
-            viewContainer->switchViewType(currentPage()->getView()->viewId());
-        }
-    }
+//    if (hasCurrentPage) {
+//        auto internalViews = DirectoryViewFactoryManager2::getInstance()->internalViews();
+//        if (internalViews.contains(currentPage()->getView()->viewId())) {
+//            viewContainer->switchViewType(currentPage()->getView()->viewId());
+//        }
+//    }
 
     if (zoomLevel > 0) {
         viewContainer->getView()->setCurrentZoomLevel(zoomLevel);
@@ -768,11 +768,11 @@ void TabWidget::switchViewType(const QString &viewId)
     currentPage()->switchViewType(viewId);
 
     // change default view id
-    auto factoryManager = DirectoryViewFactoryManager2::getInstance();
-    auto internalViews = factoryManager->internalViews();
-    if (internalViews.contains(viewId)) {
-        GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ID, viewId);
-    }
+//    auto factoryManager = DirectoryViewFactoryManager2::getInstance();
+//    auto internalViews = factoryManager->internalViews();
+//    if (internalViews.contains(viewId)) {
+//        GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ID, viewId);
+//    }
 
     bool supportZoom = this->currentPage()->getView()->supportZoom();
     this->mStatusBar->mSlider->setEnabled(this->currentPage()->getView()->supportZoom());

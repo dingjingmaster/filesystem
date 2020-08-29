@@ -1,5 +1,5 @@
 #include "navigation-sidebar.h"
-#include "sidebar-menu.h"
+#include "menu/sidebar-menu.h"
 
 #include <QEvent>
 #include <QPainter>

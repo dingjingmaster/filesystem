@@ -18,7 +18,8 @@
 #include <directory-view-widget.h>
 #include <QDir>
 #include <qevent.h>
-#include <directory-view-factory-manager2.h>
+
+#include <view-factory/directory-view-factory-manager.h>
 #include <QPainter>
 
 #include <file/file-operation-manager.h>

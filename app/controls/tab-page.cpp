@@ -1,6 +1,6 @@
 #include "tab-page.h"
 
-#include "directory-view-factory-manager2.h"
+#include "view/view-factory/directory-view-factory-manager.h"
 
 #include <QTabBar>
 #include <file-utils.h>

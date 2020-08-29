@@ -2,6 +2,7 @@
 #define SIDEBARMENU_H
 
 #include <QMenu>
+#include <QObject>
 
 class SideBar;
 class SideBarAbstractItem;

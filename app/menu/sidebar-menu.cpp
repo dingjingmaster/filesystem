@@ -1,14 +1,16 @@
-#include "menu-plugin-manager.h"
 #include "sidebar-menu.h"
 
-#include "sidebar.h"
+#include "menu-plugin-manager.h"
 #include "model/sidebar-abstract-item.h"
 
 #include <window/bookmark-manager.h>
 #include <window/properties-window.h>
 
-#include <file/file-info-job.h>
 #include <file/file-info.h>
+#include <file/file-info-job.h>
+
+#include <QAction>
+#include <QModelIndex>
 
 SideBarMenu::SideBarMenu(SideBarAbstractItem *item, SideBar *sideBar, QWidget *parent) : QMenu (parent)
 {

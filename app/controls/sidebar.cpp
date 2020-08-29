@@ -1,12 +1,11 @@
-#include "sidebar-menu.h"
 #include "sidebar.h"
 
 #include <QMouseEvent>
 #include <QHeaderView>
 #include <QApplication>
-
-#include <model/sidebar-delegate.h>
+#include "menu/sidebar-menu.h"
 #include <model/sidebar-model.h>
+#include <delegate/sidebar-delegate.h>
 #include <model/sidebar-proxy-filter-sort-model.h>
 
 SideBar::SideBar(QWidget *parent) : QTreeView(parent)

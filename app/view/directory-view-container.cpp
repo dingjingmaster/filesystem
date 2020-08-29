@@ -4,9 +4,9 @@
 #include <file-utils.h>
 #include <syslog/clib_syslog.h>
 #include "directory-view-widget.h"
-#include <directory-view-factory-manager2.h>
 #include <model/fileitem-proxy-filter-sort-model.h>
 #include <plugin-iface/directory-view-plugin-iface2.h>
+#include <view-factory/directory-view-factory-manager.h>
 
 DirectoryViewContainer::DirectoryViewContainer(QWidget *parent) : QWidget(parent)
 {

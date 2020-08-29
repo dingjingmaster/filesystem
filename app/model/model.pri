@@ -11,7 +11,8 @@ HEADERS += \
     $$PWD/sidebar-model.h \
     $$PWD/sidebar-personal-item.h \
     $$PWD/sidebar-proxy-filter-sort-model.h \
-    $$PWD/sidebar-separator-item.h
+    $$PWD/sidebar-separator-item.h \
+    $$PWD/view-factory-model.h
 
 SOURCES += \
     $$PWD/file-item-model.cpp \
@@ -26,4 +27,5 @@ SOURCES += \
     $$PWD/sidebar-model.cpp \
     $$PWD/sidebar-personal-item.cpp \
     $$PWD/sidebar-proxy-filter-sort-model.cpp \
-    $$PWD/sidebar-separator-item.cpp
+    $$PWD/sidebar-separator-item.cpp \
+    $$PWD/view-factory-model.cpp
