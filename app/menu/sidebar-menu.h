@@ -3,6 +3,9 @@
 
 #include <QMenu>
 #include <QObject>
+#include <QString>
+#include <QAction>
+#include <QList>
 
 class SideBar;
 class SideBarAbstractItem;
