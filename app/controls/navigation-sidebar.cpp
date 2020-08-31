@@ -1,5 +1,4 @@
 #include "navigation-sidebar.h"
-#include "menu/sidebar-menu.h"
 
 #include <QEvent>
 #include <QPainter>
@@ -10,6 +9,7 @@
 #include <QVBoxLayout>
 #include <global-settings.h>
 
+#include <menu/sidebar-menu.h>
 #include <model/sidebar-model.h>
 #include <model/sidebar-proxy-filter-sort-model.h>
 
@@ -91,8 +91,8 @@ NavigationSideBar::NavigationSideBar(QWidget *parent) : QTreeView(parent)
         auto item = mProxyModel->itemFromIndex(index);
         if (item) {
             if (item->type() != SideBarAbstractItem::SeparatorItem) {
-                SideBarMenu menu(item, nullptr);
-                menu.exec(QCursor::pos());
+//                SideBarMenu menu(item, nullptr, nullptr);
+//                menu.exec(QCursor::pos());
             }
         }
     });

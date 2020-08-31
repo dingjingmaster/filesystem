@@ -3,7 +3,7 @@
 #include <QMouseEvent>
 #include <QHeaderView>
 #include <QApplication>
-#include "menu/sidebar-menu.h"
+#include <menu/sidebar-menu.h>
 #include <model/sidebar-model.h>
 #include <delegate/sidebar-delegate.h>
 #include <model/sidebar-proxy-filter-sort-model.h>

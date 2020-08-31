@@ -2,10 +2,6 @@
 #define SIDEBARMENU_H
 
 #include <QMenu>
-#include <QObject>
-#include <QString>
-#include <QAction>
-#include <QList>
 
 class SideBar;
 class SideBarAbstractItem;
@@ -15,6 +11,7 @@ class SideBarMenu : public QMenu
     Q_OBJECT
 public:
     explicit SideBarMenu (SideBarAbstractItem *item, SideBar *sideBar, QWidget *parent = nullptr);
+    virtual ~SideBarMenu();
 
 protected:
     const QList<QAction*> constructFavoriteActions ();

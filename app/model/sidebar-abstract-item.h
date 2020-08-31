@@ -7,8 +7,8 @@ class SideBarModel;
 
 class SideBarAbstractItem : public QObject
 {
-    friend class SideBarModel;
     Q_OBJECT
+    friend class SideBarModel;
 public:
     enum Type
     {

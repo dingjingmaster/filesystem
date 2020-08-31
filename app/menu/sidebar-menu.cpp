@@ -1,16 +1,13 @@
 #include "sidebar-menu.h"
 
-#include "menu-plugin-manager.h"
-#include "model/sidebar-abstract-item.h"
-
-#include <window/bookmark-manager.h>
-#include <window/properties-window.h>
-
-#include <file/file-info.h>
-#include <file/file-info-job.h>
-
 #include <QAction>
 #include <QModelIndex>
+#include <file/file-info.h>
+#include <file/file-info-job.h>
+#include "menu-plugin-manager.h"
+#include <window/bookmark-manager.h>
+#include <window/properties-window.h>
+#include <model/sidebar-abstract-item.h>
 
 SideBarMenu::SideBarMenu(SideBarAbstractItem *item, SideBar *sideBar, QWidget *parent) : QMenu (parent)
 {
@@ -43,6 +40,11 @@ SideBarMenu::SideBarMenu(SideBarAbstractItem *item, SideBar *sideBar, QWidget *p
         break;
     }
     }
+}
+
+SideBarMenu::~SideBarMenu()
+{
+
 }
 
 const QList<QAction *> SideBarMenu::constructFavoriteActions()

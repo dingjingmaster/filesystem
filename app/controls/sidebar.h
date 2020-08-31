@@ -5,8 +5,8 @@
 
 class SideBar : public QTreeView
 {
-    friend class SideBarDelegate;
     Q_OBJECT
+    friend class SideBarDelegate;
 public:
     explicit SideBar (QWidget *parent = nullptr);
     QSize sizeHint () const override;
