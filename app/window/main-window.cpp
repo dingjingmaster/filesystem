@@ -733,6 +733,7 @@ void MainWindow::initUI(const QString &uri)
 
     connect(mSideBar, &NavigationSideBar::updateWindowLocationRequest, this, &MainWindow::slotGoToUri);
 
+    // file tag -- color
     auto labelDialog = new FileLabelBox(this);
     labelDialog->hide();
 
@@ -880,9 +881,9 @@ void MainWindow::keyPressEvent(QKeyEvent *e)
             for (auto uri : selections) {
                 auto info = FileInfo::fromUri(uri);
                 if (info->isDir() || info->isVolume()) {
-                    dirs<<uri;
+                    dirs << uri;
                 } else {
-                    files<<uri;
+                    files << uri;
                 }
             }
             for (auto uri : dirs) {
@@ -936,8 +937,7 @@ void MainWindow::mouseMoveEvent(QMouseEvent *e)
 
         XUngrabPointer(display, CurrentTime);
         XSendEvent(display, QX11Info::appRootWindow(QX11Info::appScreen()),
-                   False, SubstructureNotifyMask | SubstructureRedirectMask,
-                   &xEvent);
+                   False, SubstructureNotifyMask | SubstructureRedirectMask, &xEvent);
         XFlush(display);
 
         XEvent xevent;

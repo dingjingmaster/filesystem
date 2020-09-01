@@ -4,7 +4,6 @@
 #include <memory>
 #include <QString>
 #include <QStringList>
-
 #include <file/file-info.h>
 
 
