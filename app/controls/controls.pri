@@ -1,8 +1,10 @@
 HEADERS += \
     $$PWD/default-previewpage-factory.h \
     $$PWD/default-previewpage.h \
+    $$PWD/file-label-box.h \
     $$PWD/headerbar.h \
     $$PWD/icon-container.h \
+    $$PWD/label-box-delegate.h \
     $$PWD/navigation-sidebar.h \
     $$PWD/navigation-tab-bar.h \
     $$PWD/previewpage-factory-manager.h \
@@ -19,8 +21,10 @@ HEADERS += \
 SOURCES += \
     $$PWD/default-previewpage-factory.cpp \
     $$PWD/default-previewpage.cpp \
+    $$PWD/file-label-box.cpp \
     $$PWD/headerbar.cpp \
     $$PWD/icon-container.cpp \
+    $$PWD/label-box-delegate.cpp \
     $$PWD/navigation-sidebar.cpp \
     $$PWD/navigation-tab-bar.cpp \
     $$PWD/previewpage-factory-manager.cpp \

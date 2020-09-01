@@ -29,6 +29,7 @@
 #include <main/x11-window-manager.h>
 #include <directory-view-container.h>
 #include <file/file-operation-manager.h>
+#include <file-label-box.h>
 #include <previewpage-factory-manager.h>
 #include <file/file-operation-error-dialog.h>
 #include <QtWidgets/private/qwidgetresizehandler_p.h>
@@ -676,7 +677,7 @@ void MainWindow::initUI(const QString &uri)
         this->setCursor(c);
         mTab->setCursor(c);
         mSideBar->setCursor(c);
-        mStatusBar->update();
+//        mStatusBar->update();
     });
 
     connect(this, &MainWindow::locationChangeEnd, this, [=]() {
@@ -688,7 +689,7 @@ void MainWindow::initUI(const QString &uri)
         mTab->setCursor(c);
         mSideBar->setCursor(c);
         slotUpdateHeaderBar();
-        mStatusBar->update();
+//        mStatusBar->update();
     });
 
     //HeaderBar
@@ -697,7 +698,7 @@ void MainWindow::initUI(const QString &uri)
     auto headerBarContainer = new HeaderBarContainer(this);
     headerBarContainer->addHeaderBar(headerBar);                    // 最大化、最小化、关闭
     addToolBar(headerBarContainer);
-    mHeaderBar->setVisible(false);
+//    mHeaderBar->setVisible(false);
 
     connect(mHeaderBar, &HeaderBar::updateLocationRequest, this, &MainWindow::slotGoToUri);
     connect(mHeaderBar, &HeaderBar::viewTypeChangeRequest, this, &MainWindow::slotBeginSwitchView);
@@ -717,10 +718,10 @@ void MainWindow::initUI(const QString &uri)
     auto palette = sidebarContainer->palette();
     palette.setColor(QPalette::Window, Qt::transparent);
     sidebarContainer->setPalette(palette);
-    sidebarContainer->setStyleSheet("{"
-                                    "background-color: transparent;"
-                                    "border: 0px solid transparent"
-                                    "}");
+//    sidebarContainer->setStyleSheet("{"
+//                                    "background-color: transparent;"
+//                                    "border: 0px solid transparent"
+//                                    "}");
     sidebarContainer->setTitleBarWidget(new QWidget(this));
     sidebarContainer->titleBarWidget()->setFixedHeight(0);
     sidebarContainer->setAttribute(Qt::WA_TranslucentBackground);
@@ -737,29 +738,29 @@ void MainWindow::initUI(const QString &uri)
 
     connect(mSideBar, &NavigationSideBar::updateWindowLocationRequest, this, &MainWindow::slotGoToUri);
 
-//    auto labelDialog = new FileLabelBox(this);
-//    labelDialog->hide();
+    auto labelDialog = new FileLabelBox(this);
+    labelDialog->hide();
 
     auto splitter = new QSplitter(this);
     splitter->setChildrenCollapsible(false);
     splitter->setHandleWidth(0);
     splitter->addWidget(navigationSidebarContainer);
-//    splitter->addWidget(labelDialog);
+    splitter->addWidget(labelDialog);
 
-//    connect(labelDialog->selectionModel(), &QItemSelectionModel::selectionChanged, [=]() {
-//        auto selected = labelDialog->selectionModel()->selectedIndexes();
-//        //qDebug() << "FileLabelBox selectionChanged:" <<selected.count();
-//        if (selected.count() > 0) {
-//            auto name = selected.first().data().toString();
-//            setLabelNameFilter(name);
-//        }
-//    });
+    connect(labelDialog->selectionModel(), &QItemSelectionModel::selectionChanged, [=]() {
+        auto selected = labelDialog->selectionModel()->selectedIndexes();
+        //qDebug() << "FileLabelBox selectionChanged:" <<selected.count();
+        if (selected.count() > 0) {
+            auto name = selected.first().data().toString();
+            slotSetLabelNameFilter(name);
+        }
+    });
 
-//    connect(labelDialog, &FileLabelBox::leftClickOnBlank, [=]() {
-//        setLabelNameFilter("");
-//    });
+    connect(labelDialog, &FileLabelBox::leftClickOnBlank, [=]() {
+        slotSetLabelNameFilter("");
+    });
 
-//    connect(sidebar, &NavigationSideBar::labelButtonClicked, labelDialog, &QWidget::setVisible);
+    connect(sidebar, &NavigationSideBar::labelButtonClicked, labelDialog, &QWidget::setVisible);
 
     sidebarContainer->setWidget(splitter);
     addDockWidget(Qt::LeftDockWidgetArea, sidebarContainer);
