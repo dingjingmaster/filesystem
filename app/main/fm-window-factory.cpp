@@ -26,7 +26,7 @@ FMWindowIface *FMWindowFactory::create(const QStringList &uris)
         }
     }
     if (!l.isEmpty()) {
-//        window->addNewTabs (l);
+        window->slotAddNewTabs (l);
     }
 
     return window;

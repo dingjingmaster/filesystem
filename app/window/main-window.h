@@ -6,6 +6,7 @@
 #include <statusbar.h>
 #include <QStackedWidget>
 #include <navigation-sidebar.h>
+#include <border-shadow-effect.h>
 #include <controls/tabwidget.h>
 #include <main/fm-window-iface.h>
 
@@ -99,7 +100,7 @@ private:
     StatusBar *mStatusBar;
     bool mIsSearch = false;
     bool mIsDraging = false;
-//    BorderShadowEffect *mEffect;
+    BorderShadowEffect *mEffect;
     NavigationSideBar *mSideBar;
     bool mUseDefaultNameSortOrder;
     QWidget *mTransparentAreaWidget;

@@ -410,11 +410,9 @@ QModelIndex FileItemModel::lastColumnIndex(FileItem *item)
     if (!item->mParent) {
         for (int i = 0; i < mRootItem->mChildren->count(); i++) {
             if (item == mRootItem->mChildren->at(i)) {
-
                 return createIndex(i, Other, item);
             }
         }
-
         return QModelIndex();
     } else {
         for (int i = 0; i < item->mParent->mChildren->count(); i++) {
@@ -422,7 +420,6 @@ QModelIndex FileItemModel::lastColumnIndex(FileItem *item)
                 return createIndex(i, Other, item);
             }
         }
-
         return QModelIndex();
     }
 }
@@ -432,11 +429,9 @@ QModelIndex FileItemModel::firstColumnIndex(FileItem *item)
     if (item->mParent == nullptr) {
         for (int i = 0; i < mRootItem->mChildren->count(); i++) {
             if (item == mRootItem->mChildren->at(i)) {
-
                 return createIndex(i, 0, item);
             }
         }
-
         return QModelIndex();
     } else {
         for (int i = 0; i < item->mParent->mChildren->count(); i++) {
@@ -444,7 +439,6 @@ QModelIndex FileItemModel::firstColumnIndex(FileItem *item)
                 return createIndex(i, 0, item);
             }
         }
-
         return QModelIndex();
     }
 }

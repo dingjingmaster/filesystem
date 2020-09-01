@@ -1,4 +1,5 @@
 HEADERS += \
+    $$PWD/border-shadow-effect.h \
     $$PWD/directory-view-container.h \
     $$PWD/directory-view-widget.h \
     $$PWD/icon-view-style.h \
@@ -8,6 +9,7 @@ HEADERS += \
 
 
 SOURCES += \
+    $$PWD/border-shadow-effect.cpp \
     $$PWD/directory-view-container.cpp \
     $$PWD/directory-view-widget.cpp \
     $$PWD/icon-view-style.cpp \

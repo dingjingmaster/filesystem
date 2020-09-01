@@ -49,11 +49,16 @@ MainWindow::MainWindow(const QString &uri, QWidget *parent) : QMainWindow(parent
 
     slotCheckSettings();
 
+    mEffect = new BorderShadowEffect(this);
+    mEffect->setPadding(4);
+    mEffect->setBorderRadius(6);
+    mEffect->setBlurRadius(4);
+    //setGraphicsEffect(m_effect);
+
     setAnimated(false);
     setAttribute(Qt::WA_DeleteOnClose);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_OpaquePaintEvent);
-    //fix double window base buttons issue, not effect MinMax button hints
     auto flags = windowFlags() & ~Qt::WindowMinMaxButtonsHint;
     setWindowFlags(flags | Qt::FramelessWindowHint);
     setWindowFlags(windowFlags()|Qt::FramelessWindowHint);
@@ -615,16 +620,19 @@ void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
             currentDir.cd(uri);
             auto absPath = currentDir.absoluteFilePath(uri);
             url = QUrl::fromLocalFile(absPath);
-
             realUri = url.toDisplayString();
         }
     }
 
+    CT_SYSLOG(LOG_ERR, "real uri:%s", realUri.toUtf8().data())
+
     if (getCurrentUri() == realUri) {
         if (!force) {
+            CT_SYSLOG(LOG_ERR, "")
             return;
         }
     }
+    CT_SYSLOG(LOG_ERR, "");
 
     CT_SYSLOG(LOG_DEBUG, "real uri: %s locationChangeStart!", realUri.toUtf8().constData());
     locationChangeStart();
@@ -692,13 +700,11 @@ void MainWindow::initUI(const QString &uri)
 //        mStatusBar->update();
     });
 
-    //HeaderBar
     auto headerBar = new HeaderBar(this);
     mHeaderBar = headerBar;
     auto headerBarContainer = new HeaderBarContainer(this);
     headerBarContainer->addHeaderBar(headerBar);                    // 最大化、最小化、关闭
     addToolBar(headerBarContainer);
-//    mHeaderBar->setVisible(false);
 
     connect(mHeaderBar, &HeaderBar::updateLocationRequest, this, &MainWindow::slotGoToUri);
     connect(mHeaderBar, &HeaderBar::viewTypeChangeRequest, this, &MainWindow::slotBeginSwitchView);
@@ -718,10 +724,7 @@ void MainWindow::initUI(const QString &uri)
     auto palette = sidebarContainer->palette();
     palette.setColor(QPalette::Window, Qt::transparent);
     sidebarContainer->setPalette(palette);
-//    sidebarContainer->setStyleSheet("{"
-//                                    "background-color: transparent;"
-//                                    "border: 0px solid transparent"
-//                                    "}");
+
     sidebarContainer->setTitleBarWidget(new QWidget(this));
     sidebarContainer->titleBarWidget()->setFixedHeight(0);
     sidebarContainer->setAttribute(Qt::WA_TranslucentBackground);
@@ -749,7 +752,6 @@ void MainWindow::initUI(const QString &uri)
 
     connect(labelDialog->selectionModel(), &QItemSelectionModel::selectionChanged, [=]() {
         auto selected = labelDialog->selectionModel()->selectedIndexes();
-        //qDebug() << "FileLabelBox selectionChanged:" <<selected.count();
         if (selected.count() > 0) {
             auto name = selected.first().data().toString();
             slotSetLabelNameFilter(name);
@@ -765,16 +767,13 @@ void MainWindow::initUI(const QString &uri)
     sidebarContainer->setWidget(splitter);
     addDockWidget(Qt::LeftDockWidgetArea, sidebarContainer);
 
-    mStatusBar = new StatusBar(this, this);
-    setStatusBar(mStatusBar);
-
     auto views = new TabWidget;
     mTab = views;
     if (uri.isNull()) {
         auto home = "file://" + QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
-//        mTab->addPage(home, true);
+        mTab->addPage(home, true);
     } else {
-//        mTab->addPage(uri, true);
+        mTab->addPage(uri, true);
     }
 
     connect(views->tabBar(), &QTabBar::tabBarDoubleClicked, this, [=](int index) {
@@ -790,7 +789,6 @@ void MainWindow::initUI(const QString &uri)
 
     setCentralWidget(views);
 
-    //bind signals
     connect(mTab, &TabWidget::closeSearch, headerBar, &HeaderBar::closeSearch);
     connect(mTab, &TabWidget::clearTrash, this, &MainWindow::slotCleanTrash);
     connect(mTab, &TabWidget::recoverFromTrash, this, &MainWindow::slotRecoverFromTrash);
@@ -870,7 +868,7 @@ void MainWindow::paintEvent(QPaintEvent *e)
 //    mEffect->setWindowBackground(color);
     QPainter p(this);
 
-//    mEffect->drawWindowShadowManually(&p, this->rect(), m_resize_handler->isButtonDown());
+//    mEffect->drawWindowShadowManually(&p, this->rect(), mResizeHandler->isButtonDown());
     QMainWindow::paintEvent(e);
 }
 
@@ -918,16 +916,12 @@ void MainWindow::resizeEvent(QResizeEvent *e)
     update();
 
     if (mResizeHandler->isButtonDown()) {
-        // set save window size flag
         gLastResizeWindow = this;
     }
 }
 
 void MainWindow::mouseMoveEvent(QMouseEvent *e)
 {
-    //NOTE: when starting a X11 window move, the mouse move event
-    //will unreachable when draging, and after draging we could not
-    //get the release event correctly.
     QMainWindow::mouseMoveEvent(e);
     if (!mIsDraging) {
         return;

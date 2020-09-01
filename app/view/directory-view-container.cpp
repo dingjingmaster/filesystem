@@ -174,7 +174,7 @@ void DirectoryViewContainer::clearConditions()
 void DirectoryViewContainer::tryJump(int index)
 {
     QStringList l;
-    l<<mBackList<<getCurrentUri()<<mForwardList;
+    l << mBackList << getCurrentUri() << mForwardList;
     if (0 <= index && index < l.count()) {
         auto targetUri = l.at(index);
         mBackList.clear();
@@ -212,16 +212,14 @@ void DirectoryViewContainer::setSortFolderFirst(bool folderFirst)
 
 void DirectoryViewContainer::switchViewType(const QString &viewId)
 {
-    if (getView()) {
-        if (getView()->viewId() == viewId) {
-            return;
-        }
-    }
-
     auto viewManager = DirectoryViewFactoryManager2::getInstance();
     auto factory = viewManager->getFactory(viewId);
-    if (!factory)
+    if (!factory) {
+        CT_SYSLOG(LOG_WARNING, "switch view failed!");
         return;
+    } else {
+        CT_SYSLOG(LOG_DEBUG, "switch view successful!");
+    }
 
     auto sortType = 0;
     auto sortOrder = 0;
@@ -241,7 +239,6 @@ void DirectoryViewContainer::switchViewType(const QString &viewId)
     view->setParent(this);
 
     view->bindModel(mModel, mProxyModel);
-//    view->setProxy(mProxy);
 
     view->setSortType(sortType);
     view->setSortOrder(sortOrder);
@@ -254,14 +251,10 @@ void DirectoryViewContainer::switchViewType(const QString &viewId)
 
     connect(mView, &DirectoryViewWidget::zoomRequest, this, &DirectoryViewContainer::zoomRequest);
 
-    //similar to double clicked, but just jump directory only.
-    //note that if view use double clicked signal, this signal should
-    //not sended again.
     connect(mView, &DirectoryViewWidget::updateWindowLocationRequest, this, [=](const QString &uri) {
         Q_EMIT this->updateWindowLocationRequest(uri, true);
     });
 
-//    mProxy->switchView(view);
     mLayout->addWidget(dynamic_cast<QWidget*>(view), Qt::AlignBottom);
     DirectoryViewFactoryManager2::getInstance()->setDefaultViewId(viewId);
     if (!selection.isEmpty()) {
@@ -352,19 +345,16 @@ update:
 
     auto viewId = DirectoryViewFactoryManager2::getInstance()->getDefaultViewId(zoomLevel, uri);
     switchViewType(viewId);
-    //update status bar zoom level
     updateStatusBarSliderStateRequest();
     if (zoomLevel < 0)
         zoomLevel = getView()->currentZoomLevel();
 
     setZoomLevelRequest(zoomLevel);
-    //qDebug() << "setZoomLevelRequest:" <<zoomLevel;
     if (mView)
         mView->setCurrentZoomLevel(zoomLevel);
 
     mCurrentUri = uri;
 
-    //special uri process
     if (mCurrentUri.endsWith("/."))
         mCurrentUri = mCurrentUri.left(mCurrentUri.length()-2);
     if (mCurrentUri.endsWith("/.."))
@@ -373,7 +363,6 @@ update:
     if (mView) {
         mView->setDirectoryUri(mCurrentUri);
         mView->beginLocationChange();
-        //m_active_view_prxoy->setDirectoryUri(uri);
     }
 }
 
