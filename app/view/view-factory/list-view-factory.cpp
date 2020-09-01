@@ -1,9 +1,15 @@
 #include "list-view-factory.h"
+#include "list-view.h"
 
+static ListViewFactory *globalInstance = nullptr;
+static ListViewFactory2 *globalInstance2 = nullptr;
 
 ListViewFactory *ListViewFactory::getInstance()
 {
-
+    if (!globalInstance) {
+        globalInstance = new ListViewFactory;
+    }
+    return globalInstance;
 }
 
 const QString ListViewFactory::name()
@@ -28,7 +34,7 @@ void ListViewFactory::setEnable(bool enable)
 
 DirectoryViewIface *ListViewFactory::create()
 {
-
+    return new ListView;
 }
 
 QString ListViewFactory::viewIdentity()
@@ -78,7 +84,10 @@ const QIcon ListViewFactory::icon()
 
 ListViewFactory2 *ListViewFactory2::getInstance()
 {
-
+    if (!globalInstance2) {
+        globalInstance2 = new ListViewFactory2;
+    }
+    return globalInstance2;
 }
 
 const QString ListViewFactory2::name()
@@ -148,7 +157,7 @@ int ListViewFactory2::zoom_level_hint()
 
 DirectoryViewWidget *ListViewFactory2::create()
 {
-
+    return new ListView2;
 }
 
 QString ListViewFactory2::viewName()

@@ -20,16 +20,16 @@ DirectoryViewFactoryManager2* DirectoryViewFactoryManager2::getInstance()
 DirectoryViewFactoryManager2::DirectoryViewFactoryManager2(QObject *parent) : QObject(parent)
 {
     mSettings = new QSettings("Graceful Linux", "Filesystem manager", this);
-    m_hash = new QHash<QString, DirectoryViewPluginIface2*>();
+    mHash = new QHash<QString, DirectoryViewPluginIface2*>();
 
     //register icon view and list view
-//    auto iconViewFactory2 = IconViewFactory2::getInstance();
-//    registerFactory(iconViewFactory2->viewIdentity(), iconViewFactory2);
-//    mInternalViews << "Icon View";
+    auto iconViewFactory2 = IconViewFactory2::getInstance();
+    registerFactory(iconViewFactory2->viewIdentity(), iconViewFactory2);
+    mInternalViews << "Icon View";
 
-//    auto listViewFactory2 = ListViewFactory2::getInstance();
-//    registerFactory(listViewFactory2->viewIdentity(), listViewFactory2);
-//    mInternalViews << "List View";
+    auto listViewFactory2 = ListViewFactory2::getInstance();
+    registerFactory(listViewFactory2->viewIdentity(), listViewFactory2);
+    mInternalViews << "List View";
 }
 
 DirectoryViewFactoryManager2::~DirectoryViewFactoryManager2()
@@ -39,20 +39,20 @@ DirectoryViewFactoryManager2::~DirectoryViewFactoryManager2()
 
 void DirectoryViewFactoryManager2::registerFactory(const QString &name, DirectoryViewPluginIface2 *factory)
 {
-    if (m_hash->value(name)) {
+    if (mHash->value(name)) {
         return;
     }
-    m_hash->insert(name, factory);
+    mHash->insert(name, factory);
 }
 
 QStringList DirectoryViewFactoryManager2::getFactoryNames()
 {
-    return m_hash->keys();
+    return mHash->keys();
 }
 
 DirectoryViewPluginIface2 *DirectoryViewFactoryManager2::getFactory(const QString &name)
 {
-    return m_hash->value(name);
+    return mHash->value(name);
 }
 
 const QString DirectoryViewFactoryManager2::getDefaultViewId(const QString &uri)
@@ -62,7 +62,7 @@ const QString DirectoryViewFactoryManager2::getDefaultViewId(const QString &uri)
         if (string.isEmpty()) {
             string = "Icon View";
         } else {
-            if (!m_hash->contains(string))
+            if (!mHash->contains(string))
                 string = "Icon View";
         }
         mDefaultViewIdCache = string;
@@ -72,7 +72,7 @@ const QString DirectoryViewFactoryManager2::getDefaultViewId(const QString &uri)
 
 const QString DirectoryViewFactoryManager2::getDefaultViewId(int zoomLevel, const QString &uri)
 {
-    auto factorys = m_hash->values();
+    auto factorys = mHash->values();
 
     auto defaultFactory = getFactory(getDefaultViewId());
     int priorty = 0;

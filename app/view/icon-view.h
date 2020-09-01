@@ -1,11 +1,10 @@
 #ifndef ICONVIEW_H
 #define ICONVIEW_H
 
-#include "directory-view-widget.h"
-
-#include <QListView>
 #include <QTimer>
+#include <QListView>
 
+#include "directory-view-widget.h"
 #include <plugin-iface/directory-view-plugin-iface.h>
 
 class IconViewDelegate;
@@ -32,9 +31,7 @@ public:
     void bindModel(FileItemModel *sourceModel, FileItemProxyFilterSortModel *proxyModel) override;
     void setProxy(DirectoryViewProxyIface *proxy) override;
 
-    void setUsePeonyQtDirectoryMenu(bool use) {
-         mUseDirectoryMenu = use;
-    }
+    void setUsePeonyQtDirectoryMenu(bool use);
 
     DirectoryViewProxyIface *getProxy() override;
 

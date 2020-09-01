@@ -26,7 +26,7 @@ public Q_SLOTS:
     void setDefaultViewId(const QString &viewId);
 
 private:
-    QHash<QString, DirectoryViewPluginIface2*> *m_hash = nullptr;
+    QHash<QString, DirectoryViewPluginIface2*> *mHash = nullptr;
     explicit DirectoryViewFactoryManager2(QObject *parent = nullptr);
     ~DirectoryViewFactoryManager2();
 

@@ -213,8 +213,7 @@ void IconView::mousePressEvent(QMouseEvent *e)
                 && indexAt(e->pos()) ==  mLastIndex &&  mLastIndex.isValid() &&  mEditValid == true)
         {
             slotRename();
-        } else
-        {
+        } else {
              mEditValid = false;
         }
     }
@@ -369,6 +368,11 @@ void IconView::setProxy(DirectoryViewProxyIface *proxy)
 //            Q_EMIT this->getProxy()->menuRequest(QCursor::pos());
 //        });
 //    });
+}
+
+void IconView::setUsePeonyQtDirectoryMenu(bool use)
+{
+    mUseDirectoryMenu = use;
 }
 
 // NOTE: When icon view was resorted,

@@ -1,9 +1,19 @@
 #include "icon-view-factory.h"
 
+#include "icon-view.h"
+
+#include <icon-view.h>
+
+static IconViewFactory *globalInstance = nullptr;
+static IconViewFactory2 *globalInstance2 = nullptr;
+
 
 IconViewFactory2 *IconViewFactory2::getInstance()
 {
-
+    if (!globalInstance2) {
+        globalInstance2 = new IconViewFactory2;
+    }
+    return globalInstance2;
 }
 
 const QString IconViewFactory2::name()
@@ -68,7 +78,7 @@ IconViewFactory2::~IconViewFactory2()
 
 DirectoryViewWidget *IconViewFactory2::create()
 {
-
+    return new IconView2;
 }
 
 int IconViewFactory2::zoom_level_hint()
@@ -98,7 +108,10 @@ bool IconViewFactory2::supportZoom()
 
 IconViewFactory *IconViewFactory::getInstance()
 {
-
+    if (!globalInstance) {
+        globalInstance = new IconViewFactory;
+    }
+    return globalInstance;
 }
 
 const QString IconViewFactory::name()
@@ -153,7 +166,7 @@ int IconViewFactory::priority(const QString &)
 
 DirectoryViewIface *IconViewFactory::create()
 {
-
+    return new IconView;
 }
 
 QIcon IconViewFactory::viewIcon()
