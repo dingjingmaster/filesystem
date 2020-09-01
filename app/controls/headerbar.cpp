@@ -1,17 +1,26 @@
+#include "advanced-location-bar.h"
 #include "headerbar.h"
+#include "operation-menu.h"
+#include "sort-type-menu.h"
+#include "view-type-menu.h"
 
 #include <QUrl>
 #include <QTimer>
 #include <QEvent>
+#include <QDebug>
 #include <QProcess>
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QApplication>
+#include <qstyleoption.h>
 #include <kwindowsystem.h>
 #include <window/main-window.h>
+#include <window/main-window.h>
 #include <syslog/clib_syslog.h>
+#include <directory-view-widget.h>
 #include <directory-view-container.h>
-#include <qstyleoption.h>
+#include <plugin-iface/directory-view-plugin-iface2.h>
+#include <view-factory/directory-view-factory-manager.h>
 
 static HeaderBarStyle *gInstance = nullptr;
 static QString terminalCmd = nullptr;
@@ -26,12 +35,12 @@ HeaderBar::HeaderBar(MainWindow *parent) : QToolBar(parent)
     mWindow = parent;
     //disable default menu
     setContextMenuPolicy(Qt::CustomContextMenu);
-    //setAttribute(Qt::WA_OpaquePaintEvent);
-    setStyleSheet(".HeaderBar{"
-                  "background-color: transparent;"
-                  "border: 0px solid transparent;"
-                  "margin: 4px 5px 4px 5px;"
-                  "};");
+//    setAttribute(Qt::WA_OpaquePaintEvent);
+//    setStyleSheet(".HeaderBar{"
+//                  "background-color: transparent;"
+//                  "border: 0px solid transparent;"
+//                  "margin: 4px 5px 4px 5px;"
+//                  "};");
 
     setMovable(false);
 
@@ -80,23 +89,19 @@ HeaderBar::HeaderBar(MainWindow *parent) : QToolBar(parent)
 
     addSpacing(9);
 
-//    auto locationBar = new AdvancedLocationBar(this);
-//    mLocationBar = locationBar;
-//    addWidget(locationBar);
+    auto locationBar = new AdvancedLocationBar(this);
+    mLocationBar = locationBar;
+    addWidget(locationBar);
 
-    connect(goBack, &QPushButton::clicked, mWindow, [=]() {
-        mWindow->getCurrentPage()->goBack();
-//        mLocationBar->clearSearchBox();
+    connect(mLocationBar, &AdvancedLocationBar::refreshRequest, [=]()
+    {
+        mWindow->slotUpdateTabPageTitle();
+    });
+    connect(mLocationBar, &AdvancedLocationBar::updateFileTypeFilter, [=](const int &index) {
+        mWindow->getCurrentPage()->setSortFilter(index);
     });
 
-//    connect(mLocationBar, &AdvancedLocationBar::refreshRequest, [=]() {
-//        mWindow->updateTabPageTitle();
-//    });
-//    connect(mLocationBar, &AdvancedLocationBar::updateFileTypeFilter, [=](const int &index) {
-//        mWindow->getCurrentPage()->setSortFilter(index);
-//    });
-
-//    connect(mLocationBar, &AdvancedLocationBar::updateWindowLocationRequest, this, &HeaderBar::updateLocationRequest);
+    connect(mLocationBar, &AdvancedLocationBar::updateWindowLocationRequest, this, &HeaderBar::updateLocationRequest);
 
     addSpacing(9);
     a = addAction(QIcon::fromTheme("edit-find-symbolic"), tr("Search"));
@@ -116,23 +121,23 @@ HeaderBar::HeaderBar(MainWindow *parent) : QToolBar(parent)
     viewType->setIconSize(QSize(16, 16));
     viewType->setPopupMode(QToolButton::InstantPopup);
 
-//    mViewTypeMenu = new ViewTypeMenu(viewType);
-//    viewType->setMenu(mViewTypeMenu);
+    mViewTypeMenu = new ViewTypeMenu(viewType);
+    viewType->setMenu(mViewTypeMenu);
 
-//    connect(mViewTypeMenu, &ViewTypeMenu::switchViewRequest, this, [=](const QString &id, const QIcon &icon, bool resetToZoomLevel) {
-//        viewType->setText(id);
-//        viewType->setIcon(icon);
-//        this->viewTypeChangeRequest(id);
-//        if (resetToZoomLevel) {
-//            auto viewId = mWindow->getCurrentPage()->getView()->viewId();
-//            auto factoryManger = DirectoryViewFactoryManager2::getInstance();
-//            auto factory = factoryManger->getFactory(viewId);
-//            int zoomLevelHint = factory->zoom_level_hint();
-//            mWindow->getCurrentPage()->setZoomLevelRequest(zoomLevelHint);
-//        }
-//    });
+    connect(mViewTypeMenu, &ViewTypeMenu::switchViewRequest, this, [=](const QString &id, const QIcon &icon, bool resetToZoomLevel) {
+        viewType->setText(id);
+        viewType->setIcon(icon);
+        this->viewTypeChangeRequest(id);
+        if (resetToZoomLevel) {
+            auto viewId = mWindow->getCurrentPage()->getView()->viewId();
+            auto factoryManger = DirectoryViewFactoryManager2::getInstance();
+            auto factory = factoryManger->getFactory(viewId);
+            int zoomLevelHint = factory->zoom_level_hint();
+            mWindow->getCurrentPage()->setZoomLevelRequest(zoomLevelHint);
+        }
+    });
 
-//    connect(mViewTypeMenu, &ViewTypeMenu::updateZoomLevelHintRequest, this, &HeaderBar::updateZoomLevelHintRequest);
+    connect(mViewTypeMenu, &ViewTypeMenu::updateZoomLevelHintRequest, this, &HeaderBar::updateZoomLevelHintRequest);
 
     addSpacing(2);
 
@@ -143,22 +148,22 @@ HeaderBar::HeaderBar(MainWindow *parent) : QToolBar(parent)
     sortType->setIconSize(QSize(16, 16));
     sortType->setPopupMode(QToolButton::InstantPopup);
 
-//    mSortTypeMenu = new SortTypeMenu(this);
-//    sortType->setMenu(mSortTypeMenu);
+    mSortTypeMenu = new SortTypeMenu(this);
+    sortType->setMenu(mSortTypeMenu);
 
-//    connect(mSortTypeMenu, &SortTypeMenu::switchSortTypeRequest, mWindow, &MainWindow::setCurrentSortColumn);
-//    connect(mSortTypeMenu, &SortTypeMenu::switchSortOrderRequest, mWindow, [=](Qt::SortOrder order) {
-//        if (order == Qt::AscendingOrder) {
-//            sortType->setIcon(QIcon::fromTheme("view-sort-ascending-symbolic"));
-//        } else {
-//            sortType->setIcon(QIcon::fromTheme("view-sort-descending-symbolic"));
-//        }
-//        mWindow->setCurrentSortOrder(order);
-//    });
-//    connect(mSortTypeMenu, &QMenu::aboutToShow, mSortTypeMenu, [=]() {
-//        mSortTypeMenu->setSortType(mWindow->getCurrentSortColumn());
-//        mSortTypeMenu->setSortOrder(mWindow->getCurrentSortOrder());
-//    });
+    connect(mSortTypeMenu, &SortTypeMenu::switchSortTypeRequest, mWindow, &MainWindow::slotSetCurrentSortColumn);
+    connect(mSortTypeMenu, &SortTypeMenu::switchSortOrderRequest, mWindow, [=](Qt::SortOrder order) {
+        if (order == Qt::AscendingOrder) {
+            sortType->setIcon(QIcon::fromTheme("view-sort-ascending-symbolic"));
+        } else {
+            sortType->setIcon(QIcon::fromTheme("view-sort-descending-symbolic"));
+        }
+        mWindow->slotSetCurrentSortOrder(order);
+    });
+    connect(mSortTypeMenu, &QMenu::aboutToShow, mSortTypeMenu, [=]() {
+        mSortTypeMenu->setSortType(mWindow->getCurrentSortColumn());
+        mSortTypeMenu->setSortOrder(mWindow->getCurrentSortOrder());
+    });
 
     addSpacing(2);
 
@@ -170,8 +175,8 @@ HeaderBar::HeaderBar(MainWindow *parent) : QToolBar(parent)
     popMenu->setIconSize(QSize(16, 16));
     popMenu->setPopupMode(QToolButton::InstantPopup);
 
-//    mOperationMenu = new OperationMenu(mWindow, this);
-//    popMenu->setMenu(mOperationMenu);
+    mOperationMenu = new OperationMenu(mWindow, this);
+    popMenu->setMenu(mOperationMenu);
 
     for (auto action : actions()) {
         auto w = widgetForAction(action);
@@ -247,7 +252,10 @@ void HeaderBar::openDefaultTerminal()
 void HeaderBar::searchButtonClicked()
 {
     mSearchMode = ! mSearchMode;
-    setSearchMode(mSearchMode);
+    mSearchButton->setDown(mSearchMode);
+    mSearchButton->setChecked(mSearchMode);
+    mSearchButton->setCheckable(mSearchMode);
+    mLocationBar->switchEditMode(mSearchMode);
     Q_EMIT this->updateSearchRequest(mSearchMode);
 }
 
@@ -282,7 +290,7 @@ void HeaderBar::mouseMoveEvent(QMouseEvent *e)
 
 void HeaderBar::setLocation(const QString &uri)
 {
-//    mLocationBar->updateLocation(uri);
+    mLocationBar->updateLocation(uri);
 }
 
 void HeaderBar::startEdit(bool bSearch)
@@ -295,25 +303,25 @@ void HeaderBar::startEdit(bool bSearch)
         searchButtonClicked();
     } else {
         mSearchMode = false;
-//        mLocationBar->startEdit();
-//        mLocationBar->switchEditMode(false);
+        mLocationBar->startEdit();
+        mLocationBar->switchEditMode(false);
     }
 }
 
 void HeaderBar::finishEdit()
 {
-//    mLocationBar->finishEdit();
+    mLocationBar->finishEdit();
 }
 
 void HeaderBar::updateIcons()
 {
-//    qDebug()<<mWindow->getCurrentUri();
-//    qDebug()<<mWindow->getCurrentSortColumn();
-//    qDebug()<<mWindow->getCurrentSortOrder();
-//    mViewTypeMenu->setCurrentDirectory(mWindow->getCurrentUri());
-//    mViewTypeMenu->setCurrentView(mWindow->getCurrentPage()->getView()->viewId(), true);
-//    mSortTypeMenu->switchSortTypeRequest(mWindow->getCurrentSortColumn());
-//    mSortTypeMenu->switchSortOrderRequest(mWindow->getCurrentSortOrder());
+    qDebug()<<mWindow->getCurrentUri();
+    qDebug()<<mWindow->getCurrentSortColumn();
+    qDebug()<<mWindow->getCurrentSortOrder();
+    mViewTypeMenu->setCurrentDirectory(mWindow->getCurrentUri());
+    mViewTypeMenu->setCurrentView(mWindow->getCurrentPage()->getView()->viewId(), true);
+    mSortTypeMenu->switchSortTypeRequest(mWindow->getCurrentSortColumn());
+    mSortTypeMenu->switchSortOrderRequest(mWindow->getCurrentSortOrder());
 
     //go back & go forward
     mGoBack->setEnabled(mWindow->getCurrentPage()->canGoBack());
@@ -499,8 +507,7 @@ void HeaderBarContainer::addWindowButtons()
         //mHeaderBar->mWindow->showMinimized();
     });
 
-    //window-maximize-symbolic
-    //window-restore-symbolic
+
     auto maximizeAndRestore = new QToolButton(mInternalWidget);
     maximizeAndRestore->setToolTip(tr("Maximize/Restore"));
     maximizeAndRestore->setIcon(QIcon::fromTheme("window-maximize-symbolic"));

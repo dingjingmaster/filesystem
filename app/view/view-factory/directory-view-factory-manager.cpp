@@ -19,17 +19,17 @@ DirectoryViewFactoryManager2* DirectoryViewFactoryManager2::getInstance()
 
 DirectoryViewFactoryManager2::DirectoryViewFactoryManager2(QObject *parent) : QObject(parent)
 {
-    mSettings = new QSettings("UbuntuKylin Team", "Peony Qt", this);
+    mSettings = new QSettings("Graceful Linux", "Filesystem manager", this);
     m_hash = new QHash<QString, DirectoryViewPluginIface2*>();
 
     //register icon view and list view
-    auto iconViewFactory2 = IconViewFactory2::getInstance();
-    registerFactory(iconViewFactory2->viewIdentity(), iconViewFactory2);
-    mInternalViews<<"Icon View";
+//    auto iconViewFactory2 = IconViewFactory2::getInstance();
+//    registerFactory(iconViewFactory2->viewIdentity(), iconViewFactory2);
+//    mInternalViews << "Icon View";
 
-    auto listViewFactory2 = ListViewFactory2::getInstance();
-    registerFactory(listViewFactory2->viewIdentity(), listViewFactory2);
-    mInternalViews<<"List View";
+//    auto listViewFactory2 = ListViewFactory2::getInstance();
+//    registerFactory(listViewFactory2->viewIdentity(), listViewFactory2);
+//    mInternalViews << "List View";
 }
 
 DirectoryViewFactoryManager2::~DirectoryViewFactoryManager2()
