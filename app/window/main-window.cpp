@@ -10,10 +10,12 @@
 #include <QScreen>
 #include <QTabBar>
 #include <QScreen>
+#include <X11/X.h>
 #include <QX11Info>
 #include <QPainter>
 #include <QTreeView>
 #include <QSplitter>
+#include <X11/Xlib.h>
 #include <QDockWidget>
 #include <QMouseEvent>
 #include <QMessageBox>
@@ -22,6 +24,7 @@
 #include <QStandardPaths>
 #include <tab-statusbar.h>
 #include <clipbord-utils.h>
+#include <file-label-box.h>
 #include <global-settings.h>
 #include <syslog/clib_syslog.h>
 #include <file-operation-utils.h>
@@ -29,14 +32,10 @@
 #include <main/x11-window-manager.h>
 #include <directory-view-container.h>
 #include <file/file-operation-manager.h>
-#include <file-label-box.h>
 #include <previewpage-factory-manager.h>
 #include <file/file-operation-error-dialog.h>
 #include <QtWidgets/private/qwidgetresizehandler_p.h>
 #include <menu/directory-view-menu.h>
-
-#include <X11/X.h>
-#include <X11/Xlib.h>
 
 static MainWindow* gLastResizeWindow = nullptr;
 
@@ -166,7 +165,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     if (event->type() == QEvent::MouseButtonRelease) {
         if (mShouldSaveSideBarWidth) {
             auto settings = GlobalSettings::getInstance();
-//            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
+            settings->setValue(DEFAULT_SIDEBAR_WIDTH, mSideBar->width());
         }
         mShouldSaveSideBarWidth = false;
     }
