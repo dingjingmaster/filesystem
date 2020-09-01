@@ -1,4 +1,5 @@
 HEADERS += \
+    $$PWD/advance-search-bar.h \
     $$PWD/advanced-location-bar.h \
     $$PWD/default-previewpage-factory.h \
     $$PWD/default-previewpage.h \
@@ -7,8 +8,10 @@ HEADERS += \
     $$PWD/icon-container.h \
     $$PWD/label-box-delegate.h \
     $$PWD/location-bar.h \
+    $$PWD/navigation-bar.h \
     $$PWD/navigation-sidebar.h \
     $$PWD/navigation-tab-bar.h \
+    $$PWD/navigation-tool-bar.h \
     $$PWD/operation-menu.h \
     $$PWD/path-edit.h \
     $$PWD/previewpage-factory-manager.h \
@@ -25,6 +28,7 @@ HEADERS += \
     $$PWD/view-type-menu.h
 
 SOURCES += \
+    $$PWD/advance-search-bar.cpp \
     $$PWD/advanced-location-bar.cpp \
     $$PWD/default-previewpage-factory.cpp \
     $$PWD/default-previewpage.cpp \
@@ -33,8 +37,10 @@ SOURCES += \
     $$PWD/icon-container.cpp \
     $$PWD/label-box-delegate.cpp \
     $$PWD/location-bar.cpp \
+    $$PWD/navigation-bar.cpp \
     $$PWD/navigation-sidebar.cpp \
     $$PWD/navigation-tab-bar.cpp \
+    $$PWD/navigation-tool-bar.cpp \
     $$PWD/operation-menu.cpp \
     $$PWD/path-edit.cpp \
     $$PWD/previewpage-factory-manager.cpp \

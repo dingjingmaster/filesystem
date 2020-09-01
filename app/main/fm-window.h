@@ -17,6 +17,7 @@ class FileInfo;
 class SearchBar;
 class StatusBar;
 class NavigationBar;
+class AdvanceSearchBar;
 class PreviewPageIface;
 class PreviewPageContainer;
 class DirectoryViewContainer;
@@ -95,7 +96,7 @@ private:
     QString mAdvanceTargetPath;
     bool mFilterVisible = false;
     QPushButton *mAdvancedButton;
-//    AdvanceSearchBar *mFilterBar;
+    AdvanceSearchBar *mFilterBar;
     bool mUseDefaultNameSortOrder;
     NavigationBar *mNavigationBar;
     QString mLastNonSearchLocation;

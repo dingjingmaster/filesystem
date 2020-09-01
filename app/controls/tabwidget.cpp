@@ -17,13 +17,15 @@
 #include <syslog/clib_syslog.h>
 #include <directory-view-widget.h>
 #include <file/file-launch-manager.h>
+#include <window/main-window-style.h>
 #include <window/properties-window.h>
 #include <vfs/search-vfs-uri-parser.h>
+#include <view-factory/directory-view-factory-manager.h>
 #include <view-factory/directory-view-factory-manager.h>
 
 TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
 {
-//    setStyle(MainWindowStyle::getStyle());
+    setStyle(MainWindowStyle::getStyle());
 
     setAttribute(Qt::WA_TranslucentBackground);
 
@@ -35,7 +37,6 @@ TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
     mPreviewPageContainer = new QStackedWidget(this);
     mPreviewPageContainer->setMinimumWidth(200);
 
-    //status bar
     mStatusBar = new TabStatusBar(this, this);
     connect(this, &TabWidget::zoomRequest, mStatusBar, &TabStatusBar::onZoomRequest);
     connect(mStatusBar, &TabStatusBar::zoomLevelChangedRequest, this, &TabWidget::handleZoomLevel);
@@ -187,7 +188,6 @@ TabWidget::TabWidget(QWidget *parent) : QMainWindow(parent)
 
 void TabWidget::initAdvanceSearch()
 {
-    //advance search bar
     QHBoxLayout *search = new QHBoxLayout(this);
     mSearchBarLayout = search;
     QToolBar *searchButtons = new QToolBar(this);
@@ -561,16 +561,13 @@ void TabWidget::updateSearchPathButton(const QString &uri)
 void TabWidget::updateSearchList()
 {
     mShowSearchList = !mShowSearchList;
-    //if not show search bar, then don't show search list
     if (mShowSearchList && mShowSearchBar) {
         mSearchMore->setIcon(QIcon::fromTheme("go-up"));
-        //first click to show advance serach
         if(mSearchBarList.count() ==0) {
             addNewConditionBar();
             return;
         }
 
-        //already had a list,just set to show
         for(int i=0; i<mSearchBarList.count(); i++) {
             mConditionsList[i]->show();
             mLinkLabelList[i]->show();
@@ -585,7 +582,6 @@ void TabWidget::updateSearchList()
             mLayoutList[i]->setContentsMargins(10, 0, 10, 5);
         }
     } else {
-        //hide search list
         mSearchMore->setIcon(QIcon::fromTheme("go-down"));
         for(int i=0; i<mSearchBarList.count(); ++i) {
             mConditionsList[i]->hide();
@@ -696,11 +692,6 @@ void TabWidget::setPreviewPage(PreviewPageIface *previewPage)
 
 void TabWidget::addPage(const QString &uri, bool jumpTo)
 {
-    auto info = FileInfo::fromUri(uri, false);
-    if (! info->isDir()) {
-        return;
-    }
-
     QCursor c;
     c.setShape(Qt::WaitCursor);
     this->setCursor(c);
@@ -708,10 +699,7 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
     mTabBar->addPage(uri, jumpTo);
     int zoomLevel = -1;
 
-    bool hasCurrentPage = false;
-
     if (currentPage()) {
-        hasCurrentPage = true;
         zoomLevel = currentPage()->getView()->currentZoomLevel();
     }
 
@@ -727,13 +715,6 @@ void TabWidget::addPage(const QString &uri, bool jumpTo)
 
     bindContainerSignal(viewContainer);
     updateTrashBarVisible(uri);
-
-//    if (hasCurrentPage) {
-//        auto internalViews = DirectoryViewFactoryManager2::getInstance()->internalViews();
-//        if (internalViews.contains(currentPage()->getView()->viewId())) {
-//            viewContainer->switchViewType(currentPage()->getView()->viewId());
-//        }
-//    }
 
     if (zoomLevel > 0) {
         viewContainer->getView()->setCurrentZoomLevel(zoomLevel);
@@ -766,13 +747,6 @@ void TabWidget::switchViewType(const QString &viewId)
     }
 
     currentPage()->switchViewType(viewId);
-
-    // change default view id
-//    auto factoryManager = DirectoryViewFactoryManager2::getInstance();
-//    auto internalViews = factoryManager->internalViews();
-//    if (internalViews.contains(viewId)) {
-//        GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ID, viewId);
-//    }
 
     bool supportZoom = this->currentPage()->getView()->supportZoom();
     this->mStatusBar->mSlider->setEnabled(this->currentPage()->getView()->supportZoom());

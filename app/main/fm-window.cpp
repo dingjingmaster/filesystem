@@ -18,9 +18,14 @@
 #include <directory-view-widget.h>
 #include <QDir>
 #include <qevent.h>
+#include <tool-bar.h>
+#include <search-bar.h>
+#include <advance-search-bar.h>
+#include <navigation-bar.h>
 
 #include <view-factory/directory-view-factory-manager.h>
 #include <QPainter>
+#include <menu/directory-view-menu.h>
 
 #include <file/file-operation-manager.h>
 
@@ -96,13 +101,13 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     mTab->addPage(location);
 
     mSideBar = new SideBar(this);
-//    mFilterBar = new AdvanceSearchBar(this);
-//    mFilterBar->setMinimumWidth(180);
-//    mFilter = dynamic_cast<QWidget*>(mFilterBar);
+    mFilterBar = new AdvanceSearchBar(this);
+    mFilterBar->setMinimumWidth(180);
+    mFilter = dynamic_cast<QWidget*>(mFilterBar);
 
     mSideBarContainer = new QStackedWidget(this);
     mSideBarContainer->addWidget(mSideBar);
-//    mSideBarContainer->addWidget(mFilter);
+    mSideBarContainer->addWidget(mFilter);
     mSideBarContainer->setCurrentWidget(mSideBar);
     mSplitter->addWidget(mSideBarContainer);
 
@@ -111,11 +116,11 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     mSplitter->setStretchFactor(1, 1);
     mSplitter->setStretchFactor(2, 1);
 
-//    mToolBar = new ToolBar(this, this);
-//    mToolBar->setContentsMargins(0, 0, 0, 0);
+    mToolBar = new ToolBar(this, this);
+    mToolBar->setContentsMargins(0, 0, 0, 0);
 
-//    mSearchBar = new SearchBar(this);
-//    mSearchBar->setMinimumWidth(200);
+    mSearchBar = new SearchBar(this);
+    mSearchBar->setMinimumWidth(200);
     mAdvancedButton = new QPushButton(tr("advanced search"), nullptr);
     mAdvancedButton->setFixedWidth(110);
     mAdvancedButton->setStyleSheet("color: rgb(10,10,255)");
@@ -138,8 +143,8 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     QHBoxLayout *l1 = new QHBoxLayout(w1);
     l1->setContentsMargins(5, 0, 0, 0);
     w1->setLayout(l1);
-//    l1->addWidget(mToolBar, Qt::AlignLeft);
-//    l1->addWidget(mSearchBar, Qt::AlignRight);
+    l1->addWidget(mToolBar, Qt::AlignLeft);
+    l1->addWidget(mSearchBar, Qt::AlignRight);
     l1->addWidget(mAdvancedButton, Qt::AlignRight);
     l1->addWidget(mClearRecord, Qt::AlignRight);
 
@@ -151,38 +156,38 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     addToolBar(Qt::TopToolBarArea, t1);
     addToolBarBreak();
 
-//    mNavigationBar = new NavigationBar(this);
-//    mNavigationBar->setMovable(false);
-//    mNavigationBar->bindContainer(mTab->getActivePage());
-//    mNavigationBar->updateLocation(location);
+    mNavigationBar = new NavigationBar(this);
+    mNavigationBar->setMovable(false);
+    mNavigationBar->bindContainer(mTab->getActivePage());
+    mNavigationBar->updateLocation(location);
 
     QToolBar *t = new QToolBar(this);
     t->setStyleSheet(".QToolBar{border: 0; padding: 0}");
     t->setMovable(false);
-//    t->addWidget(mNavigationBar);
+    t->addWidget(mNavigationBar);
     t->setContentsMargins(0, 0, 0, 0);
     addToolBar(t);
 
     mStatusBar = new StatusBar(this, this);
     setStatusBar(mStatusBar);
 
-//    mNavigationBar->bindContainer(mTab->getActivePage());
+    mNavigationBar->bindContainer(mTab->getActivePage());
 
     //connect signals
     connect(mSideBar, &SideBar::updateWindowLocationRequest, this, &FMWindow::slotGoToUri);
     connect(mTab, &TabPage::updateWindowLocationRequest, this, &FMWindow::slotGoToUri);
-//    connect(mNavigationBar, &NavigationBar::updateWindowLocationRequest, this, &FMWindow::slotGoToUri);
-//    connect(mNavigationBar, &NavigationBar::refreshRequest, this, &FMWindow::slotRefresh);
+    connect(mNavigationBar, &NavigationBar::updateWindowLocationRequest, this, &FMWindow::slotGoToUri);
+    connect(mNavigationBar, &NavigationBar::refreshRequest, this, &FMWindow::slotRefresh);
     connect(mAdvancedButton, &QPushButton::clicked, this, &FMWindow::slotAdvanceSearch);
     connect(mClearRecord, &QPushButton::clicked, this, &FMWindow::slotClearRecord);
 
     //tab changed
     connect(mTab, &TabPage::currentActiveViewChanged, [=]() {
-//        this->mToolBar->updateLocation(getCurrentUri());
-//        this->mToolBar->updateStates();
-//        this->mNavigationBar->bindContainer(getCurrentPage());
-//        this->mNavigationBar->updateLocation(getCurrentUri());
-//        this->mStatusBar->update();
+        this->mToolBar->updateLocation(getCurrentUri());
+        this->mToolBar->updateStates();
+        this->mNavigationBar->bindContainer(getCurrentPage());
+        this->mNavigationBar->updateLocation(getCurrentUri());
+        this->mStatusBar->update();
         Q_EMIT this->tabPageChanged();
         if (mFilterVisible) {
 //            advanceSearch();
@@ -212,7 +217,7 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     //selection changed
     connect(mTab, &TabPage::currentSelectionChanged, [=]() {
         mStatusBar->update();
-//        mToolBar->updateStates();
+        mToolBar->updateStates();
         Q_EMIT this->windowSelectionChanged();
     });
 
@@ -233,8 +238,8 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
 
     //view switched
     connect(mTab, &TabPage::viewTypeChanged, [=]() {
-//        mToolBar->updateLocation(getCurrentUri());
-//        mToolBar->updateStates();
+        mToolBar->updateLocation(getCurrentUri());
+        mToolBar->updateStates();
     });
 
     //search
@@ -287,9 +292,9 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
         if (!uris.isEmpty()) {
             bool isTrash = this->getCurrentUri() == "trash:///";
             if (!isTrash) {
-//                FileOperationUtils::trash(uris, true);
-//            } else {
-//                FileOperationUtils::executeRemoveActionWithDialog(uris);
+                FileOperationUtils::trash(uris, true);
+            } else {
+                FileOperationUtils::executeRemoveActionWithDialog(uris);
             }
         }
     });
@@ -306,14 +311,14 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     auto searchAction = new QAction(this);
     searchAction->setShortcuts(QList<QKeySequence>()<<QKeySequence(Qt::CTRL + Qt::Key_F)<<QKeySequence(Qt::CTRL + Qt::Key_E));
     connect(searchAction, &QAction::triggered, this, [=]() {
-//        mSearchBar->setFocus();
+        mSearchBar->setFocus();
     });
     addAction(searchAction);
 
     auto locationAction = new QAction(this);
     locationAction->setShortcuts(QList<QKeySequence>()<<Qt::Key_F4<<QKeySequence(Qt::ALT + Qt::Key_D));
     connect(locationAction, &QAction::triggered, this, [=]() {
-//        mNavigationBar->startEdit();
+        mNavigationBar->startEdit();
     });
     addAction(locationAction);
 
@@ -331,19 +336,6 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
         this->close();
     });
     addAction(closeWindowAction);
-
-    auto aboutAction = new QAction(this);
-    aboutAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_F2));
-    connect(aboutAction, &QAction::triggered, this, [=]() {
-        QMessageBox::about(this,
-                           tr("Peony Qt"),
-                           tr("Author:\n"
-                              "\tYue Lan <lanyue@kylinos.cn>\n"
-                              "\tMeihong He <hemeihong@kylinos.cn>\n"
-                              "\n"
-                              "Copyright (C): 2019-2020, Tianjin KYLIN Information Technology Co., Ltd."));
-    });
-    addAction(aboutAction);
 
     auto newTabAction = new QAction(this);
     newTabAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_T));
@@ -398,7 +390,7 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
 #else
         QTimer::singleShot(500, [=]() {
 #endif
-//            this->getCurrentPage()->getView()->scrollToSelection(targetUri);
+            this->getCurrentPage()->getView()->scrollToSelection(targetUri);
             this->slotEditUri(targetUri);
         });
     });
@@ -407,21 +399,12 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     auto propertiesWindowAction = new QAction(this);
     propertiesWindowAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_Return));
     connect(propertiesWindowAction, &QAction::triggered, this, [=]() {
-        if (getCurrentSelections().count() >0)
-        {
+        if (getCurrentSelections().count() >0) {
             PropertiesWindow *w = new PropertiesWindow(getCurrentSelections());
             w->show();
         }
     });
     addAction(propertiesWindowAction);
-
-    auto helpAction = new QAction(this);
-    helpAction->setShortcut(QKeySequence(Qt::Key_F1));
-    connect(helpAction, &QAction::triggered, this, [=]() {
-        QUrl url = QUrl("help:ubuntu-kylin-help/files", QUrl::TolerantMode);
-        QDesktopServices::openUrl(url);
-    });
-    addAction(helpAction);
 
     auto maxAction = new QAction(this);
     maxAction->setShortcut(QKeySequence(Qt::Key_F11));
@@ -437,8 +420,8 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     auto previewPageAction = new QAction(this);
     previewPageAction->setShortcuts(QList<QKeySequence>()<<Qt::Key_F3<<QKeySequence(Qt::ALT + Qt::Key_P));
     connect(previewPageAction, &QAction::triggered, this, [=]() {
-//        auto lastPreviewPageId = mNavigationBar->getLastPreviewPageId();
-//        mNavigationBar->triggerAction(lastPreviewPageId);
+        auto lastPreviewPageId = mNavigationBar->getLastPreviewPageId();
+        mNavigationBar->triggerAction(lastPreviewPageId);
     });
     addAction(previewPageAction);
 
@@ -453,19 +436,19 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
     mTab->connect(mTab, &TabPage::menuRequest, [=]() {
         if (mIsLoading)
             return;
-//        DirectoryViewMenu menu(this, nullptr);
-//        menu.exec(QCursor::pos());
-//        auto urisToEdit = menu.urisToEdit();
-//        if (!urisToEdit.isEmpty()) {
-//#if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
-//            QTimer::singleShot(100, this, [=]() {
-//#else
-//            QTimer::singleShot(100, [=]() {
-//#endif
-//                this->getCurrentPage()->getView()->scrollToSelection(urisToEdit.first());
-//                this->editUri(urisToEdit.first());
-//            });
-//        }
+        DirectoryViewMenu menu(this, nullptr);
+        menu.exec(QCursor::pos());
+        auto urisToEdit = menu.urisToEdit();
+        if (!urisToEdit.isEmpty()) {
+#if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
+            QTimer::singleShot(100, this, [=]() {
+#else
+            QTimer::singleShot(100, [=]() {
+#endif
+                this->getCurrentPage()->getView()->scrollToSelection(urisToEdit.first());
+                this->slotEditUri(urisToEdit.first());
+            });
+        }
     });
 
     //preview page
@@ -475,27 +458,27 @@ FMWindow::FMWindow(const QString &uri, QWidget *parent) : QMainWindow (parent)
         if (mPreviewPageContainer->getCurrentPage()) {
             auto selection = getCurrentSelections();
             if (!selection.isEmpty()) {
-//                mPreviewPageContainer->getCurrentPage()->cancel();
-//                mPreviewPageContainer->getCurrentPage()->prepare(selection.first());
-//                mPreviewPageContainer->getCurrentPage()->startPreview();
-//            } else {
-//                mPreviewPageContainer->getCurrentPage()->cancel();
+                mPreviewPageContainer->getCurrentPage()->cancel();
+                mPreviewPageContainer->getCurrentPage()->prepare(selection.first());
+                mPreviewPageContainer->getCurrentPage()->startPreview();
+            } else {
+                mPreviewPageContainer->getCurrentPage()->cancel();
             }
         }
     });
     connect(mTab, &TabPage::currentLocationChanged, [=]() {
         if (mPreviewPageContainer->getCurrentPage()) {
-//            mPreviewPageContainer->getCurrentPage()->cancel();
+            mPreviewPageContainer->getCurrentPage()->cancel();
         }
     });
     connect(mTab, &TabPage::currentActiveViewChanged, [=]() {
         if (mPreviewPageContainer->getCurrentPage()) {
             auto selection = getCurrentSelections();
             if (selection.isEmpty()) {
-//                mPreviewPageContainer->getCurrentPage()->cancel();
-//            } else {
-//                mPreviewPageContainer->getCurrentPage()->prepare(selection.first());
-//                mPreviewPageContainer->getCurrentPage()->startPreview();
+                mPreviewPageContainer->getCurrentPage()->cancel();
+            } else {
+                mPreviewPageContainer->getCurrentPage()->prepare(selection.first());
+                mPreviewPageContainer->getCurrentPage()->startPreview();
             }
         }
     });

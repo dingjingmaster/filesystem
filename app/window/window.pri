@@ -3,6 +3,7 @@ INCLUDEPATH += \
     -I /usr/include/x86_64-linux-gnu/qt5/QtWidgets/5.12.8/
 
 HEADERS += \
+    $$PWD/main-window-style.h \
     $$PWD/main-window.h                     \
     $$PWD/volume-manager.h                  \
     $$PWD/bookmark-manager.h                \
@@ -11,6 +12,7 @@ HEADERS += \
 
 
 SOURCES += \
+    $$PWD/main-window-style.cpp \
     $$PWD/main-window.cpp                   \
     $$PWD/volume-manager.cpp                \
     $$PWD/bookmark-manager.cpp              \

@@ -53,12 +53,12 @@ MainWindow::MainWindow(const QString &uri, QWidget *parent) : QMainWindow(parent
     mEffect->setPadding(4);
     mEffect->setBorderRadius(6);
     mEffect->setBlurRadius(4);
-    //setGraphicsEffect(m_effect);
+//    setGraphicsEffect(mEffect);
 
     setAnimated(false);
     setAttribute(Qt::WA_DeleteOnClose);
     setAttribute(Qt::WA_TranslucentBackground);
-    setAttribute(Qt::WA_OpaquePaintEvent);
+//    setAttribute(Qt::WA_OpaquePaintEvent);
     auto flags = windowFlags() & ~Qt::WindowMinMaxButtonsHint;
     setWindowFlags(flags | Qt::FramelessWindowHint);
     setWindowFlags(windowFlags()|Qt::FramelessWindowHint);
@@ -89,10 +89,10 @@ MainWindow::~MainWindow()
 QSize MainWindow::sizeHint() const
 {
     auto screenSize = QApplication::primaryScreen()->size();
-    QSize defaultSize = (GlobalSettings::getInstance()->getValue(DEFAULT_WINDOW_SIZE)).toSize();
-    int width = qMin(defaultSize.width(), screenSize.width());
-    int height = qMin(defaultSize.height(), screenSize.height());
-    return QSize(width, height);
+//    QSize defaultSize = (GlobalSettings::getInstance()->getValue(DEFAULT_WINDOW_SIZE)).toSize();
+//    int width = qMin(defaultSize.width(), screenSize.width());
+//    int height = qMin(defaultSize.height(), screenSize.height());
+    return QSize((screenSize*2/3));
 }
 
 int MainWindow::getCurrentSortColumn()
@@ -581,7 +581,6 @@ void MainWindow::slotBeginSwitchView(const QString &viewId)
 {
     auto selection = getCurrentSelections();
     mTab->switchViewType(viewId);
-    // save zoom level
     GlobalSettings::getInstance()->setValue(DEFAULT_VIEW_ZOOM_LEVEL, currentViewZoomLevel());
     mTab->setCurrentSelections(selection);
     mTab->mStatusBar->mSlider->setEnabled(mTab->currentPage()->getView()->supportZoom());
@@ -624,15 +623,11 @@ void MainWindow::slotGoToUri(const QString &uri, bool addHistory, bool force)
         }
     }
 
-    CT_SYSLOG(LOG_ERR, "real uri:%s", realUri.toUtf8().data())
-
     if (getCurrentUri() == realUri) {
         if (!force) {
-            CT_SYSLOG(LOG_ERR, "")
             return;
         }
     }
-    CT_SYSLOG(LOG_ERR, "");
 
     CT_SYSLOG(LOG_DEBUG, "real uri: %s locationChangeStart!", realUri.toUtf8().constData());
     locationChangeStart();
@@ -651,11 +646,11 @@ void MainWindow::validBorder()
 {
     if (this->isMaximized()) {
         setContentsMargins(0, 0, 0, 0);
-//        mEffect->setPadding(0);
+        mEffect->setPadding(0);
         setProperty("blurRegion", QVariant());
     } else {
         setContentsMargins(4, 4, 4, 4);
-//        mEffect->setPadding(4);
+        mEffect->setPadding(4);
         QPainterPath path;
         auto rect = this->rect();
         rect.adjust(4, 4, -4, -4);
@@ -685,7 +680,6 @@ void MainWindow::initUI(const QString &uri)
         this->setCursor(c);
         mTab->setCursor(c);
         mSideBar->setCursor(c);
-//        mStatusBar->update();
     });
 
     connect(this, &MainWindow::locationChangeEnd, this, [=]() {
@@ -697,7 +691,6 @@ void MainWindow::initUI(const QString &uri)
         mTab->setCursor(c);
         mSideBar->setCursor(c);
         slotUpdateHeaderBar();
-//        mStatusBar->update();
     });
 
     auto headerBar = new HeaderBar(this);
@@ -736,7 +729,6 @@ void MainWindow::initUI(const QString &uri)
     auto navigationSidebarContainer = new NavigationSideBarContainer(this);
     navigationSidebarContainer->addSideBar(mSideBar);
 
-    CT_SYSLOG(LOG_ERR, "1");
     mTransparentAreaWidget = navigationSidebarContainer;
 
     connect(mSideBar, &NavigationSideBar::updateWindowLocationRequest, this, &MainWindow::slotGoToUri);
@@ -796,9 +788,6 @@ void MainWindow::initUI(const QString &uri)
     connect(mTab, &TabWidget::activePageLocationChanged, this, &MainWindow::locationChangeEnd);
     connect(mTab, &TabWidget::activePageViewTypeChanged, this, &MainWindow::slotUpdateHeaderBar);
     connect(mTab, &TabWidget::activePageChanged, this, &MainWindow::slotUpdateHeaderBar);
-    connect(mTab, &TabWidget::activePageChanged, this, [=](){
-//        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
-    });
     connect(mTab, &TabWidget::menuRequest, this, [=]() {
         DirectoryViewMenu menu(this);
         menu.exec(QCursor::pos());
@@ -861,14 +850,14 @@ void MainWindow::paintEvent(QPaintEvent *e)
     sidebarPath.addRoundedRect(adjustedRect, 6, 6);
     sidebarPath.addRect(adjustedRect.adjusted(0, 0, 0, -6));
     sidebarPath.addRect(adjustedRect.adjusted(6, 0, 0, 0));
-//    mEffect->setTransParentPath(sidebarPath);
-//    mEffect->setTransParentAreaBg(colorBase);
+    mEffect->setTransParentPath(sidebarPath);
+    mEffect->setTransParentAreaBg(colorBase);
 
     color.setAlphaF(0.5);
-//    mEffect->setWindowBackground(color);
+    mEffect->setWindowBackground(color);
     QPainter p(this);
 
-//    mEffect->drawWindowShadowManually(&p, this->rect(), mResizeHandler->isButtonDown());
+    mEffect->drawWindowShadowManually(&p, this->rect(), mResizeHandler->isButtonDown());
     QMainWindow::paintEvent(e);
 }
 
