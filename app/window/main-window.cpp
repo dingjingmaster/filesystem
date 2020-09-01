@@ -33,6 +33,7 @@
 #include <previewpage-factory-manager.h>
 #include <file/file-operation-error-dialog.h>
 #include <QtWidgets/private/qwidgetresizehandler_p.h>
+#include <menu/directory-view-menu.h>
 
 #include <X11/X.h>
 #include <X11/Xlib.h>
@@ -776,16 +777,6 @@ void MainWindow::initUI(const QString &uri)
     } else {
 //        mTab->addPage(uri, true);
     }
-//    QTimer::singleShot(1, this, [=]() {
-//        // FIXME:
-//        // it is strange that if we set size hint by qsettings,
-//        // the tab bar will "shrink" until we update geometry
-//        // after a while (may resize window or move splitter).
-//        // we should find out the reason and remove this dirty
-//        // code.
-//        mTab->updateTabBarGeometry();
-//        mTab->updateStatusBarGeometry();
-//    });
 
     connect(views->tabBar(), &QTabBar::tabBarDoubleClicked, this, [=](int index) {
         if (index == -1) {
@@ -800,11 +791,6 @@ void MainWindow::initUI(const QString &uri)
 
     setCentralWidget(views);
 
-    // check slider zoom level
-    if (currentViewSupportZoom()) {
-//        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
-    }
-
     //bind signals
     connect(mTab, &TabWidget::closeSearch, headerBar, &HeaderBar::closeSearch);
     connect(mTab, &TabWidget::clearTrash, this, &MainWindow::slotCleanTrash);
@@ -817,22 +803,19 @@ void MainWindow::initUI(const QString &uri)
 //        slotSetCurrentViewZoomLevel(currentViewZoomLevel());
     });
     connect(mTab, &TabWidget::menuRequest, this, [=]() {
-//        DirectoryViewMenu menu(this);
-//        menu.exec(QCursor::pos());
-//        auto urisToEdit = menu.urisToEdit();
-//        if (!urisToEdit.isEmpty()) {
+        DirectoryViewMenu menu(this);
+        menu.exec(QCursor::pos());
+        auto urisToEdit = menu.urisToEdit();
+        if (!urisToEdit.isEmpty()) {
 #if QT_VERSION > QT_VERSION_CHECK(5, 12, 0)
             QTimer::singleShot(100, this, [=]() {
 #else
             QTimer::singleShot(100, [=]() {
 #endif
-//                this->getCurrentPage()->getView()->scrollToSelection(urisToEdit.first());
-//                this->editUri(urisToEdit.first());
+                this->getCurrentPage()->getView()->scrollToSelection(urisToEdit.first());
+                this->slotEditUri(urisToEdit.first());
             });
-//        }
-    });
-    connect(mTab, &TabWidget::currentSelectionChanged, this, [=](){
-        mStatusBar->update();
+        }
     });
 }
 
