@@ -9,7 +9,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets widgets-private
 PKGCONFIG +=                                        \
     gio-2.0                                         \
     glib-2.0                                        \
-    poppler-qt5                                     \
+    poppler                                         \
     gio-unix-2.0                                    \
 
 LIBS +=                                             \

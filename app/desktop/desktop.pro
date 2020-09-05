@@ -1,12 +1,12 @@
 TEMPLATE = app
-
-export("QT_SELECT=5")
-
-QT       += core gui x11extras dbus concurrent network
-
 TARGET = graceful-desktop
 
-greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+QT       += core gui gui-private x11extras dbus concurrent network
+
+greaterThan(QT_MAJOR_VERSION, 4): QT += widgets widgets-private
+
+#INCLUDEPATH += \
+#    /usr/include/qt/QtWidgets/5.15.0
 
 QMAKE_CXXFLAGS += -std=c++0x
 

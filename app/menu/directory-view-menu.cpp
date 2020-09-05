@@ -580,7 +580,7 @@ const QList<QAction *> DirectoryViewMenu::constructSearchActions()
 #else
                     QTimer::singleShot(1000, [=]() {
                         if (newWindow)
-                            windowIface->setCurrentSelectionUris(selection);
+                            windowIface->slotSetCurrentSelectionUris(selection);
                     });
 #endif
                     newWindow->show();

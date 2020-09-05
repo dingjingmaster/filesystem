@@ -1,6 +1,13 @@
 TEMPLATE = subdirs
 
-CONFIG += debug_and_release
+export("QT_SELECT=5")
+
+CONFIG += \
+    c++11                                                   \
+    no_keywords                                             \
+    link_pkgconfig                                          \
+    debug_and_release                                       \
+
 CONFIG(debug,debug|release) {
     QMAKE_CFLAGS += -DLOG_LEVEL=7
     QMAKE_CXXFLAGS += -DLOG_LEVEL=7
