@@ -22,6 +22,7 @@
 - 修改文件：
   - `Cargo.toml`
   - `Cargo.lock`
+  - `Makefile`
   - `.gitignore`
   - `crates/filesystem-core/Cargo.toml`
   - `crates/filesystem-core/src/lib.rs`
@@ -34,15 +35,21 @@
   - `docs/dev/1-summary-local-linux-file-manager.md`
 - 代码逻辑改动：
   - `filesystem-core` 提供 `scan_dir`，使用 `std::fs::read_dir` 和 `symlink_metadata`，按目录、符号链接、文件、其他类型排序，支持隐藏文件过滤。
-  - `filesystem-gui` 提供 iced 窗口，支持进入目录、返回上级、刷新和显示隐藏文件。
-  - GUI 已从简单列表升级为参考截图风格的暗色界面：无系统边框窗口、左侧本地导航、顶部返回/刷新/路径栏、主区域网格文件图标、底部状态栏。
-  - 侧边栏只显示“主文件夹”“根目录”，以及家目录中实际存在的下载/图片/桌面/文档/音乐/视频等常见目录。
+  - `filesystem-gui` 提供 iced 窗口，支持进入目录、历史后退/前进和显示隐藏文件。
+  - GUI 已从简单列表升级为参考截图风格的暗色界面：无系统边框窗口、左侧本地导航、顶部后退/前进按钮、可编辑地址栏、主区域网格文件图标、底部状态栏。
+  - 侧边栏只显示“主文件夹”“根目录”，以及家目录中实际存在的下载/图片/桌面/文档/音乐/视频等常见目录；导航项内容左对齐、垂直居中。
+  - 侧边栏导航图标改为指定 SVG 资源：`icons/home.svg`、`icons/root.svg`、`icons/download.svg`、`icons/picture.svg`、`icons/desktop.svg`、`icons/document.svg`、`icons/music.svg`、`icons/videos.svg`。
   - 参考 cosmic-files 模式补充窗口拖拽、双击最大化/还原、最小化、最大化/还原和关闭操作；底层使用 iced `window` task。
   - 侧边栏顶部改为空白拖拽区，导航按钮下移；地址栏改为可编辑输入框，支持回车访问绝对路径、相对路径、`~` 和 `~/...`。
   - 窗口控制按钮使用本地 SVG 资源：`icons/min.svg`、`icons/max.svg`、`icons/close.svg`，按钮 padding 为 6px，图标居中。
   - 窗口四边和四角加入 6px resize 命中区，调用 iced `window::drag_resize`，实际缩放交给窗口管理器处理。
   - 外框圆角不使用透明窗口或内容裁剪模拟；当前 Linux iced/winit 未提供窗口管理器原生圆角设置接口，因此暂不设置外框圆角。
-  - GUI 依赖固定启用 `iced/wgpu`、`iced/x11`、`iced/wayland`、`iced/thread-pool`、`iced/svg`，不再保留 renderer 互斥 feature。
+  - 应用英文名为 `File`，中文名为 `文件`；窗口标题和 Linux application_id 使用 `File`，左侧拖拽标题栏显示 `文件`。
+  - 窗口/任务栏图标使用 `icons/fs.svg`，启动时通过 `resvg` 渲染为 128x128 RGBA 后传给 iced/winit。
+  - 地址栏左侧刷新按钮已移除，改为后退/前进两个 SVG 按钮：`icons/left.svg`、`icons/right.svg`；按钮无可用历史时置灰且不可点。
+  - 成功进入目录、侧边栏跳转或地址栏跳转时写入后退历史并清空前进历史；后退/前进会维护反向历史栈。
+  - GUI 依赖固定启用 `iced/wgpu`、`iced/x11`、`iced/wayland`、`iced/thread-pool`、`iced/svg`，不再保留 renderer 互斥 feature；`resvg` 仅用于窗口 icon SVG 渲染，直接依赖不额外启用 default features。
+  - 根目录新增 `Makefile`：`make`/`make release` 编译 release，`make debug` 编译 debug，`make test` 执行 workspace 测试。
 - 影响的使用场景：可以从当前工作目录启动 GUI，以图形文件管理器布局浏览本地目录。
 - 不影响的使用场景：不会调用 DBus/GVFS/portal/XDG MIME/通知/桌面配置服务；不会执行删除、移动、复制或打开文件动作。
 - 计划偏差：未实现选择/多选；权限错误测试未做专项覆盖；未在真实 X11/Wayland 会话开窗测试。
@@ -69,6 +76,9 @@
   - `cargo test -p filesystem-core`：通过，4 个单元测试。
   - `cargo check -p filesystem-gui`：通过，默认 wgpu。
   - `cargo test`：通过。
+  - `make debug`：通过。
+  - `make test`：通过。
+  - `make`：通过，生成 release 构建。
   - `git diff --check`：通过。
   - `cargo tree -p filesystem-core`：仅 `filesystem-core` 自身。
   - `cargo tree -p filesystem-gui -i tiny-skia`：`tiny-skia <- sctk-adwaita <- winit <- iced_winit <- iced`，说明剩余 tiny-skia 来自 Wayland 客户端装饰，不是 iced tiny-skia renderer。

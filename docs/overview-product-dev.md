@@ -1,4 +1,4 @@
-# Filesystem 开发概览
+# File 开发概览
 
 > 文档元数据
 > - 文档版本：v1.0.0
@@ -11,9 +11,9 @@
 | 类别 | 技术/版本 | 用途 | 备注 |
 |------|-----------|------|------|
 | 语言 | Rust，edition 2024 | 核心逻辑和 GUI | workspace `rust-version` 为 1.85 |
-| 构建系统 | Cargo workspace | 多 crate 构建与 feature 管理 | 当前包含 `filesystem-core`、`filesystem-gui` |
+| 构建系统 | Cargo workspace + Makefile | 多 crate 构建与 feature 管理 | `make` 封装常用构建/测试入口 |
 | 运行平台 | Linux 本地文件系统 | 目标运行平台 | 不支持网络文件系统服务集成 |
-| 关键依赖 | `iced 0.14` | GUI 和窗口事件 | `default-features = false` |
+| 关键依赖 | `iced 0.14`、`resvg 0.45` | GUI、窗口事件和 SVG 窗口图标渲染 | `iced` 关闭 default features；`resvg` 复用 iced SVG 渲染路径 |
 | 渲染 | `iced/wgpu` | GPU 渲染路径 | 固定启用，不保留 `tiny-skia` |
 | 窗口后端 | `iced/x11`、`iced/wayland` | 同一二进制支持 X11/Wayland | 由 winit 运行时选择 |
 
@@ -21,11 +21,11 @@
 
 - 模块划分：
   - `crates/filesystem-core`：本地文件系统模型和只读扫描 API，不依赖 GUI 或外部 crate。
-  - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、侧边栏导航、可编辑地址栏、窗口控制/缩放消息和显示状态。
+  - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、访问历史栈、侧边栏导航、可编辑地址栏、窗口控制/缩放消息和显示状态。
 - 进程/线程边界：当前只运行单 GUI 进程；iced 需要 `thread-pool` executor feature，但本轮没有后台任务。
 - 客户端/服务端/驱动边界：无服务端、无内核模块、无桌面服务客户端。
 - 数据流：GUI 状态触发 `scan_dir`，core 返回 `DirectoryListing`，GUI 渲染条目或错误状态。
-- 控制流：用户点击目录、侧边栏主文件夹/根目录/家目录常见路径、返回、刷新或隐藏文件开关后同步重新扫描当前路径；用户编辑地址栏并回车后解析路径并切换目录；窗口拖拽/关闭/最小化/最大化通过 iced `window` task 执行；四边和四角 resize 命中区调用 `window::drag_resize`，由窗口管理器接管实际缩放。
+- 控制流：启动时把 `icons/fs.svg` 渲染为 128x128 RGBA 窗口 icon，并设置 Linux application_id 为 `File`；用户点击目录、侧边栏主文件夹/根目录/家目录常见路径或编辑地址栏回车后，成功切换目录会写入后退栈并清空前进栈；后退/前进按钮从对应历史栈切换路径并维护反向栈；隐藏文件开关只重新扫描当前路径；窗口拖拽/关闭/最小化/最大化通过 iced `window` task 执行；四边和四角 resize 命中区调用 `window::drag_resize`，由窗口管理器接管实际缩放。
 - 外部依赖：允许后续配置外部二进制，但不能依赖 DBus/GVFS/portal/XDG MIME/通知/桌面配置服务。
 
 ## 3. 关键接口
@@ -34,6 +34,7 @@
 |---------------|--------|--------|----------|------|
 | `scan_dir(path, ScanOptions)` | `filesystem-gui` | `filesystem-core` | 只读；不跟随符号链接判断类型 | 返回排序后的本地目录条目 |
 | `iced` feature 集 | 构建者 | `filesystem-gui` | 固定启用 `thread-pool`、`svg`、`wgpu`、`x11`、`wayland` | wgpu 渲染、SVG 图标和双窗口后端 |
+| `load_window_icon()` | `filesystem-gui` | `resvg`/`tiny-skia` | 直接依赖不额外启用 `resvg` default features；输出非预乘 RGBA | 把 `icons/fs.svg` 转换为 iced/winit 窗口 icon |
 
 ## 4. 数据与配置
 
@@ -44,7 +45,7 @@
   - `ScanOptions`：当前仅包含 `show_hidden`。
 - 配置文件/参数：暂无持久配置。
 - 持久化数据：暂无。
-- 编译期资源：窗口控制按钮使用 `icons/min.svg`、`icons/max.svg`、`icons/close.svg`，通过 `include_bytes!` 编入 GUI 二进制。
+- 编译期资源：窗口控制按钮使用 `icons/min.svg`、`icons/max.svg`、`icons/close.svg`；地址栏历史按钮使用 `icons/left.svg`、`icons/right.svg`；窗口/任务栏图标使用 `icons/fs.svg`；侧边栏导航使用 `icons/home.svg`、`icons/root.svg`、`icons/download.svg`、`icons/picture.svg`、`icons/desktop.svg`、`icons/document.svg`、`icons/music.svg`、`icons/videos.svg`；这些 SVG 均通过 `include_bytes!` 编入 GUI 二进制。
 - 外框圆角：不使用透明窗口、内容裁剪或自绘方式模拟；只有 iced/winit 在 Linux 暴露窗口管理器原生圆角接口后才设置。
 - 迁移/兼容规则：暂无。
 - 敏感信息处理：不读取系统账号密钥；路径和错误只显示在本地 GUI。
@@ -62,8 +63,11 @@
 ## 6. 构建与验证
 
 - 构建命令：
-  - 默认 GUI：`cargo check -p filesystem-gui`
+  - Release：`make` 或 `make release`
+  - Debug：`make debug`
+  - 默认 GUI 快速检查：`cargo check -p filesystem-gui`
 - 单元测试：
+  - `make test`
   - `cargo test -p filesystem-core`
   - `cargo test`
 - 静态检查：
@@ -72,7 +76,7 @@
 - 高风险验证：
   - 写操作尚未实现；后续所有破坏性测试只能作用于测试创建的临时目录。
 - 最小人工验证步骤：
-  - 在 X11 会话启动 GUI，确认窗口无系统边框，侧栏顶部和地址栏右侧空白区可拖拽，双击可最大化/还原，窗口按钮可关闭/最小化/最大化，四边和四角可拖动缩放，侧边栏、可编辑地址栏和网格视图渲染正常，目录可进入/返回/刷新。
+  - 在 X11 会话启动 GUI，确认窗口无系统边框，侧栏顶部和地址栏右侧空白区可拖拽，双击可最大化/还原，窗口按钮可关闭/最小化/最大化，四边和四角可拖动缩放，侧边栏、后退/前进按钮、可编辑地址栏和网格视图渲染正常，目录可进入并可通过后退/前进访问历史位置。
   - 在 Wayland 会话启动同一个二进制，确认行为一致。
 
 ## 7. 发布与回滚
@@ -116,3 +120,7 @@
 | 2026-06-24 | 记录自绘窗口控制消息和 iced window task 控制流 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
 | 2026-06-24 | 记录可编辑地址栏状态和路径解析控制流 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
 | 2026-06-24 | 记录四边/四角 `window::drag_resize` 和外框圆角不伪造策略 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 新增根目录 `Makefile`，记录 `make`、`make debug`、`make test` 项目级入口 | 更新构建与验证入口 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录应用名 `File`/`文件`、Linux application_id 和 `icons/fs.svg` 窗口 icon 渲染路径 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录后退/前进历史栈、按钮资源和刷新按钮移除 | 更新 GUI 控制流 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录侧边栏导航 SVG 资源和对齐规则 | 更新 GUI 资源事实 | docs/dev/1-summary-local-linux-file-manager.md |
