@@ -1,0 +1,15 @@
+[package]
+name = "filesystem-gui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+filesystem-core = { path = "../filesystem-core" }
+iced = { version = "0.14", default-features = false, features = [
+    "thread-pool",
+    "wgpu",
+    "x11",
+    "wayland",
+] }

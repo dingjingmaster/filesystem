@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/filesystem-core",
+    "crates/filesystem-gui",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-only"
+rust-version = "1.85"

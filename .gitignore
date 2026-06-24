@@ -1,6 +1,7 @@
 doc/
 graceful-desktop
 graceful-filemanager
+target/
 # C++ objects and libs
 *.slo
 *.lo
