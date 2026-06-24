@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt;
@@ -35,13 +36,20 @@ pub struct ScanOptions {
     pub show_hidden: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResults {
+    pub root: PathBuf,
+    pub query: String,
+    pub entries: Vec<FileEntry>,
+}
+
 impl Default for ScanOptions {
     fn default() -> Self {
         Self { show_hidden: false }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FsError {
     path: PathBuf,
     kind: io::ErrorKind,
@@ -74,43 +82,49 @@ pub fn scan_dir(path: impl AsRef<Path>, options: ScanOptions) -> Result<Director
 
     for item in reader {
         let item = item.map_err(|error| FsError::from_io(path, error))?;
-        let entry_path = item.path();
-        let name = item.file_name().to_string_lossy().into_owned();
-        let hidden = name.starts_with('.');
+        let entry = file_entry(item)?;
 
-        if hidden && !options.show_hidden {
+        if entry.hidden && !options.show_hidden {
             continue;
         }
 
-        let metadata = fs::symlink_metadata(&entry_path)
-            .map_err(|error| FsError::from_io(&entry_path, error))?;
-        let file_type = metadata.file_type();
-        let kind = if file_type.is_dir() {
-            EntryKind::Directory
-        } else if file_type.is_file() {
-            EntryKind::File
-        } else if file_type.is_symlink() {
-            EntryKind::Symlink
-        } else {
-            EntryKind::Other
-        };
-        let size = matches!(kind, EntryKind::File).then_some(metadata.len());
-        let modified = metadata.modified().ok();
-
-        entries.push(FileEntry {
-            name,
-            path: entry_path,
-            kind,
-            hidden,
-            size,
-            modified,
-        });
+        entries.push(entry);
     }
 
     entries.sort_by(compare_entries);
 
     Ok(DirectoryListing {
         path: path.to_path_buf(),
+        entries,
+    })
+}
+
+pub fn search_file_names(
+    root: impl AsRef<Path>,
+    query: impl AsRef<str>,
+    options: ScanOptions,
+) -> Result<SearchResults, FsError> {
+    let root = root.as_ref();
+    let query = query.as_ref().trim();
+    if query.is_empty() {
+        return Ok(SearchResults {
+            root: root.to_path_buf(),
+            query: String::new(),
+            entries: Vec::new(),
+        });
+    }
+
+    let pattern = Regex::new(query).map_err(|error| {
+        FsError::from_message(root, io::ErrorKind::InvalidInput, error.to_string())
+    })?;
+    let mut entries = Vec::new();
+
+    search_file_names_inner(root, &pattern, options, &mut entries)?;
+    entries.sort_by(compare_entry_paths);
+
+    Ok(SearchResults {
+        root: root.to_path_buf(),
+        query: query.to_string(),
         entries,
     })
 }
@@ -123,6 +137,73 @@ impl FsError {
             message: error.to_string(),
         }
     }
+
+    fn from_message(path: &Path, kind: io::ErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
+    let entry_path = item.path();
+    let name = item.file_name().to_string_lossy().into_owned();
+    let hidden = name.starts_with('.');
+
+    let metadata =
+        fs::symlink_metadata(&entry_path).map_err(|error| FsError::from_io(&entry_path, error))?;
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_dir() {
+        EntryKind::Directory
+    } else if file_type.is_file() {
+        EntryKind::File
+    } else if file_type.is_symlink() {
+        EntryKind::Symlink
+    } else {
+        EntryKind::Other
+    };
+    let size = matches!(kind, EntryKind::File).then_some(metadata.len());
+    let modified = metadata.modified().ok();
+
+    Ok(FileEntry {
+        name,
+        path: entry_path,
+        kind,
+        hidden,
+        size,
+        modified,
+    })
+}
+
+fn search_file_names_inner(
+    dir: &Path,
+    pattern: &Regex,
+    options: ScanOptions,
+    entries: &mut Vec<FileEntry>,
+) -> Result<(), FsError> {
+    let reader = fs::read_dir(dir).map_err(|error| FsError::from_io(dir, error))?;
+
+    for item in reader {
+        let item = item.map_err(|error| FsError::from_io(dir, error))?;
+        let entry = file_entry(item)?;
+
+        if entry.hidden && !options.show_hidden {
+            continue;
+        }
+
+        let should_descend = matches!(entry.kind, EntryKind::Directory);
+        if pattern.is_match(&entry.name) {
+            entries.push(entry.clone());
+        }
+
+        if should_descend {
+            search_file_names_inner(&entry.path, pattern, options, entries)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn compare_entries(left: &FileEntry, right: &FileEntry) -> Ordering {
@@ -130,6 +211,14 @@ fn compare_entries(left: &FileEntry, right: &FileEntry) -> Ordering {
         .cmp(&entry_group(right.kind))
         .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
         .then_with(|| left.name.cmp(&right.name))
+}
+
+fn compare_entry_paths(left: &FileEntry, right: &FileEntry) -> Ordering {
+    left.path
+        .to_string_lossy()
+        .to_lowercase()
+        .cmp(&right.path.to_string_lossy().to_lowercase())
+        .then_with(|| left.path.cmp(&right.path))
 }
 
 fn entry_group(kind: EntryKind) -> u8 {
@@ -204,11 +293,95 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
     }
 
+    #[test]
+    fn search_file_names_finds_regex_matches_recursively() {
+        let fixture = TempDir::new("search");
+        fs::create_dir_all(fixture.path().join("src/nested")).unwrap();
+        fs::write(fixture.path().join("src/Alpha.txt"), b"no match").unwrap();
+        fs::write(fixture.path().join("src/nested/beta-alpha.md"), b"no match").unwrap();
+        fs::write(fixture.path().join("src/nested/gamma.txt"), b"gamma").unwrap();
+        fs::write(fixture.path().join("content-only.txt"), b"alpha").unwrap();
+
+        let results = search_file_names(
+            fixture.path(),
+            "(?i)alpha.*\\.txt$|beta-alpha\\.md$",
+            ScanOptions::default(),
+        )
+        .unwrap();
+        let names = result_names(&results);
+
+        assert_eq!(names, vec!["Alpha.txt", "beta-alpha.md"]);
+        assert_eq!(results.root, fixture.path());
+        assert_eq!(results.query, "(?i)alpha.*\\.txt$|beta-alpha\\.md$");
+    }
+
+    #[test]
+    fn search_file_names_respects_hidden_option() {
+        let fixture = TempDir::new("search-hidden");
+        fs::create_dir(fixture.path().join(".hidden-dir")).unwrap();
+        fs::write(fixture.path().join(".hidden-dir/needle.txt"), b"hidden").unwrap();
+        fs::write(fixture.path().join(".needle"), b"hidden").unwrap();
+        fs::write(fixture.path().join("needle.txt"), b"visible").unwrap();
+
+        let visible = search_file_names(fixture.path(), "needle", ScanOptions::default()).unwrap();
+        assert_eq!(result_names(&visible), vec!["needle.txt"]);
+
+        let all =
+            search_file_names(fixture.path(), "needle", ScanOptions { show_hidden: true }).unwrap();
+        assert_eq!(
+            result_relative_paths(&all, fixture.path()),
+            vec![".hidden-dir/needle.txt", ".needle", "needle.txt"]
+        );
+    }
+
+    #[test]
+    fn search_file_names_ignores_empty_query() {
+        let fixture = TempDir::new("search-empty");
+        fs::write(fixture.path().join("visible.txt"), b"visible").unwrap();
+
+        let results = search_file_names(fixture.path(), "   ", ScanOptions::default()).unwrap();
+
+        assert!(results.entries.is_empty());
+        assert_eq!(results.query, "");
+    }
+
+    #[test]
+    fn search_file_names_reports_invalid_regex() {
+        let fixture = TempDir::new("search-invalid-regex");
+
+        let error = search_file_names(fixture.path(), "[", ScanOptions::default()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
     fn names(listing: &DirectoryListing) -> Vec<&str> {
         listing
             .entries
             .iter()
             .map(|entry| entry.name.as_str())
+            .collect()
+    }
+
+    fn result_names(results: &SearchResults) -> Vec<&str> {
+        results
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect()
+    }
+
+    fn result_relative_paths(results: &SearchResults, root: &Path) -> Vec<String> {
+        results
+            .entries
+            .iter()
+            .map(|entry| {
+                entry
+                    .path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect()
     }
 

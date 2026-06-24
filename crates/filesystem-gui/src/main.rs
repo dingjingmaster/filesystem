@@ -1,4 +1,6 @@
-use filesystem_core::{DirectoryListing, EntryKind, FileEntry, FsError, ScanOptions, scan_dir};
+use filesystem_core::{
+    DirectoryListing, EntryKind, FileEntry, FsError, ScanOptions, scan_dir, search_file_names,
+};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, checkbox, column, container, mouse_area, row, scrollable, space, stack, svg, text,
@@ -6,8 +8,8 @@ use iced::widget::{
 };
 use iced::widget::{button as button_style, container as container_style, svg as svg_style};
 use iced::{
-    Background, Border, Color, Element, Fill, Length, Result, Shadow, Size, Task, Theme, mouse,
-    window,
+    Background, Border, Color, Element, Fill, Length, Result as IcedResult, Shadow, Size, Task,
+    Theme, mouse, window,
 };
 use std::path::PathBuf;
 
@@ -21,7 +23,7 @@ const TILE_WIDTH: f32 = 142.0;
 const TILE_HEIGHT: f32 = 128.0;
 const GRID_COLUMNS: usize = 6;
 
-pub fn main() -> Result {
+pub fn main() -> IcedResult {
     iced::application(FileManager::new, FileManager::update, FileManager::view)
         .title(|manager: &FileManager| format!("{APP_NAME_EN} - {}", manager.cwd.display()))
         .theme(Theme::Dark)
@@ -83,20 +85,31 @@ struct FileManager {
     show_hidden: bool,
     status: String,
     path_input: String,
+    search_query: Option<String>,
+    search_root: Option<PathBuf>,
+    next_request_id: u64,
+    active_request_id: Option<u64>,
     back_history: Vec<PathBuf>,
     forward_history: Vec<PathBuf>,
     home: Option<PathBuf>,
+    home_shortcuts: Vec<HomeShortcut>,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    Open(PathBuf),
+    Open(PathBuf, EntryKind),
     Go(PathBuf),
     Back,
     Forward,
     PathChanged(String),
     PathSubmit,
     ToggleHidden(bool),
+    DirectoryLoaded(DirectoryRequest, Result<DirectoryListing, FsError>),
+    SearchFinished(
+        SearchRequest,
+        Result<filesystem_core::SearchResults, FsError>,
+    ),
+    HomeShortcutsLoaded(Vec<HomeShortcut>),
     WindowDrag,
     WindowClose,
     WindowMinimize,
@@ -110,55 +123,147 @@ enum NavKind {
     Root,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectoryLoadMode {
+    Replace,
+    Visit,
+    Back,
+    Forward,
+}
+
+#[derive(Debug, Clone)]
+struct DirectoryRequest {
+    id: u64,
+    path: PathBuf,
+    mode: DirectoryLoadMode,
+    previous: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct SearchRequest {
+    id: u64,
+}
+
+#[derive(Debug, Clone)]
 struct HomeShortcut {
     icon: &'static [u8],
     label: &'static str,
     path: PathBuf,
 }
 
+fn load_home_shortcuts(home: Option<PathBuf>) -> Task<Message> {
+    Task::perform(
+        async move { detect_home_shortcuts(home) },
+        Message::HomeShortcutsLoaded,
+    )
+}
+
+fn detect_home_shortcuts(home: Option<PathBuf>) -> Vec<HomeShortcut> {
+    let Some(home) = home else {
+        return Vec::new();
+    };
+
+    let definitions = [
+        (
+            include_bytes!("../../../icons/download.svg").as_slice(),
+            "下载",
+            ["下载", "Downloads"],
+        ),
+        (
+            include_bytes!("../../../icons/picture.svg").as_slice(),
+            "图片",
+            ["图片", "Pictures"],
+        ),
+        (
+            include_bytes!("../../../icons/desktop.svg").as_slice(),
+            "桌面",
+            ["桌面", "Desktop"],
+        ),
+        (
+            include_bytes!("../../../icons/document.svg").as_slice(),
+            "文档",
+            ["文档", "Documents"],
+        ),
+        (
+            include_bytes!("../../../icons/music.svg").as_slice(),
+            "音乐",
+            ["音乐", "Music"],
+        ),
+        (
+            include_bytes!("../../../icons/videos.svg").as_slice(),
+            "视频",
+            ["视频", "Videos"],
+        ),
+    ];
+
+    let mut shortcuts = Vec::new();
+
+    for (icon, label, candidates) in definitions {
+        if let Some(path) = candidates
+            .into_iter()
+            .map(|candidate| home.join(candidate))
+            .find(|path| path.is_dir())
+        {
+            shortcuts.push(HomeShortcut { icon, label, path });
+        }
+    }
+
+    shortcuts
+}
+
 impl FileManager {
     fn new() -> (Self, Task<Message>) {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let home = std::env::var_os("HOME").map(PathBuf::from);
+        let shortcuts_task = load_home_shortcuts(home.clone());
         let mut manager = Self {
             cwd,
             entries: Vec::new(),
             show_hidden: false,
             status: String::new(),
             path_input: String::new(),
+            search_query: None,
+            search_root: None,
+            next_request_id: 0,
+            active_request_id: None,
             back_history: Vec::new(),
             forward_history: Vec::new(),
             home,
+            home_shortcuts: Vec::new(),
         };
-        manager.reload();
-        (manager, Task::none())
+        let task = manager.reload();
+        (manager, Task::batch([task, shortcuts_task]))
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Open(path) | Message::Go(path) => {
-                self.open_path(path);
-                Task::none()
-            }
-            Message::Back => {
-                self.go_back();
-                Task::none()
-            }
-            Message::Forward => {
-                self.go_forward();
-                Task::none()
-            }
+            Message::Open(path, kind) => self.open_path(path, kind),
+            Message::Go(path) => self.visit_path(path),
+            Message::Back => self.go_back(),
+            Message::Forward => self.go_forward(),
             Message::PathChanged(path) => {
                 self.path_input = path;
                 Task::none()
             }
-            Message::PathSubmit => {
-                self.open_path_input();
-                Task::none()
-            }
+            Message::PathSubmit => self.open_path_input(),
             Message::ToggleHidden(show_hidden) => {
                 self.show_hidden = show_hidden;
-                self.reload();
+                if self.search_query.is_some() {
+                    self.rerun_search()
+                } else {
+                    self.reload()
+                }
+            }
+            Message::DirectoryLoaded(request, result) => {
+                self.directory_loaded(request, result);
+                Task::none()
+            }
+            Message::SearchFinished(request, result) => {
+                self.search_finished(request, result);
+                Task::none()
+            }
+            Message::HomeShortcutsLoaded(shortcuts) => {
+                self.home_shortcuts = shortcuts;
                 Task::none()
             }
             Message::WindowDrag => latest_window_task(window::drag),
@@ -215,12 +320,15 @@ impl FileManager {
 
         let mut content = column![quick].spacing(8).padding([14, 10]);
 
-        let home_shortcuts = self.home_shortcuts();
-        if !home_shortcuts.is_empty() {
+        if !self.home_shortcuts.is_empty() {
             content = content.push(style::divider());
 
-            for shortcut in home_shortcuts {
-                content = content.push(self.nav_path(shortcut.icon, shortcut.label, shortcut.path));
+            for shortcut in &self.home_shortcuts {
+                content = content.push(self.nav_path(
+                    shortcut.icon,
+                    shortcut.label,
+                    shortcut.path.clone(),
+                ));
             }
         }
 
@@ -269,7 +377,7 @@ impl FileManager {
         .style(style::toolbar_button)
         .on_press_maybe(can_go_forward.then_some(Message::Forward));
 
-        let path_bar = text_input("输入路径", &self.path_input)
+        let path_bar = text_input("输入绝对路径或文件名正则", &self.path_input)
             .on_input(Message::PathChanged)
             .on_submit(Message::PathSubmit)
             .size(15)
@@ -398,7 +506,7 @@ impl FileManager {
             .align_x(Horizontal::Center)
             .style(style::primary_text);
 
-        let meta = text(entry_meta(entry))
+        let meta = text(self.entry_subtitle(entry))
             .size(12)
             .width(TILE_WIDTH)
             .align_x(Horizontal::Center)
@@ -414,7 +522,7 @@ impl FileManager {
             .width(TILE_WIDTH)
             .padding(8)
             .style(style::tile_button)
-            .on_press(Message::Open(entry.path.clone()))
+            .on_press(Message::Open(entry.path.clone(), entry.kind))
             .into()
     }
 
@@ -466,171 +574,218 @@ impl FileManager {
         self.home.clone().unwrap_or_else(|| PathBuf::from("/"))
     }
 
-    fn home_shortcuts(&self) -> Vec<HomeShortcut> {
-        let Some(home) = &self.home else {
-            return Vec::new();
-        };
-
-        let definitions = [
-            (
-                include_bytes!("../../../icons/download.svg").as_slice(),
-                "下载",
-                ["下载", "Downloads"],
-            ),
-            (
-                include_bytes!("../../../icons/picture.svg").as_slice(),
-                "图片",
-                ["图片", "Pictures"],
-            ),
-            (
-                include_bytes!("../../../icons/desktop.svg").as_slice(),
-                "桌面",
-                ["桌面", "Desktop"],
-            ),
-            (
-                include_bytes!("../../../icons/document.svg").as_slice(),
-                "文档",
-                ["文档", "Documents"],
-            ),
-            (
-                include_bytes!("../../../icons/music.svg").as_slice(),
-                "音乐",
-                ["音乐", "Music"],
-            ),
-            (
-                include_bytes!("../../../icons/videos.svg").as_slice(),
-                "视频",
-                ["视频", "Videos"],
-            ),
-        ];
-
-        let mut shortcuts = Vec::new();
-
-        for (icon, label, candidates) in definitions {
-            if let Some(path) = candidates
-                .into_iter()
-                .map(|candidate| home.join(candidate))
-                .find(|path| path.is_dir())
-            {
-                shortcuts.push(HomeShortcut { icon, label, path });
-            }
-        }
-
-        shortcuts
-    }
-
-    fn open_path(&mut self, path: PathBuf) {
-        if path.is_dir() {
-            self.visit_path(path);
+    fn open_path(&mut self, path: PathBuf, kind: EntryKind) -> Task<Message> {
+        if matches!(kind, EntryKind::Directory) {
+            self.visit_path(path)
         } else {
             let name = path
                 .file_name()
                 .and_then(|value| value.to_str())
                 .unwrap_or("file");
             self.status = format!("No opener configured for {name}");
+            Task::none()
         }
     }
 
-    fn open_path_input(&mut self) {
-        let Some(path) = self.resolve_path_input() else {
-            self.status = "Path is empty".to_string();
-            return;
-        };
-
-        if path.is_dir() {
-            self.visit_path(path);
-        } else if path.exists() {
-            self.status = format!("Not a directory: {}", path.display());
-        } else {
-            self.status = format!("Path does not exist: {}", path.display());
+    fn open_path_input(&mut self) -> Task<Message> {
+        let input = self.path_input.trim().to_string();
+        if input.is_empty() {
+            self.status = "Path or search is empty".to_string();
+            return Task::none();
         }
+
+        let path = PathBuf::from(&input);
+        if !path.is_absolute() {
+            return self.search_current_dir(input);
+        }
+
+        self.visit_path(path)
     }
 
-    fn visit_path(&mut self, path: PathBuf) {
+    fn visit_path(&mut self, path: PathBuf) -> Task<Message> {
         if path == self.cwd {
-            self.reload();
-            return;
+            return self.reload();
         }
 
         let previous = self.cwd.clone();
-        if self.load_path(path) {
-            self.back_history.push(previous);
-            self.forward_history.clear();
-        }
+        self.load_path(path, DirectoryLoadMode::Visit, Some(previous))
     }
 
-    fn go_back(&mut self) {
-        if let Some(path) = self.back_history.pop() {
+    fn go_back(&mut self) -> Task<Message> {
+        if let Some(path) = self.back_history.last().cloned() {
             let previous = self.cwd.clone();
-            if self.load_path(path.clone()) {
-                self.forward_history.push(previous);
-            } else {
-                self.back_history.push(path);
-            }
-        }
-    }
-
-    fn go_forward(&mut self) {
-        if let Some(path) = self.forward_history.pop() {
-            let previous = self.cwd.clone();
-            if self.load_path(path.clone()) {
-                self.back_history.push(previous);
-            } else {
-                self.forward_history.push(path);
-            }
-        }
-    }
-
-    fn resolve_path_input(&self) -> Option<PathBuf> {
-        let input = self.path_input.trim();
-        if input.is_empty() {
-            return None;
-        }
-
-        if input == "~" {
-            return Some(self.home_path());
-        }
-
-        if let Some(rest) = input.strip_prefix("~/") {
-            return Some(self.home_path().join(rest));
-        }
-
-        let path = PathBuf::from(input);
-        if path.is_absolute() {
-            Some(path)
+            self.load_path(path, DirectoryLoadMode::Back, Some(previous))
         } else {
-            Some(self.cwd.join(path))
+            Task::none()
         }
     }
 
-    fn reload(&mut self) {
-        let _ = self.load_path(self.cwd.clone());
+    fn go_forward(&mut self) -> Task<Message> {
+        if let Some(path) = self.forward_history.last().cloned() {
+            let previous = self.cwd.clone();
+            self.load_path(path, DirectoryLoadMode::Forward, Some(previous))
+        } else {
+            Task::none()
+        }
     }
 
-    fn load_path(&mut self, path: PathBuf) -> bool {
-        match scan_dir(
-            &path,
-            ScanOptions {
-                show_hidden: self.show_hidden,
-            },
-        ) {
+    fn reload(&mut self) -> Task<Message> {
+        self.load_path(self.cwd.clone(), DirectoryLoadMode::Replace, None)
+    }
+
+    fn search_current_dir(&mut self, query: String) -> Task<Message> {
+        if query.trim().is_empty() {
+            self.status = "Search is empty".to_string();
+            return Task::none();
+        }
+
+        let id = self.next_request_id();
+        let root = self.cwd.clone();
+        let options = ScanOptions {
+            show_hidden: self.show_hidden,
+        };
+        let request = SearchRequest { id };
+
+        self.active_request_id = Some(id);
+        self.search_query = Some(query.clone());
+        self.search_root = Some(root.clone());
+        self.status = format!("Searching names for /{query}/...");
+
+        Task::perform(
+            async move { search_file_names(root, query, options) },
+            move |result| Message::SearchFinished(request.clone(), result),
+        )
+    }
+
+    fn rerun_search(&mut self) -> Task<Message> {
+        let Some(query) = self.search_query.clone() else {
+            return Task::none();
+        };
+
+        self.search_current_dir(query)
+    }
+
+    fn load_path(
+        &mut self,
+        path: PathBuf,
+        mode: DirectoryLoadMode,
+        previous: Option<PathBuf>,
+    ) -> Task<Message> {
+        let id = self.next_request_id();
+        let options = ScanOptions {
+            show_hidden: self.show_hidden,
+        };
+        let request = DirectoryRequest {
+            id,
+            path: path.clone(),
+            mode,
+            previous,
+        };
+
+        self.active_request_id = Some(id);
+        self.status = format!("Loading {}...", path.display());
+
+        Task::perform(async move { scan_dir(path, options) }, move |result| {
+            Message::DirectoryLoaded(request.clone(), result)
+        })
+    }
+
+    fn directory_loaded(
+        &mut self,
+        request: DirectoryRequest,
+        result: Result<DirectoryListing, FsError>,
+    ) {
+        if self.active_request_id != Some(request.id) {
+            return;
+        }
+
+        self.active_request_id = None;
+
+        match result {
             Ok(DirectoryListing { path, entries }) => {
                 let count = entries.len();
+
+                match request.mode {
+                    DirectoryLoadMode::Replace => {}
+                    DirectoryLoadMode::Visit => {
+                        if let Some(previous) = request.previous {
+                            self.back_history.push(previous);
+                            self.forward_history.clear();
+                        }
+                    }
+                    DirectoryLoadMode::Back => {
+                        if self.back_history.last() == Some(&request.path) {
+                            self.back_history.pop();
+                        }
+                        if let Some(previous) = request.previous {
+                            self.forward_history.push(previous);
+                        }
+                    }
+                    DirectoryLoadMode::Forward => {
+                        if self.forward_history.last() == Some(&request.path) {
+                            self.forward_history.pop();
+                        }
+                        if let Some(previous) = request.previous {
+                            self.back_history.push(previous);
+                        }
+                    }
+                }
+
                 self.cwd = path;
                 self.entries = entries;
                 self.path_input = self.cwd.display().to_string();
+                self.search_query = None;
+                self.search_root = None;
                 self.status = format!("{count} entries");
-                true
             }
             Err(error) => {
                 self.set_scan_error(error);
-                false
             }
+        }
+    }
+
+    fn search_finished(
+        &mut self,
+        request: SearchRequest,
+        result: Result<filesystem_core::SearchResults, FsError>,
+    ) {
+        if self.active_request_id != Some(request.id) {
+            return;
+        }
+
+        self.active_request_id = None;
+
+        match result {
+            Ok(results) => {
+                let count = results.entries.len();
+                self.entries = results.entries;
+                self.search_query = Some(results.query);
+                self.search_root = Some(results.root);
+                self.status = format!("{count} name matches");
+            }
+            Err(error) => self.set_scan_error(error),
         }
     }
 
     fn set_scan_error(&mut self, error: FsError) {
         self.status = error.to_string();
+    }
+
+    fn next_request_id(&mut self) -> u64 {
+        self.next_request_id += 1;
+        self.next_request_id
+    }
+
+    fn entry_subtitle(&self, entry: &FileEntry) -> String {
+        let Some(root) = &self.search_root else {
+            return entry_meta(entry);
+        };
+
+        entry
+            .path
+            .strip_prefix(root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| entry.path.display().to_string())
     }
 }
 

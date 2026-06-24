@@ -13,19 +13,19 @@
 | 语言 | Rust，edition 2024 | 核心逻辑和 GUI | workspace `rust-version` 为 1.85 |
 | 构建系统 | Cargo workspace + Makefile | 多 crate 构建与 feature 管理 | `make` 封装常用构建/测试入口 |
 | 运行平台 | Linux 本地文件系统 | 目标运行平台 | 不支持网络文件系统服务集成 |
-| 关键依赖 | `iced 0.14`、`resvg 0.45` | GUI、窗口事件和 SVG 窗口图标渲染 | `iced` 关闭 default features；`resvg` 复用 iced SVG 渲染路径 |
+| 关键依赖 | `iced 0.14`、`resvg 0.45`、`regex 1` | GUI、窗口事件、SVG 窗口图标渲染、文件名正则搜索 | `iced` 关闭 default features；`resvg` 复用 iced SVG 渲染路径；`regex` 只在 core 中使用 |
 | 渲染 | `iced/wgpu` | GPU 渲染路径 | 固定启用，不保留 `tiny-skia` |
 | 窗口后端 | `iced/x11`、`iced/wayland` | 同一二进制支持 X11/Wayland | 由 winit 运行时选择 |
 
 ## 2. 架构边界
 
 - 模块划分：
-  - `crates/filesystem-core`：本地文件系统模型和只读扫描 API，不依赖 GUI 或外部 crate。
+  - `crates/filesystem-core`：本地文件系统模型和只读扫描/搜索 API，不依赖 GUI 或外部 crate。
   - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、访问历史栈、侧边栏导航、可编辑地址栏、窗口控制/缩放消息和显示状态。
-- 进程/线程边界：当前只运行单 GUI 进程；iced 需要 `thread-pool` executor feature，但本轮没有后台任务。
+- 进程/线程边界：当前只运行单 GUI 进程；目录扫描和文件名正则搜索通过 iced `Task::perform` 交给 `thread-pool` executor 执行，UI 线程只处理状态更新和渲染；后续复制、移动、删除等可能阻塞 UI 的文件操作必须沿用后台任务模型。
 - 客户端/服务端/驱动边界：无服务端、无内核模块、无桌面服务客户端。
-- 数据流：GUI 状态触发 `scan_dir`，core 返回 `DirectoryListing`，GUI 渲染条目或错误状态。
-- 控制流：启动时把 `icons/fs.svg` 渲染为 128x128 RGBA 窗口 icon，并设置 Linux application_id 为 `File`；用户点击目录、侧边栏主文件夹/根目录/家目录常见路径或编辑地址栏回车后，成功切换目录会写入后退栈并清空前进栈；后退/前进按钮从对应历史栈切换路径并维护反向栈；隐藏文件开关只重新扫描当前路径；窗口拖拽/关闭/最小化/最大化通过 iced `window` task 执行；四边和四角 resize 命中区调用 `window::drag_resize`，由窗口管理器接管实际缩放。
+- 数据流：GUI 状态发起后台 `scan_dir` 或 `search_file_names` 任务，core 返回 `DirectoryListing` 或 `SearchResults`，GUI 收到完成消息后渲染条目或错误状态；每个后台请求带自增 ID，过期结果会被丢弃。
+- 控制流：启动时把 `icons/fs.svg` 渲染为 128x128 RGBA 窗口 icon，并设置 Linux application_id 为 `File`；用户点击目录、侧边栏主文件夹/根目录/家目录常见路径或在地址栏输入绝对路径回车后，成功切换目录会写入后退栈并清空前进栈；地址栏输入不是绝对路径时，按正则在当前目录树递归搜索文件/目录名并把匹配项渲染到主区域；目录加载和搜索都在后台执行；后退/前进按钮从对应历史栈切换路径并维护反向栈；隐藏文件开关在目录模式下重新扫描当前路径，在搜索模式下用当前正则重新搜索；窗口拖拽/关闭/最小化/最大化通过 iced `window` task 执行；四边和四角 resize 命中区调用 `window::drag_resize`，由窗口管理器接管实际缩放。
 - 外部依赖：允许后续配置外部二进制，但不能依赖 DBus/GVFS/portal/XDG MIME/通知/桌面配置服务。
 
 ## 3. 关键接口
@@ -33,6 +33,8 @@
 | 接口/协议/ABI | 调用方 | 提供方 | 兼容约束 | 说明 |
 |---------------|--------|--------|----------|------|
 | `scan_dir(path, ScanOptions)` | `filesystem-gui` | `filesystem-core` | 只读；不跟随符号链接判断类型 | 返回排序后的本地目录条目 |
+| `search_file_names(root, query, ScanOptions)` | `filesystem-gui` | `filesystem-core` | 只读；按 Rust `regex` 语法匹配文件/目录名；不跟随符号链接目录递归 | 返回当前目录树下排序后的匹配项 |
+| `Task::perform(...)` 后台任务 | `filesystem-gui` | `iced` thread-pool executor | 所有可能阻塞 UI 的 I/O、复制、移动、删除都必须通过后台任务发起 | UI 线程不直接执行耗时文件系统操作 |
 | `iced` feature 集 | 构建者 | `filesystem-gui` | 固定启用 `thread-pool`、`svg`、`wgpu`、`x11`、`wayland` | wgpu 渲染、SVG 图标和双窗口后端 |
 | `load_window_icon()` | `filesystem-gui` | `resvg`/`tiny-skia` | 直接依赖不额外启用 `resvg` default features；输出非预乘 RGBA | 把 `icons/fs.svg` 转换为 iced/winit 窗口 icon |
 
@@ -42,6 +44,7 @@
   - `EntryKind`：`Directory`、`File`、`Symlink`、`Other`。
   - `FileEntry`：名称、路径、类型、隐藏状态、大小、修改时间。
   - `DirectoryListing`：当前路径和条目列表。
+  - `SearchResults`：搜索根路径、关键词和结果条目列表。
   - `ScanOptions`：当前仅包含 `show_hidden`。
 - 配置文件/参数：暂无持久配置。
 - 持久化数据：暂无。
@@ -57,6 +60,7 @@
 | 文件系统写操作 | 复制、移动、删除、覆盖冲突、失败清理 | 后续只能在临时目录集成测试中逐步启用 | docs/dev/1-plan-local-linux-file-manager.md |
 | 权限/系统调用 | 不可读目录、符号链接、特殊文件 | 当前覆盖缺失路径和符号链接；权限专项待补 | docs/dev/1-summary-local-linux-file-manager.md |
 | GUI 后端 | X11/Wayland 会话差异 | 构建已验证；真实开窗 smoke test 待补 | docs/dev/1-summary-local-linux-file-manager.md |
+| 文件名正则递归搜索 | 后台任务会避免阻塞 UI，但大目录仍可能占用线程池；无效正则会返回 `InvalidInput` 错误 | 当前覆盖递归正则命中、隐藏过滤、空关键词和无效正则；大目录与权限专项待补 | docs/dev/1-summary-local-linux-file-manager.md |
 | 外部命令 | shell 注入、缺命令降级、参数传递 | 后续使用 argv 直接调用并配 mock 命令测试 | docs/dev/1-plan-local-linux-file-manager.md |
 | 渲染后端 | wgpu 驱动栈复杂度；Wayland CSD 传递依赖 `tiny-skia` | 默认构建使用 wgpu；`tiny-skia` renderer 已移除；需真实图形会话验证 | docs/dev/1-plan-local-linux-file-manager.md |
 
@@ -76,7 +80,7 @@
 - 高风险验证：
   - 写操作尚未实现；后续所有破坏性测试只能作用于测试创建的临时目录。
 - 最小人工验证步骤：
-  - 在 X11 会话启动 GUI，确认窗口无系统边框，侧栏顶部和地址栏右侧空白区可拖拽，双击可最大化/还原，窗口按钮可关闭/最小化/最大化，四边和四角可拖动缩放，侧边栏、后退/前进按钮、可编辑地址栏和网格视图渲染正常，目录可进入并可通过后退/前进访问历史位置。
+  - 在 X11 会话启动 GUI，确认窗口无系统边框，侧栏顶部和地址栏右侧空白区可拖拽，双击可最大化/还原，窗口按钮可关闭/最小化/最大化，四边和四角可拖动缩放，侧边栏、后退/前进按钮、可编辑地址栏和网格视图渲染正常，目录可进入并可通过后退/前进访问历史位置，地址栏可输入绝对路径跳转或输入非绝对路径正则搜索当前目录树文件名。
   - 在 Wayland 会话启动同一个二进制，确认行为一致。
 
 ## 7. 发布与回滚
@@ -124,3 +128,5 @@
 | 2026-06-24 | 记录应用名 `File`/`文件`、Linux application_id 和 `icons/fs.svg` 窗口 icon 渲染路径 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
 | 2026-06-24 | 记录后退/前进历史栈、按钮资源和刷新按钮移除 | 更新 GUI 控制流 | docs/dev/1-summary-local-linux-file-manager.md |
 | 2026-06-24 | 记录侧边栏导航 SVG 资源和对齐规则 | 更新 GUI 资源事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录 `search_file_names` 文件名正则递归搜索 API 和地址栏搜索控制流 | 更新 core/GUI 接口事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录目录加载和文件名正则搜索使用 iced 后台任务，后续阻塞型文件操作不得在 UI 线程执行 | 更新 GUI 线程边界 | docs/dev/1-summary-local-linux-file-manager.md |
