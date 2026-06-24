@@ -1,12 +1,18 @@
 use filesystem_core::{DirectoryListing, EntryKind, FileEntry, ScanOptions, scan_dir};
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, checkbox, column, container, row, scrollable, space, text};
-use iced::widget::{button as button_style, container as container_style};
-use iced::{Background, Border, Color, Element, Fill, Result, Shadow, Task, Theme};
-use std::path::{Path, PathBuf};
+use iced::widget::{
+    button, checkbox, column, container, mouse_area, row, scrollable, space, stack, svg, text,
+    text_input,
+};
+use iced::widget::{button as button_style, container as container_style, svg as svg_style};
+use iced::{
+    Background, Border, Color, Element, Fill, Length, Result, Shadow, Task, Theme, mouse, window,
+};
+use std::path::PathBuf;
 
 const SIDEBAR_WIDTH: f32 = 240.0;
 const TOOLBAR_HEIGHT: f32 = 54.0;
+const RESIZE_HIT_SIZE: f32 = 6.0;
 const TILE_WIDTH: f32 = 142.0;
 const TILE_HEIGHT: f32 = 128.0;
 const GRID_COLUMNS: usize = 6;
@@ -16,6 +22,7 @@ pub fn main() -> Result {
         .title(|manager: &FileManager| format!("Filesystem - {}", manager.cwd.display()))
         .theme(Theme::Dark)
         .window_size((1220, 760))
+        .decorations(false)
         .run()
 }
 
@@ -24,6 +31,7 @@ struct FileManager {
     entries: Vec<FileEntry>,
     show_hidden: bool,
     status: String,
+    path_input: String,
     home: Option<PathBuf>,
 }
 
@@ -33,17 +41,26 @@ enum Message {
     Go(PathBuf),
     Up,
     Refresh,
+    PathChanged(String),
+    PathSubmit,
     ToggleHidden(bool),
+    WindowDrag,
+    WindowClose,
+    WindowMinimize,
+    WindowToggleMaximize,
+    WindowResize(window::Direction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NavKind {
     Home,
-    Current,
     Root,
-    Data,
-    Tmp,
-    Downloads,
+}
+
+struct HomeShortcut {
+    icon: &'static str,
+    label: &'static str,
+    path: PathBuf,
 }
 
 impl FileManager {
@@ -55,25 +72,49 @@ impl FileManager {
             entries: Vec::new(),
             show_hidden: false,
             status: String::new(),
+            path_input: String::new(),
             home,
         };
         manager.reload();
         (manager, Task::none())
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Open(path) | Message::Go(path) => self.open_path(path),
+            Message::Open(path) | Message::Go(path) => {
+                self.open_path(path);
+                Task::none()
+            }
             Message::Up => {
                 if let Some(parent) = self.cwd.parent() {
                     self.cwd = parent.to_path_buf();
                     self.reload();
                 }
+                Task::none()
             }
-            Message::Refresh => self.reload(),
+            Message::Refresh => {
+                self.reload();
+                Task::none()
+            }
+            Message::PathChanged(path) => {
+                self.path_input = path;
+                Task::none()
+            }
+            Message::PathSubmit => {
+                self.open_path_input();
+                Task::none()
+            }
             Message::ToggleHidden(show_hidden) => {
                 self.show_hidden = show_hidden;
                 self.reload();
+                Task::none()
+            }
+            Message::WindowDrag => latest_window_task(window::drag),
+            Message::WindowClose => latest_window_task(window::close),
+            Message::WindowMinimize => latest_window_task(|id| window::minimize(id, true)),
+            Message::WindowToggleMaximize => latest_window_task(window::toggle_maximize),
+            Message::WindowResize(direction) => {
+                latest_window_task(move |id| window::drag_resize(id, direction))
             }
         }
     }
@@ -83,56 +124,47 @@ impl FileManager {
             .height(Fill)
             .width(Fill);
 
-        container(shell)
+        let shell = container(shell)
             .height(Fill)
             .width(Fill)
-            .style(style::app_background)
+            .style(style::app_background);
+
+        stack([shell.into(), resize_layer()])
+            .height(Fill)
+            .width(Fill)
             .into()
     }
 
     fn sidebar(&self) -> Element<'_, Message> {
-        let mut quick = column![
+        let top_drag = mouse_area(
+            container(space())
+                .height(TOOLBAR_HEIGHT)
+                .width(Fill)
+                .style(style::sidebar_drag_area),
+        )
+        .on_press(Message::WindowDrag)
+        .on_double_click(Message::WindowToggleMaximize);
+
+        let quick = column![
             self.nav_item(NavKind::Home, "⌂", "主文件夹"),
-            self.nav_item(NavKind::Current, "◉", "当前位置"),
             self.nav_item(NavKind::Root, "⌁", "根目录"),
         ]
         .spacing(4);
 
-        if Path::new("/data").exists() {
-            quick = quick.push(self.nav_item(NavKind::Data, "▣", "data"));
+        let mut content = column![quick].spacing(8).padding([14, 10]);
+
+        let home_shortcuts = self.home_shortcuts();
+        if !home_shortcuts.is_empty() {
+            content = content.push(style::divider());
+
+            for shortcut in home_shortcuts {
+                content = content.push(self.nav_path(shortcut.icon, shortcut.label, shortcut.path));
+            }
         }
 
-        quick = quick.push(self.nav_item(NavKind::Tmp, "▢", "tmp"));
+        let sidebar = column![top_drag, container(content).height(Fill).width(Fill)].spacing(0);
 
-        if self.downloads_path().is_some() {
-            quick = quick.push(self.nav_item(NavKind::Downloads, "↓", "Downloads"));
-        }
-
-        let header = row![
-            text("⌕").size(24).style(style::muted_text),
-            text("文件").size(16).style(style::primary_text),
-            space().width(Fill),
-            text("☰").size(20).style(style::muted_text),
-        ]
-        .align_y(iced::Center)
-        .height(46);
-
-        let content = column![
-            header,
-            quick,
-            style::divider(),
-            self.placeholder_item("◷", "最近"),
-            self.placeholder_item("★", "收藏"),
-            self.placeholder_item("♲", "本地回收站"),
-            style::divider(),
-            self.path_bookmark("/data/source"),
-            self.path_bookmark("/data/code"),
-            self.path_bookmark("/tmp"),
-        ]
-        .spacing(8)
-        .padding([10, 10]);
-
-        container(content)
+        container(sidebar)
             .width(SIDEBAR_WIDTH)
             .height(Fill)
             .style(style::sidebar)
@@ -168,11 +200,24 @@ impl FileManager {
             .style(style::toolbar_button)
             .on_press(Message::Refresh);
 
-        let path_bar = container(self.breadcrumbs())
-            .height(38)
+        let path_bar = text_input("输入路径", &self.path_input)
+            .on_input(Message::PathChanged)
+            .on_submit(Message::PathSubmit)
+            .size(15)
             .width(Fill)
-            .padding([0, 12])
-            .style(style::path_bar);
+            .padding([8, 12])
+            .style(style::path_input);
+
+        let path_bar = container(path_bar).height(38).width(Fill);
+
+        let drag_region = mouse_area(
+            container(space())
+                .height(38)
+                .width(90)
+                .style(style::toolbar_drag_area),
+        )
+        .on_press(Message::WindowDrag)
+        .on_double_click(Message::WindowToggleMaximize);
 
         let show_hidden = checkbox(self.show_hidden)
             .label("隐藏文件")
@@ -185,12 +230,26 @@ impl FileManager {
             up,
             refresh,
             path_bar,
-            button(text("⋮").size(24).style(style::icon_text))
+            drag_region,
+            show_hidden,
+            button(window_icon(include_bytes!("../../../icons/min.svg")))
                 .height(36)
                 .width(36)
-                .padding(0)
-                .style(style::toolbar_button),
-            show_hidden,
+                .padding(6)
+                .style(style::window_button)
+                .on_press(Message::WindowMinimize),
+            button(window_icon(include_bytes!("../../../icons/max.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::window_button)
+                .on_press(Message::WindowToggleMaximize),
+            button(window_icon(include_bytes!("../../../icons/close.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::close_button)
+                .on_press(Message::WindowClose),
         ]
         .align_y(iced::Center)
         .spacing(10)
@@ -202,19 +261,6 @@ impl FileManager {
             .width(Fill)
             .style(style::toolbar)
             .into()
-    }
-
-    fn breadcrumbs(&self) -> Element<'_, Message> {
-        let mut parts = row![text("▣").size(15).style(style::muted_text)]
-            .spacing(8)
-            .align_y(iced::Center);
-
-        for segment in breadcrumb_segments(&self.cwd) {
-            parts = parts.push(text(segment).size(15).style(style::path_text));
-            parts = parts.push(text("/").size(15).style(style::muted_text));
-        }
-
-        parts.into()
     }
 
     fn grid(&self) -> Element<'_, Message> {
@@ -310,14 +356,19 @@ impl FileManager {
         label: &'static str,
     ) -> Element<'_, Message> {
         let path = match kind {
-            NavKind::Home => self.home.clone().unwrap_or_else(|| PathBuf::from("/")),
-            NavKind::Current => self.cwd.clone(),
+            NavKind::Home => self.home_path(),
             NavKind::Root => PathBuf::from("/"),
-            NavKind::Data => PathBuf::from("/data"),
-            NavKind::Tmp => PathBuf::from("/tmp"),
-            NavKind::Downloads => self.downloads_path().unwrap_or_else(|| self.cwd.clone()),
         };
 
+        self.nav_path(icon, label, path)
+    }
+
+    fn nav_path(
+        &self,
+        icon: &'static str,
+        label: &'static str,
+        path: PathBuf,
+    ) -> Element<'_, Message> {
         let active = path == self.cwd;
         let content = row![
             text(icon).size(18).style(style::sidebar_icon_text),
@@ -335,53 +386,37 @@ impl FileManager {
             .into()
     }
 
-    fn placeholder_item(&self, icon: &'static str, label: &'static str) -> Element<'_, Message> {
-        container(
-            row![
-                text(icon).size(17).style(style::disabled_text),
-                text(label).size(15).style(style::disabled_text),
-            ]
-            .spacing(10)
-            .align_y(iced::Center),
-        )
-        .height(34)
-        .width(Fill)
-        .padding([0, 12])
-        .into()
+    fn home_path(&self) -> PathBuf {
+        self.home.clone().unwrap_or_else(|| PathBuf::from("/"))
     }
 
-    fn path_bookmark(&self, path: &'static str) -> Element<'_, Message> {
-        if Path::new(path).exists() {
-            let active = self.cwd == PathBuf::from(path);
-            let label = Path::new(path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(path);
+    fn home_shortcuts(&self) -> Vec<HomeShortcut> {
+        let Some(home) = &self.home else {
+            return Vec::new();
+        };
 
-            let content = row![
-                text("▣").size(15).style(style::sidebar_icon_text),
-                text(label).size(14).style(style::primary_text),
-            ]
-            .spacing(10)
-            .align_y(iced::Center);
+        let definitions = [
+            ("↓", "下载", ["下载", "Downloads"]),
+            ("▧", "图片", ["图片", "Pictures"]),
+            ("▦", "桌面", ["桌面", "Desktop"]),
+            ("▤", "文档", ["文档", "Documents"]),
+            ("♫", "音乐", ["音乐", "Music"]),
+            ("▶", "视频", ["视频", "Videos"]),
+        ];
 
-            button(content)
-                .height(34)
-                .width(Fill)
-                .padding([0, 12])
-                .style(move |theme, status| style::sidebar_button(theme, status, active))
-                .on_press(Message::Go(PathBuf::from(path)))
-                .into()
-        } else {
-            container(space()).height(0).into()
+        let mut shortcuts = Vec::new();
+
+        for (icon, label, candidates) in definitions {
+            if let Some(path) = candidates
+                .into_iter()
+                .map(|candidate| home.join(candidate))
+                .find(|path| path.is_dir())
+            {
+                shortcuts.push(HomeShortcut { icon, label, path });
+            }
         }
-    }
 
-    fn downloads_path(&self) -> Option<PathBuf> {
-        self.home
-            .as_ref()
-            .map(|home| home.join("Downloads"))
-            .filter(|path| path.exists())
+        shortcuts
     }
 
     fn open_path(&mut self, path: PathBuf) {
@@ -397,6 +432,44 @@ impl FileManager {
         }
     }
 
+    fn open_path_input(&mut self) {
+        let Some(path) = self.resolve_path_input() else {
+            self.status = "Path is empty".to_string();
+            return;
+        };
+
+        if path.is_dir() {
+            self.cwd = path;
+            self.reload();
+        } else if path.exists() {
+            self.status = format!("Not a directory: {}", path.display());
+        } else {
+            self.status = format!("Path does not exist: {}", path.display());
+        }
+    }
+
+    fn resolve_path_input(&self) -> Option<PathBuf> {
+        let input = self.path_input.trim();
+        if input.is_empty() {
+            return None;
+        }
+
+        if input == "~" {
+            return Some(self.home_path());
+        }
+
+        if let Some(rest) = input.strip_prefix("~/") {
+            return Some(self.home_path().join(rest));
+        }
+
+        let path = PathBuf::from(input);
+        if path.is_absolute() {
+            Some(path)
+        } else {
+            Some(self.cwd.join(path))
+        }
+    }
+
     fn reload(&mut self) {
         match scan_dir(
             &self.cwd,
@@ -408,6 +481,7 @@ impl FileManager {
                 let count = entries.len();
                 self.cwd = path;
                 self.entries = entries;
+                self.path_input = self.cwd.display().to_string();
                 self.status = format!("{count} entries");
             }
             Err(error) => {
@@ -498,24 +572,118 @@ fn other_icon<'a>() -> Element<'a, Message> {
         .into()
 }
 
-fn breadcrumb_segments(path: &Path) -> Vec<String> {
-    let mut segments = Vec::new();
+fn resize_layer<'a>() -> Element<'a, Message> {
+    use mouse::Interaction;
+    use window::Direction;
 
-    if path.is_absolute() {
-        segments.push("/".to_string());
-    }
+    stack([
+        resize_region(
+            Direction::North,
+            Interaction::ResizingVertically,
+            Length::Fill,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Horizontal::Center,
+            Vertical::Top,
+        ),
+        resize_region(
+            Direction::South,
+            Interaction::ResizingVertically,
+            Length::Fill,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Horizontal::Center,
+            Vertical::Bottom,
+        ),
+        resize_region(
+            Direction::West,
+            Interaction::ResizingHorizontally,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Length::Fill,
+            Horizontal::Left,
+            Vertical::Center,
+        ),
+        resize_region(
+            Direction::East,
+            Interaction::ResizingHorizontally,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Length::Fill,
+            Horizontal::Right,
+            Vertical::Center,
+        ),
+        resize_region(
+            Direction::NorthWest,
+            Interaction::ResizingDiagonallyDown,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Horizontal::Left,
+            Vertical::Top,
+        ),
+        resize_region(
+            Direction::NorthEast,
+            Interaction::ResizingDiagonallyUp,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Horizontal::Right,
+            Vertical::Top,
+        ),
+        resize_region(
+            Direction::SouthWest,
+            Interaction::ResizingDiagonallyUp,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Horizontal::Left,
+            Vertical::Bottom,
+        ),
+        resize_region(
+            Direction::SouthEast,
+            Interaction::ResizingDiagonallyDown,
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Length::Fixed(RESIZE_HIT_SIZE),
+            Horizontal::Right,
+            Vertical::Bottom,
+        ),
+    ])
+    .height(Fill)
+    .width(Fill)
+    .into()
+}
 
-    for component in path.components() {
-        if let std::path::Component::Normal(segment) = component {
-            segments.push(segment.to_string_lossy().into_owned());
-        }
-    }
+fn resize_region<'a>(
+    direction: window::Direction,
+    interaction: mouse::Interaction,
+    width: Length,
+    height: Length,
+    horizontal: Horizontal,
+    vertical: Vertical,
+) -> Element<'a, Message> {
+    let handle = mouse_area(
+        container(space())
+            .width(width)
+            .height(height)
+            .style(style::resize_hit_area),
+    )
+    .interaction(interaction)
+    .on_press(Message::WindowResize(direction));
 
-    if segments.is_empty() {
-        segments.push(path.display().to_string());
-    }
+    container(handle)
+        .width(Fill)
+        .height(Fill)
+        .align_x(horizontal)
+        .align_y(vertical)
+        .into()
+}
 
-    segments
+fn window_icon<'a>(bytes: &'static [u8]) -> Element<'a, Message> {
+    container(
+        svg(svg::Handle::from_memory(bytes))
+            .width(Fill)
+            .height(Fill)
+            .style(style::window_icon),
+    )
+    .width(Fill)
+    .height(Fill)
+    .align_x(Horizontal::Center)
+    .align_y(Vertical::Center)
+    .into()
 }
 
 fn short_name(name: &str) -> String {
@@ -555,9 +723,19 @@ fn format_size(size: u64) -> String {
     }
 }
 
+fn latest_window_task(
+    action: impl Fn(window::Id) -> Task<Message> + Send + 'static,
+) -> Task<Message> {
+    window::latest().then(move |id| match id {
+        Some(id) => action(id),
+        None => Task::none(),
+    })
+}
+
 mod style {
     use super::*;
     use iced::widget::checkbox as checkbox_widget;
+    use iced::widget::text_input as text_input_widget;
 
     pub const CONTENT: Color = Color::from_rgb(0.10, 0.10, 0.12);
     pub const SIDEBAR: Color = Color::from_rgb(0.15, 0.15, 0.18);
@@ -584,6 +762,12 @@ mod style {
             .border(Border::default().color(BORDER).width(1))
     }
 
+    pub fn sidebar_drag_area(_theme: &Theme) -> container_style::Style {
+        container_style::Style::default()
+            .background(SIDEBAR)
+            .color(TEXT)
+    }
+
     pub fn toolbar(_theme: &Theme) -> container_style::Style {
         container_style::Style::default()
             .background(TOOLBAR)
@@ -597,11 +781,28 @@ mod style {
             .color(TEXT)
     }
 
-    pub fn path_bar(_theme: &Theme) -> container_style::Style {
+    pub fn toolbar_drag_area(_theme: &Theme) -> container_style::Style {
         container_style::Style::default()
-            .background(SURFACE)
+            .background(Color::TRANSPARENT)
             .color(TEXT)
-            .border(Border::default().rounded(6).color(BORDER).width(1))
+    }
+
+    pub fn resize_hit_area(_theme: &Theme) -> container_style::Style {
+        container_style::Style::default().background(Color::TRANSPARENT)
+    }
+
+    pub fn path_input(
+        _theme: &Theme,
+        _status: text_input_widget::Status,
+    ) -> text_input_widget::Style {
+        text_input_widget::Style {
+            background: Background::Color(SURFACE),
+            border: Border::default().rounded(6).color(BORDER).width(1),
+            icon: MUTED,
+            placeholder: MUTED,
+            value: TEXT,
+            selection: Color::from_rgb(0.30, 0.44, 0.65),
+        }
     }
 
     pub fn folder_tab(_theme: &Theme) -> container_style::Style {
@@ -689,6 +890,49 @@ mod style {
         }
     }
 
+    pub fn window_button(_theme: &Theme, status: button_style::Status) -> button_style::Style {
+        let background = match status {
+            button_style::Status::Hovered | button_style::Status::Pressed => SURFACE_HOVER,
+            _ => Color::TRANSPARENT,
+        };
+
+        button_style::Style {
+            background: Some(Background::Color(background)),
+            text_color: MUTED,
+            border: Border::default().rounded(6),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+
+    pub fn close_button(_theme: &Theme, status: button_style::Status) -> button_style::Style {
+        let background = match status {
+            button_style::Status::Hovered | button_style::Status::Pressed => {
+                Color::from_rgb(0.75, 0.20, 0.20)
+            }
+            _ => Color::TRANSPARENT,
+        };
+
+        button_style::Style {
+            background: Some(Background::Color(background)),
+            text_color: if matches!(
+                status,
+                button_style::Status::Hovered | button_style::Status::Pressed
+            ) {
+                TEXT
+            } else {
+                MUTED
+            },
+            border: Border::default().rounded(6),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+
+    pub fn window_icon(_theme: &Theme, _status: svg_style::Status) -> svg_style::Style {
+        svg_style::Style { color: Some(MUTED) }
+    }
+
     pub fn sidebar_button(
         _theme: &Theme,
         status: button_style::Status,
@@ -733,12 +977,6 @@ mod style {
         iced::widget::text::Style { color: Some(MUTED) }
     }
 
-    pub fn disabled_text(_theme: &Theme) -> iced::widget::text::Style {
-        iced::widget::text::Style {
-            color: Some(DISABLED),
-        }
-    }
-
     pub fn icon_text(_theme: &Theme) -> iced::widget::text::Style {
         iced::widget::text::Style { color: Some(MUTED) }
     }
@@ -746,12 +984,6 @@ mod style {
     pub fn sidebar_icon_text(_theme: &Theme) -> iced::widget::text::Style {
         iced::widget::text::Style {
             color: Some(Color::from_rgb(0.78, 0.78, 0.82)),
-        }
-    }
-
-    pub fn path_text(_theme: &Theme) -> iced::widget::text::Style {
-        iced::widget::text::Style {
-            color: Some(Color::from_rgb(0.74, 0.74, 0.78)),
         }
     }
 

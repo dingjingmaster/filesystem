@@ -13,7 +13,7 @@
 ## 1. 最终结果
 
 - 原始需求：基于 cosmic-files 调研结论，开始实现一个更少依赖、GUI only、Linux 本地文件系统的 Rust 文件管理器。
-- 最终方案：新建独立 Rust workspace，拆分 `filesystem-core` 与 `filesystem-gui`；core 只做本地目录只读扫描，GUI 直接使用 `iced` 和 `wgpu`；界面采用暗色文件管理器布局。
+- 最终方案：新建独立 Rust workspace，拆分 `filesystem-core` 与 `filesystem-gui`；core 只做本地目录只读扫描，GUI 直接使用 `iced` 和 `wgpu`；界面采用无系统边框暗色文件管理器布局。
 - 完成状态：部分完成。已完成最小只读浏览骨架；写操作、外部二进制适配、选择/多选和真实图形会话 smoke test 待后续。
 - 需求变更：用户反馈 tiny-skia 版本界面卡顿，要求改用 wgpu 并去掉 tiny-skia；`iced` 0.14 关闭 default features 后必须显式启用 executor，本次选择 `iced/thread-pool`。
 
@@ -35,11 +35,17 @@
 - 代码逻辑改动：
   - `filesystem-core` 提供 `scan_dir`，使用 `std::fs::read_dir` 和 `symlink_metadata`，按目录、符号链接、文件、其他类型排序，支持隐藏文件过滤。
   - `filesystem-gui` 提供 iced 窗口，支持进入目录、返回上级、刷新和显示隐藏文件。
-  - GUI 已从简单列表升级为参考截图风格的暗色界面：左侧本地导航、顶部返回/刷新/路径栏、主区域网格文件图标、底部状态栏。
-  - GUI 依赖固定启用 `iced/wgpu`、`iced/x11`、`iced/wayland`、`iced/thread-pool`，不再保留 renderer 互斥 feature。
+  - GUI 已从简单列表升级为参考截图风格的暗色界面：无系统边框窗口、左侧本地导航、顶部返回/刷新/路径栏、主区域网格文件图标、底部状态栏。
+  - 侧边栏只显示“主文件夹”“根目录”，以及家目录中实际存在的下载/图片/桌面/文档/音乐/视频等常见目录。
+  - 参考 cosmic-files 模式补充窗口拖拽、双击最大化/还原、最小化、最大化/还原和关闭操作；底层使用 iced `window` task。
+  - 侧边栏顶部改为空白拖拽区，导航按钮下移；地址栏改为可编辑输入框，支持回车访问绝对路径、相对路径、`~` 和 `~/...`。
+  - 窗口控制按钮使用本地 SVG 资源：`icons/min.svg`、`icons/max.svg`、`icons/close.svg`，按钮 padding 为 6px，图标居中。
+  - 窗口四边和四角加入 6px resize 命中区，调用 iced `window::drag_resize`，实际缩放交给窗口管理器处理。
+  - 外框圆角不使用透明窗口或内容裁剪模拟；当前 Linux iced/winit 未提供窗口管理器原生圆角设置接口，因此暂不设置外框圆角。
+  - GUI 依赖固定启用 `iced/wgpu`、`iced/x11`、`iced/wayland`、`iced/thread-pool`、`iced/svg`，不再保留 renderer 互斥 feature。
 - 影响的使用场景：可以从当前工作目录启动 GUI，以图形文件管理器布局浏览本地目录。
 - 不影响的使用场景：不会调用 DBus/GVFS/portal/XDG MIME/通知/桌面配置服务；不会执行删除、移动、复制或打开文件动作。
-- 计划偏差：未实现选择/多选；左侧“最近/收藏/本地回收站”为禁用占位；权限错误测试未做专项覆盖；未在真实 X11/Wayland 会话开窗测试。
+- 计划偏差：未实现选择/多选；权限错误测试未做专项覆盖；未在真实 X11/Wayland 会话开窗测试。
 
 ## 3. 安全门禁结果
 
@@ -87,7 +93,7 @@
 | 安全审查员 | 只读扫描使用 `read_dir` 和 `symlink_metadata`，没有跟随符号链接执行写操作；测试清理路径限制为固定前缀临时目录；没有执行破坏性系统操作。 |
 | 高级产品 | 本轮满足“可以开始实现”的最小闭环：已有 GUI 入口、本地目录浏览和接近常见文件管理器的暗色界面；未把外部命令、网络文件系统或桌面服务提前纳入。 |
 | 高级架构师 | core 与 GUI 边界清晰；core 无外部依赖；renderer 通过 Cargo feature 隔离；需要后续把文件操作状态机放在 core/ops 层，避免 UI 直接执行复杂写操作。 |
-| 高级工程师 | 实现保持小范围；错误路径能向 UI 展示；自动化验证覆盖当前只读 API。未覆盖真实开窗、权限错误和大目录性能，是下一阶段风险。 |
+| 高级工程师 | 实现保持小范围；窗口操作复用 iced 原生 task，未引入额外依赖；错误路径能向 UI 展示；自动化验证覆盖当前只读 API。未覆盖真实开窗、权限错误和大目录性能，是下一阶段风险。 |
 
 ## 7. 后续事项（按需）
 

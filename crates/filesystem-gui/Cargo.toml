@@ -9,6 +9,7 @@ rust-version.workspace = true
 filesystem-core = { path = "../filesystem-core" }
 iced = { version = "0.14", default-features = false, features = [
     "thread-pool",
+    "svg",
     "wgpu",
     "x11",
     "wayland",

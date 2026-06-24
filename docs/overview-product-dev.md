@@ -21,11 +21,11 @@
 
 - 模块划分：
   - `crates/filesystem-core`：本地文件系统模型和只读扫描 API，不依赖 GUI 或外部 crate。
-  - `crates/filesystem-gui`：iced 图形入口，持有当前目录、条目列表、侧边栏导航、路径栏和显示状态。
+  - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、侧边栏导航、可编辑地址栏、窗口控制/缩放消息和显示状态。
 - 进程/线程边界：当前只运行单 GUI 进程；iced 需要 `thread-pool` executor feature，但本轮没有后台任务。
 - 客户端/服务端/驱动边界：无服务端、无内核模块、无桌面服务客户端。
 - 数据流：GUI 状态触发 `scan_dir`，core 返回 `DirectoryListing`，GUI 渲染条目或错误状态。
-- 控制流：用户点击目录、侧边栏本地路径、返回、刷新或隐藏文件开关后同步重新扫描当前路径。
+- 控制流：用户点击目录、侧边栏主文件夹/根目录/家目录常见路径、返回、刷新或隐藏文件开关后同步重新扫描当前路径；用户编辑地址栏并回车后解析路径并切换目录；窗口拖拽/关闭/最小化/最大化通过 iced `window` task 执行；四边和四角 resize 命中区调用 `window::drag_resize`，由窗口管理器接管实际缩放。
 - 外部依赖：允许后续配置外部二进制，但不能依赖 DBus/GVFS/portal/XDG MIME/通知/桌面配置服务。
 
 ## 3. 关键接口
@@ -33,7 +33,7 @@
 | 接口/协议/ABI | 调用方 | 提供方 | 兼容约束 | 说明 |
 |---------------|--------|--------|----------|------|
 | `scan_dir(path, ScanOptions)` | `filesystem-gui` | `filesystem-core` | 只读；不跟随符号链接判断类型 | 返回排序后的本地目录条目 |
-| `iced` feature 集 | 构建者 | `filesystem-gui` | 固定启用 `thread-pool`、`wgpu`、`x11`、`wayland` | wgpu 渲染和双窗口后端 |
+| `iced` feature 集 | 构建者 | `filesystem-gui` | 固定启用 `thread-pool`、`svg`、`wgpu`、`x11`、`wayland` | wgpu 渲染、SVG 图标和双窗口后端 |
 
 ## 4. 数据与配置
 
@@ -44,6 +44,8 @@
   - `ScanOptions`：当前仅包含 `show_hidden`。
 - 配置文件/参数：暂无持久配置。
 - 持久化数据：暂无。
+- 编译期资源：窗口控制按钮使用 `icons/min.svg`、`icons/max.svg`、`icons/close.svg`，通过 `include_bytes!` 编入 GUI 二进制。
+- 外框圆角：不使用透明窗口、内容裁剪或自绘方式模拟；只有 iced/winit 在 Linux 暴露窗口管理器原生圆角接口后才设置。
 - 迁移/兼容规则：暂无。
 - 敏感信息处理：不读取系统账号密钥；路径和错误只显示在本地 GUI。
 
@@ -70,7 +72,7 @@
 - 高风险验证：
   - 写操作尚未实现；后续所有破坏性测试只能作用于测试创建的临时目录。
 - 最小人工验证步骤：
-  - 在 X11 会话启动 GUI，确认窗口出现，侧边栏、路径栏和网格视图渲染正常，目录可进入/返回/刷新。
+  - 在 X11 会话启动 GUI，确认窗口无系统边框，侧栏顶部和地址栏右侧空白区可拖拽，双击可最大化/还原，窗口按钮可关闭/最小化/最大化，四边和四角可拖动缩放，侧边栏、可编辑地址栏和网格视图渲染正常，目录可进入/返回/刷新。
   - 在 Wayland 会话启动同一个二进制，确认行为一致。
 
 ## 7. 发布与回滚
@@ -110,3 +112,7 @@
 |------|------|------|----------|
 | 2026-06-24 | 创建开发概览，记录 workspace、依赖、feature 和验证入口 | 建立长期开发事实 | docs/dev/1-summary-local-linux-file-manager.md |
 | 2026-06-24 | 记录 GUI 暗色文件管理器布局和本地导航控制流 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录无系统边框窗口和侧边栏常见家目录探测规则 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录自绘窗口控制消息和 iced window task 控制流 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录可编辑地址栏状态和路径解析控制流 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
+| 2026-06-24 | 记录四边/四角 `window::drag_resize` 和外框圆角不伪造策略 | 更新 GUI 架构事实 | docs/dev/1-summary-local-linux-file-manager.md |
