@@ -19,7 +19,8 @@ use iced::widget::{
 use iced::{
     Element, Fill, Length, Padding, Point, Rectangle, Size, Subscription, Task, mouse, window,
 };
-use std::collections::BTreeSet;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 pub(crate) struct FileManager {
@@ -751,14 +752,12 @@ impl FileManager {
                 self.close_menu();
                 Task::none()
             }
-            Message::DirectoryLoaded(request, result) => {
-                self.directory_loaded(request, result);
-                self.focus_rename_input(true)
-            }
-            Message::SearchFinished(request, result) => {
-                self.search_finished(request, result);
+            Message::DirectoryEvent(request, event) => self.directory_event(request, event),
+            Message::EntriesDecorated(request_id, decorations) => {
+                self.entries_decorated(request_id, decorations);
                 Task::none()
             }
+            Message::SearchFinished(request, result) => self.search_finished(request, result),
             Message::HomeShortcutsLoaded(shortcuts) => {
                 self.home_shortcuts = shortcuts;
                 Task::none()
@@ -1074,7 +1073,7 @@ impl FileManager {
     fn grid(&self) -> Element<'_, Message> {
         let columns = self.icon_grid_columns();
         let mut rows = column![]
-            .spacing(GRID_ROW_SPACING)
+            .spacing(0)
             .padding([GRID_PADDING_TOP as u16, GRID_PADDING_LEFT as u16]);
 
         if self.entries.is_empty() {
@@ -1093,14 +1092,34 @@ impl FileManager {
                 .align_y(Vertical::Center),
             );
         } else {
-            for chunk in self.entries.chunks(columns) {
+            let total_rows = self.entries.len().div_ceil(columns);
+            let (start_row, end_row) = self.visible_grid_rows(total_rows);
+            let row_stride = TILE_HEIGHT + GRID_ROW_SPACING;
+            let top_spacer = start_row as f32 * row_stride;
+            let bottom_spacer = total_rows.saturating_sub(end_row) as f32 * row_stride;
+
+            if top_spacer > 0.0 {
+                rows = rows.push(space().height(Length::Fixed(top_spacer)));
+            }
+
+            for row_index in start_row..end_row {
+                let start = row_index * columns;
+                let end = ((row_index + 1) * columns).min(self.entries.len());
                 let mut row = row![].spacing(GRID_COLUMN_SPACING).height(TILE_HEIGHT);
 
-                for entry in chunk {
+                for entry in &self.entries[start..end] {
                     row = row.push(self.tile(entry));
                 }
 
                 rows = rows.push(row);
+
+                if row_index + 1 < end_row {
+                    rows = rows.push(space().height(Length::Fixed(GRID_ROW_SPACING)));
+                }
+            }
+
+            if bottom_spacer > 0.0 {
+                rows = rows.push(space().height(Length::Fixed(bottom_spacer)));
             }
         }
 
@@ -1156,8 +1175,20 @@ impl FileManager {
                 .align_y(Vertical::Center),
             );
         } else {
-            for entry in &self.entries {
+            let (start, end) = self.visible_list_range(self.entries.len());
+            let top_spacer = start as f32 * LIST_ROW_HEIGHT;
+            let bottom_spacer = self.entries.len().saturating_sub(end) as f32 * LIST_ROW_HEIGHT;
+
+            if top_spacer > 0.0 {
+                rows = rows.push(space().height(Length::Fixed(top_spacer)));
+            }
+
+            for entry in &self.entries[start..end] {
                 rows = rows.push(self.list_row(entry));
+            }
+
+            if bottom_spacer > 0.0 {
+                rows = rows.push(space().height(Length::Fixed(bottom_spacer)));
             }
         }
 
@@ -1474,93 +1505,145 @@ impl FileManager {
         self.active_request_id = Some(id);
         self.status = format!("Loading {}...", path.display());
 
-        Task::perform(
-            async move { load_directory(path, options) },
-            move |result| Message::DirectoryLoaded(request.clone(), result),
-        )
+        load_directory_stream(request, path, options)
     }
 
-    fn directory_loaded(
+    fn directory_event(
         &mut self,
         request: DirectoryRequest,
-        result: Result<DisplayListing, FsError>,
-    ) {
+        event: DirectoryLoadEvent,
+    ) -> Task<Message> {
         if self.active_request_id != Some(request.id) {
-            return;
+            return Task::none();
         }
 
-        self.active_request_id = None;
+        match event {
+            DirectoryLoadEvent::Started(path) => {
+                self.directory_started(request, path);
+                Task::none()
+            }
+            DirectoryLoadEvent::Batch(entries) => {
+                let files = entries
+                    .iter()
+                    .map(|entry| entry.file.clone())
+                    .collect::<Vec<_>>();
 
-        match result {
-            Ok(DisplayListing { path, entries }) => {
-                let count = entries.len();
+                self.entries.extend(entries);
+                self.sort_entries();
+                self.status = format!("Loading... {} entries", self.entries.len());
 
-                match request.mode {
-                    DirectoryLoadMode::Replace => {}
-                    DirectoryLoadMode::Visit => {
-                        if let Some(previous) = request.previous {
-                            self.back_history.push(previous);
-                            self.forward_history.clear();
-                        }
-                    }
-                    DirectoryLoadMode::Back => {
-                        if self.back_history.last() == Some(&request.path) {
-                            self.back_history.pop();
-                        }
-                        if let Some(previous) = request.previous {
-                            self.forward_history.push(previous);
-                        }
-                    }
-                    DirectoryLoadMode::Forward => {
-                        if self.forward_history.last() == Some(&request.path) {
-                            self.forward_history.pop();
-                        }
-                        if let Some(previous) = request.previous {
-                            self.back_history.push(previous);
-                        }
-                    }
+                Task::batch([
+                    decorate_entries_task(request.id, files),
+                    self.focus_rename_input(true),
+                ])
+            }
+            DirectoryLoadEvent::Finished { total } => {
+                self.sort_entries();
+                self.status = format!("{total} entries");
+                self.focus_rename_input(true)
+            }
+            DirectoryLoadEvent::Failed(error) => {
+                self.active_request_id = None;
+                self.clear_selection_state();
+                if self.cwd == request.path {
+                    self.entries.clear();
                 }
-
-                self.cwd = path;
-                self.entries = entries;
-                self.path_input = self.cwd.display().to_string();
-                self.search_query = None;
-                self.search_root = None;
-                self.clear_selection_state();
-                self.status = format!("{count} entries");
-            }
-            Err(error) => {
-                self.clear_selection_state();
                 self.set_scan_error(error);
+                Task::none()
             }
         }
+    }
+
+    fn directory_started(&mut self, request: DirectoryRequest, path: PathBuf) {
+        match request.mode {
+            DirectoryLoadMode::Replace => {}
+            DirectoryLoadMode::Visit => {
+                if let Some(previous) = request.previous {
+                    self.back_history.push(previous);
+                    self.forward_history.clear();
+                }
+            }
+            DirectoryLoadMode::Back => {
+                if self.back_history.last() == Some(&request.path) {
+                    self.back_history.pop();
+                }
+                if let Some(previous) = request.previous {
+                    self.forward_history.push(previous);
+                }
+            }
+            DirectoryLoadMode::Forward => {
+                if self.forward_history.last() == Some(&request.path) {
+                    self.forward_history.pop();
+                }
+                if let Some(previous) = request.previous {
+                    self.back_history.push(previous);
+                }
+            }
+        }
+
+        self.cwd = path;
+        self.entries.clear();
+        self.path_input = self.cwd.display().to_string();
+        self.search_query = None;
+        self.search_root = None;
+        self.clear_selection_state();
+        self.status = "Loading entries...".to_string();
     }
 
     fn search_finished(
         &mut self,
         request: SearchRequest,
         result: Result<DisplaySearchResults, FsError>,
-    ) {
+    ) -> Task<Message> {
         if self.active_request_id != Some(request.id) {
-            return;
+            return Task::none();
         }
-
-        self.active_request_id = None;
 
         match result {
             Ok(results) => {
                 let count = results.entries.len();
+                let files = results
+                    .entries
+                    .iter()
+                    .map(|entry| entry.file.clone())
+                    .collect::<Vec<_>>();
                 self.entries = results.entries;
                 self.search_query = Some(results.query);
                 self.search_root = Some(results.root);
                 self.clear_selection_state();
                 self.status = format!("{count} name matches");
+                decorate_entries_task(request.id, files)
             }
             Err(error) => {
+                self.active_request_id = None;
                 self.clear_selection_state();
                 self.set_scan_error(error);
+                Task::none()
             }
         }
+    }
+
+    fn entries_decorated(&mut self, request_id: u64, decorations: Vec<EntryDecoration>) {
+        if self.active_request_id != Some(request_id) {
+            return;
+        }
+
+        let mut decorations = decorations
+            .into_iter()
+            .map(|decoration| (decoration.path.clone(), decoration))
+            .collect::<BTreeMap<_, _>>();
+
+        for entry in &mut self.entries {
+            if let Some(decoration) = decorations.remove(&entry.file.path) {
+                entry.mime = decoration.mime;
+                entry.icon = decoration.icon;
+                entry.badge = decoration.badge;
+            }
+        }
+    }
+
+    fn sort_entries(&mut self) {
+        self.entries.sort_by(compare_display_entries);
     }
 
     fn set_scan_error(&mut self, error: FsError) {
@@ -1611,6 +1694,50 @@ impl FileManager {
 
     fn icon_grid_columns(&self) -> usize {
         icon_grid_columns(self.browser_width)
+    }
+
+    fn browser_viewport_height(&self) -> f32 {
+        (self.window_size.height - TOOLBAR_HEIGHT - 34.0).max(0.0)
+    }
+
+    fn visible_grid_rows(&self, total_rows: usize) -> (usize, usize) {
+        if total_rows == 0 {
+            return (0, 0);
+        }
+
+        let row_stride = TILE_HEIGHT + GRID_ROW_SPACING;
+        let viewport_top = (self.browser_scroll_y - GRID_PADDING_TOP).max(0.0);
+        let viewport_bottom =
+            (self.browser_scroll_y + self.browser_viewport_height() - GRID_PADDING_TOP).max(0.0);
+        let first = (viewport_top / row_stride).floor() as usize;
+        let last = (viewport_bottom / row_stride).ceil() as usize + 1;
+        let start = first
+            .min(total_rows.saturating_sub(1))
+            .saturating_sub(VIRTUAL_ROW_BUFFER);
+        let end = (last + VIRTUAL_ROW_BUFFER).min(total_rows).max(start + 1);
+
+        (start, end)
+    }
+
+    fn visible_list_range(&self, total_entries: usize) -> (usize, usize) {
+        if total_entries == 0 {
+            return (0, 0);
+        }
+
+        let entries_top = LIST_PADDING_TOP + LIST_HEADER_HEIGHT;
+        let viewport_top = (self.browser_scroll_y - entries_top).max(0.0);
+        let viewport_bottom =
+            (self.browser_scroll_y + self.browser_viewport_height() - entries_top).max(0.0);
+        let first = (viewport_top / LIST_ROW_HEIGHT).floor() as usize;
+        let last = (viewport_bottom / LIST_ROW_HEIGHT).ceil() as usize + 1;
+        let start = first
+            .min(total_entries.saturating_sub(1))
+            .saturating_sub(VIRTUAL_ROW_BUFFER);
+        let end = (last + VIRTUAL_ROW_BUFFER)
+            .min(total_entries)
+            .max(start + 1);
+
+        (start, end)
     }
 
     fn select_entries_in_drag_rect(&mut self) {
@@ -2869,5 +2996,32 @@ impl FileManager {
         self.menu_open = false;
         self.view_submenu_open = false;
         self.context_menu = None;
+    }
+}
+
+fn compare_display_entries(left: &DisplayEntry, right: &DisplayEntry) -> Ordering {
+    display_entry_sort_group(left)
+        .cmp(&display_entry_sort_group(right))
+        .then_with(|| {
+            left.file
+                .name
+                .to_ascii_lowercase()
+                .cmp(&right.file.name.to_ascii_lowercase())
+        })
+        .then_with(|| left.file.name.cmp(&right.file.name))
+        .then_with(|| left.file.path.cmp(&right.file.path))
+}
+
+fn display_entry_sort_group(entry: &DisplayEntry) -> u8 {
+    match entry.file.kind {
+        EntryKind::Directory => 0,
+        EntryKind::Symlink
+            if entry.file.symlink_target.as_ref().is_some_and(|target| {
+                !target.broken && target.kind == SymlinkTargetKind::Directory
+            }) =>
+        {
+            0
+        }
+        _ => 1,
     }
 }

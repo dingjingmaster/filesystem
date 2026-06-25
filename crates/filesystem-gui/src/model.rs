@@ -74,7 +74,8 @@ pub(crate) enum Message {
     ToggleMenu,
     ToggleViewSubmenu,
     SetViewMode(ViewMode),
-    DirectoryLoaded(DirectoryRequest, Result<DisplayListing, FsError>),
+    DirectoryEvent(DirectoryRequest, DirectoryLoadEvent),
+    EntriesDecorated(u64, Vec<EntryDecoration>),
     SearchFinished(SearchRequest, Result<DisplaySearchResults, FsError>),
     HomeShortcutsLoaded(Vec<HomeShortcut>),
     WindowDrag,
@@ -249,6 +250,14 @@ pub(crate) struct DirectoryRequest {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) enum DirectoryLoadEvent {
+    Started(PathBuf),
+    Batch(Vec<DisplayEntry>),
+    Finished { total: usize },
+    Failed(FsError),
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct SearchRequest {
     pub(crate) id: u64,
 }
@@ -281,9 +290,11 @@ pub(crate) enum IconBadge {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct DisplayListing {
+pub(crate) struct EntryDecoration {
     pub(crate) path: PathBuf,
-    pub(crate) entries: Vec<DisplayEntry>,
+    pub(crate) mime: MimeInfo,
+    pub(crate) icon: EntryIcon,
+    pub(crate) badge: Option<IconBadge>,
 }
 
 #[derive(Debug, Clone)]

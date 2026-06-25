@@ -1,18 +1,22 @@
 use crate::apps::{load_app_registry, open_file_with_app};
-use crate::icons::decorate_entries;
+use crate::icons::{basic_entries, decorate_entry_batch};
 use crate::model::{
-    DesktopApp, DisplayListing, DisplaySearchResults, HomeShortcut, Message, NewEntryKind,
+    DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults, HomeShortcut, Message,
+    NewEntryKind,
 };
 use filesystem_core::{
-    DirectoryListing, FsError, ScanOptions, create_file, create_folder, delete_entry, scan_dir,
+    DirectoryScanner, FileEntry, FsError, ScanOptions, create_file, create_folder, delete_entry,
     search_file_names,
 };
-use iced::{Task, window};
+use iced::{Task, futures::SinkExt, futures::channel::mpsc, stream, window};
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
+
+const DIRECTORY_BATCH_SIZE: usize = 128;
+const DIRECTORY_STREAM_BUFFER: usize = 1024;
 
 pub(crate) fn load_home_shortcuts(home: Option<PathBuf>) -> Task<Message> {
     Task::perform(
@@ -78,16 +82,74 @@ fn detect_home_shortcuts(home: Option<PathBuf>) -> Vec<HomeShortcut> {
     shortcuts
 }
 
-pub(crate) fn load_directory(
+pub(crate) fn load_directory_stream(
+    request: DirectoryRequest,
     path: PathBuf,
     options: ScanOptions,
-) -> Result<DisplayListing, FsError> {
-    let DirectoryListing { path, entries } = scan_dir(path, options)?;
+) -> Task<Message> {
+    Task::stream(stream::channel(
+        DIRECTORY_STREAM_BUFFER,
+        move |mut output: mpsc::Sender<Message>| async move {
+            let mut scanner = match DirectoryScanner::new(path, options, DIRECTORY_BATCH_SIZE) {
+                Ok(scanner) => scanner,
+                Err(error) => {
+                    let _ = output
+                        .send(Message::DirectoryEvent(
+                            request,
+                            DirectoryLoadEvent::Failed(error),
+                        ))
+                        .await;
+                    return;
+                }
+            };
 
-    Ok(DisplayListing {
-        path,
-        entries: decorate_entries(entries),
-    })
+            if output
+                .send(Message::DirectoryEvent(
+                    request.clone(),
+                    DirectoryLoadEvent::Started(scanner.path().to_path_buf()),
+                ))
+                .await
+                .is_err()
+            {
+                return;
+            }
+
+            loop {
+                match scanner.next_batch() {
+                    Ok(Some(entries)) => {
+                        if output
+                            .send(Message::DirectoryEvent(
+                                request.clone(),
+                                DirectoryLoadEvent::Batch(basic_entries(entries)),
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        let _ = output
+                            .send(Message::DirectoryEvent(
+                                request,
+                                DirectoryLoadEvent::Failed(error),
+                            ))
+                            .await;
+                        return;
+                    }
+                }
+            }
+
+            let total = scanner.count();
+            let _ = output
+                .send(Message::DirectoryEvent(
+                    request,
+                    DirectoryLoadEvent::Finished { total },
+                ))
+                .await;
+        },
+    ))
 }
 
 pub(crate) fn load_search(
@@ -100,8 +162,15 @@ pub(crate) fn load_search(
     Ok(DisplaySearchResults {
         root: results.root,
         query: results.query,
-        entries: decorate_entries(results.entries),
+        entries: basic_entries(results.entries),
     })
+}
+
+pub(crate) fn decorate_entries_task(request_id: u64, entries: Vec<FileEntry>) -> Task<Message> {
+    Task::perform(
+        async move { decorate_entry_batch(entries) },
+        move |decorations| Message::EntriesDecorated(request_id, decorations),
+    )
 }
 
 pub(crate) fn create_entry_task(parent: PathBuf, kind: NewEntryKind) -> Task<Message> {

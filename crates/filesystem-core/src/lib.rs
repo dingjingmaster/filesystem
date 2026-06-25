@@ -174,6 +174,84 @@ pub fn scan_dir(path: impl AsRef<Path>, options: ScanOptions) -> Result<Director
     })
 }
 
+pub struct DirectoryScanner {
+    path: PathBuf,
+    reader: fs::ReadDir,
+    options: ScanOptions,
+    batch_size: usize,
+    count: usize,
+}
+
+impl DirectoryScanner {
+    pub fn new(
+        path: impl AsRef<Path>,
+        options: ScanOptions,
+        batch_size: usize,
+    ) -> Result<Self, FsError> {
+        let path = path.as_ref();
+        let reader = fs::read_dir(path).map_err(|error| FsError::from_io(path, error))?;
+
+        Ok(Self {
+            path: path.to_path_buf(),
+            reader,
+            options,
+            batch_size: batch_size.max(1),
+            count: 0,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    pub fn next_batch(&mut self) -> Result<Option<Vec<FileEntry>>, FsError> {
+        let mut batch = Vec::with_capacity(self.batch_size);
+
+        while batch.len() < self.batch_size {
+            let Some(item) = self.reader.next() else {
+                break;
+            };
+            let item = item.map_err(|error| FsError::from_io(&self.path, error))?;
+            let entry = file_entry(item)?;
+
+            if entry.hidden && !self.options.show_hidden {
+                continue;
+            }
+
+            batch.push(entry);
+            self.count += 1;
+        }
+
+        if batch.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(batch))
+        }
+    }
+}
+
+pub fn scan_dir_incremental(
+    path: impl AsRef<Path>,
+    options: ScanOptions,
+    batch_size: usize,
+    mut on_start: impl FnMut(PathBuf),
+    mut on_batch: impl FnMut(Vec<FileEntry>),
+) -> Result<usize, FsError> {
+    let mut scanner = DirectoryScanner::new(path, options, batch_size)?;
+
+    on_start(scanner.path().to_path_buf());
+
+    while let Some(batch) = scanner.next_batch()? {
+        on_batch(batch);
+    }
+
+    Ok(scanner.count())
+}
+
 pub fn search_file_names(
     root: impl AsRef<Path>,
     query: impl AsRef<str>,
@@ -823,6 +901,32 @@ mod tests {
 
         assert_eq!(names, vec![".a", "b"]);
         assert!(listing.entries[0].hidden);
+    }
+
+    #[test]
+    fn directory_scanner_reads_visible_entries_in_batches() {
+        let fixture = TempDir::new("scanner-batches");
+        fs::write(fixture.path().join("a.txt"), b"a").unwrap();
+        fs::write(fixture.path().join("b.txt"), b"b").unwrap();
+        fs::create_dir(fixture.path().join("dir")).unwrap();
+        fs::write(fixture.path().join(".hidden"), b"hidden").unwrap();
+
+        let mut scanner = DirectoryScanner::new(fixture.path(), ScanOptions::default(), 2).unwrap();
+        let mut names = Vec::new();
+        let mut batch_lengths = Vec::new();
+
+        while let Some(batch) = scanner.next_batch().unwrap() {
+            batch_lengths.push(batch.len());
+            names.extend(batch.into_iter().map(|entry| entry.name));
+        }
+
+        names.sort();
+
+        assert_eq!(scanner.path(), fixture.path());
+        assert_eq!(scanner.count(), 3);
+        assert_eq!(names, vec!["a.txt", "b.txt", "dir"]);
+        assert!(batch_lengths.iter().all(|length| *length <= 2));
+        assert_eq!(scanner.next_batch().unwrap(), None);
     }
 
     #[test]

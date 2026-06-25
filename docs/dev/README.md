@@ -43,3 +43,6 @@
 | 12 | 2026-06-25 | L3 | research | [12-research-symlink-badge-open.md](12-research-symlink-badge-open.md) | 已完成 | 调研软链接目标类型、断链状态、图标角标、菜单分类和双击目标打开方案。 |
 | 12 | 2026-06-25 | L3 | plan | [12-plan-symlink-badge-open.md](12-plan-symlink-badge-open.md) | 已完成 | 规划 core `SymlinkTarget`、GUI 角标渲染、有效类型打开路径、断链弹窗和验证步骤。 |
 | 12 | 2026-06-25 | L3 | summary | [12-summary-symlink-badge-open.md](12-summary-symlink-badge-open.md) | 已完成 | 总结软链接角标、断链角标、目标路径打开、属性跟随和验证结果。 |
+| 13 | 2026-06-25 | L3 | research | [13-research-large-directory-performance.md](13-research-large-directory-performance.md) | 已完成 | 调研大目录打开卡顿根因，明确分批加载、基础条目先显示、后台装饰、图标缓存和视图虚拟化方案。 |
+| 13 | 2026-06-25 | L3 | plan | [13-plan-large-directory-performance.md](13-plan-large-directory-performance.md) | 已完成 | 规划 core 分批 scanner、GUI stream 事件、MIME/图标后台装饰、缓存、虚拟化和验证步骤。 |
+| 13 | 2026-06-25 | L3 | summary | [13-summary-large-directory-performance.md](13-summary-large-directory-performance.md) | 已完成 | 总结大目录分批显示、后台装饰、图标缓存、图标/列表视图虚拟化、验证结果和残余风险。 |

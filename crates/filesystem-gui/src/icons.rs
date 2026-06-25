@@ -1,11 +1,31 @@
-use crate::model::{DisplayEntry, EntryIcon, IconBadge};
+use crate::model::{DisplayEntry, EntryDecoration, EntryIcon, IconBadge};
 use filesystem_core::{EntryKind, FileEntry, SymlinkTargetKind};
-use filesystem_mime::{MimeInfo, detect_path};
+use filesystem_mime::{MimeInfo, detect_name, detect_path};
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
-pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
+pub(crate) fn basic_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
+    entries
+        .into_iter()
+        .map(|file| {
+            let mime = basic_entry_mime(&file);
+            let icon = basic_entry_icon(&file);
+            let badge = entry_badge(&file);
+
+            DisplayEntry {
+                file,
+                mime,
+                icon,
+                badge,
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn decorate_entry_batch(entries: Vec<FileEntry>) -> Vec<EntryDecoration> {
     let resolver = IconResolver::new();
 
     entries
@@ -14,8 +34,9 @@ pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
             let mime = entry_mime(&file);
             let icon = resolver.entry_icon(&file, &mime);
             let badge = entry_badge(&file);
-            DisplayEntry {
-                file,
+
+            EntryDecoration {
+                path: file.path,
                 mime,
                 icon,
                 badge,
@@ -29,16 +50,19 @@ pub(crate) fn resolve_app_icon(icon_name: Option<&str>) -> EntryIcon {
 }
 
 struct IconResolver {
+    data: &'static IconResolverData,
+}
+
+struct IconResolverData {
     roots: Vec<PathBuf>,
     themes: Vec<String>,
 }
 
 impl IconResolver {
     fn new() -> Self {
-        let roots = icon_roots();
-        let themes = icon_theme_names(&roots);
-
-        Self { roots, themes }
+        Self {
+            data: icon_resolver_data(),
+        }
     }
 
     fn entry_icon(&self, entry: &FileEntry, mime: &MimeInfo) -> EntryIcon {
@@ -65,25 +89,36 @@ impl IconResolver {
     }
 
     fn app_icon(&self, icon_name: Option<&str>) -> EntryIcon {
-        icon_name
-            .and_then(|icon_name| self.find_app_icon(icon_name))
-            .map(EntryIcon::Theme)
-            .unwrap_or_else(fallback_app_icon)
+        let Some(icon_name) = icon_name else {
+            return fallback_app_icon();
+        };
+        let icon_name = icon_name.trim();
+        if icon_name.is_empty() {
+            return fallback_app_icon();
+        }
+
+        cached_icon(app_icon_cache(), icon_name.to_string(), || {
+            self.find_app_icon(icon_name)
+        })
+        .map(EntryIcon::Theme)
+        .unwrap_or_else(fallback_app_icon)
     }
 
     fn file_icon(&self, mime: &MimeInfo) -> Option<Vec<u8>> {
-        let names = icon_names_for_mime(&mime.mime);
+        cached_icon(mime_icon_cache(), mime.mime.clone(), || {
+            let names = icon_names_for_mime(&mime.mime);
 
-        if names.is_empty() {
-            return None;
-        }
+            if names.is_empty() {
+                return None;
+            }
 
-        self.find_icon(names)
+            self.find_icon(names)
+        })
     }
 
     fn find_icon(&self, names: &[&str]) -> Option<Vec<u8>> {
-        for theme in &self.themes {
-            for root in &self.roots {
+        for theme in &self.data.themes {
+            for root in &self.data.roots {
                 let theme_dir = root.join(theme);
 
                 for directory in ICON_THEME_SUBDIRS {
@@ -135,6 +170,17 @@ impl IconResolver {
     }
 }
 
+fn icon_resolver_data() -> &'static IconResolverData {
+    static DATA: OnceLock<IconResolverData> = OnceLock::new();
+
+    DATA.get_or_init(|| {
+        let roots = icon_roots();
+        let themes = icon_theme_names(&roots);
+
+        IconResolverData { roots, themes }
+    })
+}
+
 fn entry_mime(entry: &FileEntry) -> MimeInfo {
     match entry.kind {
         EntryKind::Directory => {
@@ -155,6 +201,42 @@ fn entry_mime(entry: &FileEntry) -> MimeInfo {
             "application/octet-stream",
             filesystem_mime::MimeSource::Unknown,
         ),
+    }
+}
+
+fn basic_entry_mime(entry: &FileEntry) -> MimeInfo {
+    match entry.kind {
+        EntryKind::Directory => {
+            MimeInfo::new("inode/directory", filesystem_mime::MimeSource::BuiltInName)
+        }
+        EntryKind::File => detect_name(&entry.path),
+        EntryKind::Symlink => match entry.symlink_target.as_ref() {
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::Directory => {
+                MimeInfo::new("inode/directory", filesystem_mime::MimeSource::BuiltInName)
+            }
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::File => {
+                let path = target.path.as_deref().unwrap_or(entry.path.as_path());
+                detect_name(path)
+            }
+            _ => MimeInfo::new("inode/symlink", filesystem_mime::MimeSource::BuiltInName),
+        },
+        EntryKind::Other => MimeInfo::new(
+            "application/octet-stream",
+            filesystem_mime::MimeSource::Unknown,
+        ),
+    }
+}
+
+fn basic_entry_icon(entry: &FileEntry) -> EntryIcon {
+    match entry.kind {
+        EntryKind::Directory => EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg")),
+        EntryKind::Symlink => match entry.symlink_target.as_ref() {
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::Directory => {
+                EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg"))
+            }
+            _ => fallback_file_icon(),
+        },
+        EntryKind::File | EntryKind::Other => fallback_file_icon(),
     }
 }
 
@@ -180,6 +262,36 @@ fn fallback_file_icon() -> EntryIcon {
 
 fn fallback_app_icon() -> EntryIcon {
     EntryIcon::Embedded(include_bytes!("../../../icons/app.svg"))
+}
+
+fn mime_icon_cache() -> &'static Mutex<HashMap<String, Option<Vec<u8>>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Vec<u8>>>>> = OnceLock::new();
+
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn app_icon_cache() -> &'static Mutex<HashMap<String, Option<Vec<u8>>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Vec<u8>>>>> = OnceLock::new();
+
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_icon(
+    cache: &'static Mutex<HashMap<String, Option<Vec<u8>>>>,
+    key: String,
+    load: impl FnOnce() -> Option<Vec<u8>>,
+) -> Option<Vec<u8>> {
+    if let Some(icon) = cache.lock().ok().and_then(|cache| cache.get(&key).cloned()) {
+        return icon;
+    }
+
+    let icon = load();
+
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(key, icon.clone());
+    }
+
+    icon
 }
 
 fn read_svg_icon(path: &Path) -> Option<Vec<u8>> {
@@ -370,7 +482,7 @@ mod tests {
             modified: None,
         };
 
-        let entries = decorate_entries(vec![file]);
+        let entries = basic_entries(vec![file]);
 
         assert_eq!(entries[0].badge, Some(IconBadge::Symlink));
     }
@@ -392,7 +504,7 @@ mod tests {
             modified: None,
         };
 
-        let entries = decorate_entries(vec![file]);
+        let entries = basic_entries(vec![file]);
 
         assert_eq!(entries[0].badge, Some(IconBadge::BrokenSymlink));
     }

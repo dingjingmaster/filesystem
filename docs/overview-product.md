@@ -3,7 +3,7 @@
 > 文档元数据
 > - 文档版本：v1.0.0
 > - 最后更新：2026-06-25
-> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md
+> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md
 
 ## 1. 产品定位
 
@@ -15,7 +15,7 @@
 
 ## 2. 功能边界
 
-- 核心功能：本地目录浏览、当前目录树文件名正则搜索、访问历史后退/前进、隐藏文件过滤、文件框选多选、空白区右键菜单、选中文件夹右键菜单、选中文件右键菜单、新建文件/文件夹与内联重命名、文本剪贴板路径粘贴、文件/文件夹复制剪切粘贴、文件/文件夹删除确认、当前目录或目标文件夹终端打开、当前文件夹属性查看、当前文件夹权限修改、普通文件默认应用打开、打开方式选择、普通文件属性查看、软链接角标、软链接目标打开和断链提示、无系统边框窗口、窗口拖拽/关闭/最小化/最大化/边缘缩放、800x600 最小窗口尺寸、侧边栏本地导航、可编辑地址栏、流式图标视图、列表视图、基于内置 MIME 与系统 shared-mime-info fallback 的文件类型识别、基础文件类型与元数据展示；后续逐步补充更多安全写操作和外部二进制适配。
+- 核心功能：本地目录浏览、当前目录树文件名正则搜索、访问历史后退/前进、隐藏文件过滤、文件框选多选、空白区右键菜单、选中文件夹右键菜单、选中文件右键菜单、新建文件/文件夹与内联重命名、文本剪贴板路径粘贴、文件/文件夹复制剪切粘贴、文件/文件夹删除确认、当前目录或目标文件夹终端打开、当前文件夹属性查看、当前文件夹权限修改、普通文件默认应用打开、打开方式选择、普通文件属性查看、软链接角标、软链接目标打开和断链提示、无系统边框窗口、窗口拖拽/关闭/最小化/最大化/边缘缩放、800x600 最小窗口尺寸、侧边栏本地导航、可编辑地址栏、分批显示大目录、流式图标视图、列表视图、基于内置 MIME 与系统 shared-mime-info fallback 的文件类型识别、基础文件类型与元数据展示；后续逐步补充更多安全写操作和外部二进制适配。
 - 不支持功能：命令行/TUI、系统桌面服务、网络文件系统、桌面注册接口。
 - 关键对象：本地路径、目录条目、文件类型、隐藏状态、文件元数据、软链接目标。
 - 关键状态：当前目录、目录条目列表、选中路径集合、框选拖拽状态、搜索关键词、搜索根目录、隐藏文件显示开关、视图模式、状态消息、提示弹窗。
@@ -56,7 +56,7 @@
 
 ## 6. 非功能要求（按需）
 
-- 性能：目录扫描优先同步简单实现；MIME 内容识别最多读取文件前 256 KiB 且在后台装饰任务执行；大目录性能后续专项验证。
+- 性能：目录打开分批显示基础条目，避免等待整目录扫描和 MIME/主题图标装饰完成；MIME 内容识别最多读取文件前 256 KiB 且在后台装饰任务执行；图标视图和列表视图只渲染可视区域附近条目，保持滚动高度和交互坐标一致；大目录真实帧时间仍需图形会话专项验证。
 - 可用性：GUI 是唯一交互形态，不提供命令行/TUI。
 - 安全：不依赖系统桌面服务；文件类型识别不调用 `file` 命令或 libmagic，只读本地文件和 shared-mime-info 数据；后续外部命令必须使用 argv 直接调用，不经 shell。
 - 兼容性：使用 `wgpu` 渲染；同一二进制启用 X11 和 Wayland。
@@ -76,6 +76,7 @@
   - docs/dev/9-summary-filesystem-mime.md：少依赖文件类型识别模块实现总结。
   - docs/dev/11-fix-text-editor-fallback.md：文本文件打开兜底修复记录。
   - docs/dev/12-summary-symlink-badge-open.md：软链接角标和打开行为实现总结。
+  - docs/dev/13-summary-large-directory-performance.md：大目录分批显示、后台装饰、图标缓存和视图虚拟化实现总结。
 
 ## 8. 变更记录
 
@@ -110,3 +111,4 @@
 | 2026-06-25 | 记录 `filesystem-mime` 内置识别和 shared-mime-info fallback，打开方式、图标和文件属性统一使用缓存 MIME | 更新文件类型识别和打开文件行为 | docs/dev/9-summary-filesystem-mime.md |
 | 2026-06-25 | 记录文本类文件可退到文本编辑器打开，打开候选支持 `TextEditor` 分类兜底并排除需要终端的应用 | 更新打开文件行为 | docs/dev/11-fix-text-editor-fallback.md |
 | 2026-06-25 | 记录软链接角标、断链角标、有效软链接目标打开和断链弹窗提示 | 更新软链接浏览与打开行为 | docs/dev/12-summary-symlink-badge-open.md |
+| 2026-06-25 | 记录大目录分批显示、MIME/图标后台装饰和视图虚拟化 | 更新目录浏览性能行为 | docs/dev/13-summary-large-directory-performance.md |

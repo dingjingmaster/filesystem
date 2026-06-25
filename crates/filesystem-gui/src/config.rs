@@ -20,6 +20,7 @@ pub(crate) const GRID_COLUMN_SPACING: f32 = 28.0;
 pub(crate) const LIST_PADDING_TOP: f32 = 18.0;
 pub(crate) const LIST_PADDING_LEFT: f32 = 28.0;
 pub(crate) const LIST_HEADER_HEIGHT: f32 = 34.0;
+pub(crate) const VIRTUAL_ROW_BUFFER: usize = 4;
 pub(crate) const SELECTION_DRAG_THRESHOLD: f32 = 3.0;
 pub(crate) const CONTEXT_MENU_WIDTH: f32 = 184.0;
 pub(crate) const PROPERTIES_DIALOG_WIDTH: f32 = 460.0;
