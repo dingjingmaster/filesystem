@@ -18,11 +18,26 @@ pub enum EntryKind {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymlinkTargetKind {
+    Directory,
+    File,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymlinkTarget {
+    pub kind: SymlinkTargetKind,
+    pub broken: bool,
+    pub path: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileEntry {
     pub name: String,
     pub path: PathBuf,
     pub kind: EntryKind,
+    pub symlink_target: Option<SymlinkTarget>,
     pub hidden: bool,
     pub size: Option<u64>,
     pub owner: Option<u32>,
@@ -320,7 +335,7 @@ pub fn parse_clipboard_paths(contents: &str) -> ClipboardPaths {
 
 pub fn folder_properties(path: impl AsRef<Path>) -> Result<FolderProperties, FsError> {
     let path = path.as_ref();
-    let metadata = fs::symlink_metadata(path).map_err(|error| FsError::from_io(path, error))?;
+    let metadata = fs::metadata(path).map_err(|error| FsError::from_io(path, error))?;
 
     if !metadata.is_dir() {
         return Err(FsError::from_message(
@@ -352,7 +367,7 @@ pub fn folder_properties(path: impl AsRef<Path>) -> Result<FolderProperties, FsE
 
 pub fn file_properties(path: impl AsRef<Path>) -> Result<FileProperties, FsError> {
     let path = path.as_ref();
-    let metadata = fs::symlink_metadata(path).map_err(|error| FsError::from_io(path, error))?;
+    let metadata = fs::metadata(path).map_err(|error| FsError::from_io(path, error))?;
 
     if metadata.is_dir() {
         return Err(FsError::from_message(
@@ -442,7 +457,22 @@ fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
     } else {
         EntryKind::Other
     };
-    let size = matches!(kind, EntryKind::File).then_some(metadata.len());
+    let symlink_target = matches!(kind, EntryKind::Symlink)
+        .then(|| symlink_target(&entry_path))
+        .flatten();
+    let size = if matches!(kind, EntryKind::File)
+        || symlink_target
+            .as_ref()
+            .is_some_and(|target| target.kind == SymlinkTargetKind::File)
+    {
+        Some(
+            fs::metadata(&entry_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or_else(|_| metadata.len()),
+        )
+    } else {
+        None
+    };
     let owner = Some(metadata.uid());
     let modified = metadata.modified().ok();
 
@@ -450,11 +480,38 @@ fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
         name,
         path: entry_path,
         kind,
+        symlink_target,
         hidden,
         size,
         owner,
         modified,
     })
+}
+
+fn symlink_target(path: &Path) -> Option<SymlinkTarget> {
+    match fs::metadata(path) {
+        Ok(metadata) => {
+            let file_type = metadata.file_type();
+            let kind = if file_type.is_dir() {
+                SymlinkTargetKind::Directory
+            } else if file_type.is_file() {
+                SymlinkTargetKind::File
+            } else {
+                SymlinkTargetKind::Other
+            };
+
+            Some(SymlinkTarget {
+                kind,
+                broken: false,
+                path: fs::canonicalize(path).ok(),
+            })
+        }
+        Err(_) => Some(SymlinkTarget {
+            kind: SymlinkTargetKind::Other,
+            broken: true,
+            path: None,
+        }),
+    }
 }
 
 fn search_file_names_inner(
@@ -697,8 +754,8 @@ fn path_to_cstring(path: &Path) -> Result<CString, FsError> {
 }
 
 fn compare_entries(left: &FileEntry, right: &FileEntry) -> Ordering {
-    entry_group(left.kind)
-        .cmp(&entry_group(right.kind))
+    entry_group(left)
+        .cmp(&entry_group(right))
         .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
         .then_with(|| left.name.cmp(&right.name))
 }
@@ -711,10 +768,22 @@ fn compare_entry_paths(left: &FileEntry, right: &FileEntry) -> Ordering {
         .then_with(|| left.path.cmp(&right.path))
 }
 
-fn entry_group(kind: EntryKind) -> u8 {
-    match kind {
+fn entry_group(entry: &FileEntry) -> u8 {
+    match entry.kind {
         EntryKind::Directory => 0,
-        EntryKind::Symlink => 1,
+        EntryKind::Symlink => match entry.symlink_target.as_ref() {
+            Some(SymlinkTarget {
+                kind: SymlinkTargetKind::Directory,
+                broken: false,
+                ..
+            }) => 0,
+            Some(SymlinkTarget {
+                kind: SymlinkTargetKind::File,
+                broken: false,
+                ..
+            }) => 2,
+            _ => 3,
+        },
         EntryKind::File => 2,
         EntryKind::Other => 3,
     }
@@ -770,7 +839,56 @@ mod tests {
             .unwrap();
 
         assert_eq!(link.kind, EntryKind::Symlink);
-        assert_eq!(link.size, None);
+        assert_eq!(
+            link.symlink_target,
+            Some(SymlinkTarget {
+                kind: SymlinkTargetKind::File,
+                broken: false,
+                path: fs::canonicalize(fixture.path().join("target.txt")).ok(),
+            })
+        );
+        assert_eq!(link.size, Some(6));
+    }
+
+    #[test]
+    fn scan_dir_marks_directory_and_broken_symlink_targets() {
+        let fixture = TempDir::new("symlink-targets");
+        fs::create_dir(fixture.path().join("target-dir")).unwrap();
+        symlink("target-dir", fixture.path().join("dir-link")).unwrap();
+        symlink("missing", fixture.path().join("broken-link")).unwrap();
+
+        let listing = scan_dir(fixture.path(), ScanOptions::default()).unwrap();
+        let dir_link = listing
+            .entries
+            .iter()
+            .find(|entry| entry.name == "dir-link")
+            .unwrap();
+        let broken_link = listing
+            .entries
+            .iter()
+            .find(|entry| entry.name == "broken-link")
+            .unwrap();
+
+        assert_eq!(
+            dir_link.symlink_target,
+            Some(SymlinkTarget {
+                kind: SymlinkTargetKind::Directory,
+                broken: false,
+                path: fs::canonicalize(fixture.path().join("target-dir")).ok(),
+            })
+        );
+        assert_eq!(
+            broken_link.symlink_target,
+            Some(SymlinkTarget {
+                kind: SymlinkTargetKind::Other,
+                broken: true,
+                path: None,
+            })
+        );
+        assert_eq!(
+            names(&listing),
+            vec!["dir-link", "target-dir", "broken-link"]
+        );
     }
 
     #[test]
@@ -990,6 +1108,20 @@ mod tests {
     }
 
     #[test]
+    fn folder_properties_follows_directory_symlinks() {
+        let fixture = TempDir::new("properties-directory-symlink");
+        fs::create_dir(fixture.path().join("target")).unwrap();
+        fs::write(fixture.path().join("target/a.txt"), b"123").unwrap();
+        symlink("target", fixture.path().join("link")).unwrap();
+
+        let properties = folder_properties(fixture.path().join("link")).unwrap();
+
+        assert_eq!(properties.name, "link");
+        assert_eq!(properties.item_count, 1);
+        assert_eq!(properties.total_size, 3);
+    }
+
+    #[test]
     fn file_properties_reports_file_metadata() {
         let fixture = TempDir::new("file-properties");
         let target = fixture.path().join("a.log");
@@ -1004,6 +1136,18 @@ mod tests {
         assert_eq!(properties.owner, Some(fs::metadata(&target).unwrap().uid()));
         assert!(properties.mode.is_some());
         assert!(properties.modified.is_some());
+    }
+
+    #[test]
+    fn file_properties_follows_file_symlinks() {
+        let fixture = TempDir::new("file-properties-symlink");
+        fs::write(fixture.path().join("target.txt"), b"1234567").unwrap();
+        symlink("target.txt", fixture.path().join("link.txt")).unwrap();
+
+        let properties = file_properties(fixture.path().join("link.txt")).unwrap();
+
+        assert_eq!(properties.name, "link.txt");
+        assert_eq!(properties.size, 7);
     }
 
     #[test]

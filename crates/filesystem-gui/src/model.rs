@@ -66,6 +66,7 @@ pub(crate) enum Message {
     PropertiesDragStarted,
     PropertiesDragEnded,
     PropertiesEventSink,
+    CloseAlert,
     CyclePermission(PermissionClass),
     CancelPermissions,
     ApplyPermissions,
@@ -192,6 +193,12 @@ pub(crate) struct DeleteConfirm {
     pub(crate) kind_label: &'static str,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AlertDialog {
+    pub(crate) title: String,
+    pub(crate) message: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AppRegistry {
     pub(crate) apps: Vec<DesktopApp>,
@@ -258,12 +265,19 @@ pub(crate) struct DisplayEntry {
     pub(crate) file: FileEntry,
     pub(crate) mime: MimeInfo,
     pub(crate) icon: EntryIcon,
+    pub(crate) badge: Option<IconBadge>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum EntryIcon {
     Embedded(&'static [u8]),
     Theme(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IconBadge {
+    Symlink,
+    BrokenSymlink,
 }
 
 #[derive(Debug, Clone)]

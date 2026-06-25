@@ -1,5 +1,5 @@
 use crate::config::*;
-use crate::model::{DisplayEntry, EntryIcon, Message, PermissionClass, RenameState};
+use crate::model::{DisplayEntry, EntryIcon, IconBadge, Message, PermissionClass, RenameState};
 use crate::style;
 use crate::utils::directory_permission;
 use iced::alignment::{Horizontal, Vertical};
@@ -28,7 +28,7 @@ pub(crate) fn toolbar_icon<'a>(bytes: &'static [u8], enabled: bool) -> Element<'
     .into()
 }
 
-pub(crate) fn entry_icon<'a>(icon: &EntryIcon, size: f32) -> Element<'a, Message> {
+pub(crate) fn entry_icon(icon: &EntryIcon, size: f32) -> Element<'static, Message> {
     let handle = match icon {
         EntryIcon::Embedded(bytes) => svg::Handle::from_memory(*bytes),
         EntryIcon::Theme(bytes) => svg::Handle::from_memory(bytes.clone()),
@@ -40,6 +40,37 @@ pub(crate) fn entry_icon<'a>(icon: &EntryIcon, size: f32) -> Element<'a, Message
         .align_x(Horizontal::Center)
         .align_y(Vertical::Center)
         .into()
+}
+
+pub(crate) fn badged_entry_icon(entry: &DisplayEntry, size: f32) -> Element<'static, Message> {
+    let Some(badge) = entry.badge else {
+        return entry_icon(&entry.icon, size);
+    };
+
+    let badge_bytes = match badge {
+        IconBadge::Symlink => include_bytes!("../../../icons/symbol.svg").as_slice(),
+        IconBadge::BrokenSymlink => {
+            include_bytes!("../../../icons/symbol-disconnect.svg").as_slice()
+        }
+    };
+    let badge_size = (size * 0.36).clamp(12.0, 24.0);
+
+    stack([
+        entry_icon(&entry.icon, size),
+        container(
+            svg(svg::Handle::from_memory(badge_bytes))
+                .width(badge_size)
+                .height(badge_size),
+        )
+        .width(size)
+        .height(size)
+        .align_x(Horizontal::Right)
+        .align_y(Vertical::Top)
+        .into(),
+    ])
+    .width(size)
+    .height(size)
+    .into()
 }
 
 pub(crate) fn sidebar_icon<'a>(bytes: &'static [u8]) -> Element<'a, Message> {
@@ -184,7 +215,7 @@ pub(crate) fn list_name_cell<'a>(
     dimmed: bool,
 ) -> Element<'a, Message> {
     let content = row![
-        entry_icon(&entry.icon, 24.0),
+        badged_entry_icon(entry, 24.0),
         text(value).size(14).style(if dimmed {
             style::disabled_text
         } else {

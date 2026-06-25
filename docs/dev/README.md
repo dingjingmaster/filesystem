@@ -40,3 +40,6 @@
 | 9 | 2026-06-25 | L3 | summary | [9-summary-filesystem-mime.md](9-summary-filesystem-mime.md) | 已完成 | 总结 `filesystem-mime` 内置内容/名称识别、shared-mime-info fallback、GUI 图标/打开方式/属性统一使用缓存 MIME、验证结果和残余风险。 |
 | 10 | 2026-06-25 | L2 | fix | [10-fix-zip-container-mime.md](10-fix-zip-container-mime.md) | 已完成 | 修复 `.odt` 等 ZIP 容器文档被通用 zip MIME 抢占的问题，补 ODT、普通 ZIP 和强内容签名回归测试。 |
 | 11 | 2026-06-25 | L2 | fix | [11-fix-text-editor-fallback.md](11-fix-text-editor-fallback.md) | 已完成 | 修复 `.desktop/.c/.cpp/.md` 等文本类文件打开兜底，支持 `text/plain` 和 `TextEditor` 分类 fallback，过滤 `Terminal=true` 应用。 |
+| 12 | 2026-06-25 | L3 | research | [12-research-symlink-badge-open.md](12-research-symlink-badge-open.md) | 已完成 | 调研软链接目标类型、断链状态、图标角标、菜单分类和双击目标打开方案。 |
+| 12 | 2026-06-25 | L3 | plan | [12-plan-symlink-badge-open.md](12-plan-symlink-badge-open.md) | 已完成 | 规划 core `SymlinkTarget`、GUI 角标渲染、有效类型打开路径、断链弹窗和验证步骤。 |
+| 12 | 2026-06-25 | L3 | summary | [12-summary-symlink-badge-open.md](12-summary-symlink-badge-open.md) | 已完成 | 总结软链接角标、断链角标、目标路径打开、属性跟随和验证结果。 |

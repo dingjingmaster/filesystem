@@ -1,5 +1,5 @@
-use crate::model::{DisplayEntry, EntryIcon};
-use filesystem_core::{EntryKind, FileEntry};
+use crate::model::{DisplayEntry, EntryIcon, IconBadge};
+use filesystem_core::{EntryKind, FileEntry, SymlinkTargetKind};
 use filesystem_mime::{MimeInfo, detect_path};
 use std::env;
 use std::fs;
@@ -13,7 +13,13 @@ pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
         .map(|file| {
             let mime = entry_mime(&file);
             let icon = resolver.entry_icon(&file, &mime);
-            DisplayEntry { file, mime, icon }
+            let badge = entry_badge(&file);
+            DisplayEntry {
+                file,
+                mime,
+                icon,
+                badge,
+            }
         })
         .collect()
 }
@@ -44,7 +50,17 @@ impl IconResolver {
                 .file_icon(mime)
                 .map(EntryIcon::Theme)
                 .unwrap_or_else(fallback_file_icon),
-            EntryKind::Symlink | EntryKind::Other => fallback_file_icon(),
+            EntryKind::Symlink => match entry.symlink_target.as_ref() {
+                Some(target) if !target.broken && target.kind == SymlinkTargetKind::Directory => {
+                    EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg"))
+                }
+                Some(target) if !target.broken && target.kind == SymlinkTargetKind::File => self
+                    .file_icon(mime)
+                    .map(EntryIcon::Theme)
+                    .unwrap_or_else(fallback_file_icon),
+                _ => fallback_file_icon(),
+            },
+            EntryKind::Other => fallback_file_icon(),
         }
     }
 
@@ -125,13 +141,36 @@ fn entry_mime(entry: &FileEntry) -> MimeInfo {
             MimeInfo::new("inode/directory", filesystem_mime::MimeSource::BuiltInName)
         }
         EntryKind::File => detect_path(&entry.path),
-        EntryKind::Symlink => {
-            MimeInfo::new("inode/symlink", filesystem_mime::MimeSource::BuiltInName)
-        }
+        EntryKind::Symlink => match entry.symlink_target.as_ref() {
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::Directory => {
+                MimeInfo::new("inode/directory", filesystem_mime::MimeSource::BuiltInName)
+            }
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::File => {
+                let path = target.path.as_deref().unwrap_or(entry.path.as_path());
+                detect_path(path)
+            }
+            _ => MimeInfo::new("inode/symlink", filesystem_mime::MimeSource::BuiltInName),
+        },
         EntryKind::Other => MimeInfo::new(
             "application/octet-stream",
             filesystem_mime::MimeSource::Unknown,
         ),
+    }
+}
+
+fn entry_badge(entry: &FileEntry) -> Option<IconBadge> {
+    if !matches!(entry.kind, EntryKind::Symlink) {
+        return None;
+    }
+
+    if entry
+        .symlink_target
+        .as_ref()
+        .is_some_and(|target| !target.broken)
+    {
+        Some(IconBadge::Symlink)
+    } else {
+        Some(IconBadge::BrokenSymlink)
     }
 }
 
@@ -312,5 +351,49 @@ mod tests {
     fn dotted_app_icon_names_are_not_treated_as_extensions() {
         assert!(!is_image_extension(Path::new("org.example.App")));
         assert!(is_image_extension(Path::new("example.svg")));
+    }
+
+    #[test]
+    fn symlink_entries_get_badges() {
+        let file = FileEntry {
+            name: "link.txt".to_string(),
+            path: PathBuf::from("/tmp/link.txt"),
+            kind: EntryKind::Symlink,
+            symlink_target: Some(filesystem_core::SymlinkTarget {
+                kind: SymlinkTargetKind::File,
+                broken: false,
+                path: Some(PathBuf::from("/tmp/target.txt")),
+            }),
+            hidden: false,
+            size: Some(12),
+            owner: None,
+            modified: None,
+        };
+
+        let entries = decorate_entries(vec![file]);
+
+        assert_eq!(entries[0].badge, Some(IconBadge::Symlink));
+    }
+
+    #[test]
+    fn broken_symlink_entries_get_disconnect_badges() {
+        let file = FileEntry {
+            name: "broken".to_string(),
+            path: PathBuf::from("/tmp/broken"),
+            kind: EntryKind::Symlink,
+            symlink_target: Some(filesystem_core::SymlinkTarget {
+                kind: SymlinkTargetKind::Other,
+                broken: true,
+                path: None,
+            }),
+            hidden: false,
+            size: None,
+            owner: None,
+            modified: None,
+        };
+
+        let entries = decorate_entries(vec![file]);
+
+        assert_eq!(entries[0].badge, Some(IconBadge::BrokenSymlink));
     }
 }

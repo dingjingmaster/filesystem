@@ -7,8 +7,8 @@ use crate::tasks::*;
 use crate::utils::*;
 use filesystem_core::{
     ClipboardPaths, EntryKind, FileProperties, FolderProperties, FsError, PasteAction, ScanOptions,
-    child_path_limits, file_properties, folder_properties, parse_clipboard_paths, paste_paths,
-    rename_entry, set_permissions,
+    SymlinkTargetKind, child_path_limits, file_properties, folder_properties,
+    parse_clipboard_paths, paste_paths, rename_entry, set_permissions,
 };
 use filesystem_mime::{MimeInfo, detect_name};
 use iced::alignment::{Horizontal, Vertical};
@@ -36,6 +36,7 @@ pub(crate) struct FileManager {
     context_menu: Option<ContextMenuState>,
     clipboard: Option<ClipboardState>,
     delete_confirm: Option<DeleteConfirm>,
+    alert_dialog: Option<AlertDialog>,
     rename_state: Option<RenameState>,
     properties_dialog: Option<PropertiesDialog>,
     properties_drag: Option<PropertiesDrag>,
@@ -80,6 +81,7 @@ impl FileManager {
             context_menu: None,
             clipboard: None,
             delete_confirm: None,
+            alert_dialog: None,
             rename_state: None,
             properties_dialog: None,
             properties_drag: None,
@@ -340,6 +342,13 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if self.is_broken_symlink_path(&path) {
+                    return self.show_broken_symlink_alert(&path);
+                }
+                let path = self
+                    .entry_for_path(&path)
+                    .map(Self::entry_open_path)
+                    .unwrap_or(path);
                 self.status = "Opening terminal...".to_string();
                 Task::perform(async move { open_terminal(path) }, Message::TerminalOpened)
             }
@@ -355,15 +364,19 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
-                self.open_file_with_default(path)
+                self.open_path(path, EntryKind::File)
             }
             Message::FileOpenWith(path) => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
                 }
                 self.close_menu();
-                self.open_with_dialog = Some(self.open_with_dialog_for(path));
-                Task::none()
+                if let Some(dialog) = self.open_with_dialog_for(path.clone()) {
+                    self.open_with_dialog = Some(dialog);
+                    Task::none()
+                } else {
+                    self.show_broken_symlink_alert(&path)
+                }
             }
             Message::FileCopy(path) => {
                 if self.rename_state.is_some() {
@@ -687,6 +700,10 @@ impl FileManager {
                 Task::none()
             }
             Message::PropertiesEventSink => Task::none(),
+            Message::CloseAlert => {
+                self.alert_dialog = None;
+                Task::none()
+            }
             Message::CyclePermission(class) => {
                 self.cycle_permission(class);
                 Task::none()
@@ -776,6 +793,7 @@ impl FileManager {
             self.properties_overlay(),
             self.delete_confirm_overlay(),
             self.open_with_overlay(),
+            self.alert_overlay(),
         ])
         .height(Fill)
         .width(Fill)
@@ -1249,7 +1267,7 @@ impl FileManager {
                 style::muted_text
             });
 
-        let content = column![entry_icon(&entry.icon, 78.0), name, meta]
+        let content = column![badged_entry_icon(entry, 78.0), name, meta]
             .spacing(8)
             .align_x(iced::Center)
             .width(TILE_WIDTH);
@@ -1316,6 +1334,21 @@ impl FileManager {
     }
 
     fn open_path(&mut self, path: PathBuf, kind: EntryKind) -> Task<Message> {
+        if let Some(entry) = self.entry_for_path(&path) {
+            if Self::entry_is_broken_symlink(entry) {
+                return self.show_broken_symlink_alert(&path);
+            }
+
+            let target_path = Self::entry_open_path(entry);
+            let effective_kind = Self::entry_effective_kind(entry);
+            let mime = entry.mime.clone();
+
+            return match effective_kind {
+                EntryKind::Directory => self.visit_path(target_path),
+                _ => self.open_file_with_default_for_mime(target_path, mime),
+            };
+        }
+
         if matches!(kind, EntryKind::Directory) {
             self.visit_path(path)
         } else {
@@ -1324,7 +1357,16 @@ impl FileManager {
     }
 
     fn open_file_with_default(&mut self, path: PathBuf) -> Task<Message> {
-        let mime = self.mime_info_for_path(&path).mime;
+        if self.is_broken_symlink_path(&path) {
+            return self.show_broken_symlink_alert(&path);
+        }
+
+        let mime = self.mime_info_for_path(&path);
+        self.open_file_with_default_for_mime(path, mime)
+    }
+
+    fn open_file_with_default_for_mime(&mut self, path: PathBuf, mime: MimeInfo) -> Task<Message> {
+        let mime = mime.mime;
         if let Some(app) = best_app_for_mime(&self.app_registry, &mime) {
             self.status = format!("Opening with {}...", app.name);
             open_file_with_app_task(path, app)
@@ -1860,6 +1902,56 @@ impl FileManager {
         .width(CONTEXT_MENU_WIDTH)
         .style(style::context_menu)
         .into()
+    }
+
+    fn alert_overlay(&self) -> Element<'_, Message> {
+        let Some(alert) = &self.alert_dialog else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let dialog = container(
+            column![
+                text(alert.title.clone())
+                    .size(16)
+                    .style(style::primary_text),
+                text(alert.message.clone())
+                    .size(14)
+                    .style(style::primary_text),
+                row![
+                    space().width(Fill),
+                    button(
+                        container(text("确定").size(14).style(style::primary_text))
+                            .height(Fill)
+                            .align_x(Horizontal::Center)
+                            .align_y(Vertical::Center),
+                    )
+                    .height(36)
+                    .padding([0, 16])
+                    .style(style::toolbar_button)
+                    .on_press(Message::CloseAlert),
+                ]
+                .align_y(iced::Center),
+            ]
+            .spacing(18)
+            .padding(18),
+        )
+        .width(360)
+        .style(style::properties_dialog);
+
+        let overlay = container(dialog)
+            .width(Fill)
+            .height(Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .style(style::modal_overlay);
+
+        mouse_area(overlay)
+            .on_press(Message::PropertiesEventSink)
+            .on_release(Message::PropertiesEventSink)
+            .on_right_press(Message::PropertiesEventSink)
+            .on_middle_press(Message::PropertiesEventSink)
+            .on_scroll(|_| Message::PropertiesEventSink)
+            .into()
     }
 
     fn delete_confirm_overlay(&self) -> Element<'_, Message> {
@@ -2535,24 +2627,29 @@ impl FileManager {
         )
     }
 
-    fn open_with_dialog_for(&self, path: PathBuf) -> OpenWithDialog {
-        let mime = self.mime_info_for_path(&path).mime;
+    fn open_with_dialog_for(&self, path: PathBuf) -> Option<OpenWithDialog> {
+        let (path, mime_info) = self.open_target_and_mime_for_path(&path)?;
+        let mime = mime_info.mime;
         let apps = apps_for_mime(&self.app_registry, &mime);
         let selected_app_id = best_app_for_mime(&self.app_registry, &mime)
             .and_then(|best| apps.iter().find(|app| app.id == best.id).cloned())
             .or_else(|| apps.first().cloned())
             .map(|app| app.id);
 
-        OpenWithDialog {
+        Some(OpenWithDialog {
             path,
             mime,
             apps,
             selected_app_id,
-        }
+        })
     }
 
     fn default_app_for_path(&self, path: &PathBuf) -> Option<DesktopApp> {
-        let mime = self.mime_info_for_path(path).mime;
+        let mime = self
+            .open_target_and_mime_for_path(path)
+            .map(|(_, mime)| mime)
+            .unwrap_or_else(|| self.mime_info_for_path(path))
+            .mime;
         best_app_for_mime(&self.app_registry, &mime)
     }
 
@@ -2562,6 +2659,77 @@ impl FileManager {
             .find(|entry| entry.file.path == *path)
             .map(|entry| entry.mime.clone())
             .unwrap_or_else(|| detect_name(path))
+    }
+
+    fn open_target_and_mime_for_path(&self, path: &PathBuf) -> Option<(PathBuf, MimeInfo)> {
+        if let Some(entry) = self.entry_for_path(path) {
+            if Self::entry_is_broken_symlink(entry) {
+                return None;
+            }
+
+            return Some((Self::entry_open_path(entry), entry.mime.clone()));
+        }
+
+        Some((path.clone(), detect_name(path)))
+    }
+
+    fn entry_for_path(&self, path: &PathBuf) -> Option<&DisplayEntry> {
+        self.entries.iter().find(|entry| entry.file.path == *path)
+    }
+
+    fn entry_effective_kind(entry: &DisplayEntry) -> EntryKind {
+        if !matches!(entry.file.kind, EntryKind::Symlink) {
+            return entry.file.kind;
+        }
+
+        match entry.file.symlink_target.as_ref() {
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::Directory => {
+                EntryKind::Directory
+            }
+            Some(target) if !target.broken && target.kind == SymlinkTargetKind::File => {
+                EntryKind::File
+            }
+            _ => EntryKind::File,
+        }
+    }
+
+    fn entry_is_broken_symlink(entry: &DisplayEntry) -> bool {
+        matches!(entry.file.kind, EntryKind::Symlink)
+            && !entry
+                .file
+                .symlink_target
+                .as_ref()
+                .is_some_and(|target| !target.broken)
+    }
+
+    fn entry_open_path(entry: &DisplayEntry) -> PathBuf {
+        entry
+            .file
+            .symlink_target
+            .as_ref()
+            .and_then(|target| target.path.clone())
+            .unwrap_or_else(|| entry.file.path.clone())
+    }
+
+    fn is_broken_symlink_path(&self, path: &PathBuf) -> bool {
+        self.entry_for_path(path)
+            .is_some_and(Self::entry_is_broken_symlink)
+    }
+
+    fn show_broken_symlink_alert(&mut self, path: &PathBuf) -> Task<Message> {
+        let name = self
+            .entry_for_path(path)
+            .map(|entry| entry.file.name.clone())
+            .unwrap_or_else(|| display_name_for_path(path));
+        let message = format!("软连接 {name} 损坏");
+
+        self.status = message.clone();
+        self.alert_dialog = Some(AlertDialog {
+            title: "软连接损坏".to_string(),
+            message,
+        });
+
+        Task::none()
     }
 
     fn start_rename(&mut self, path: PathBuf) -> Task<Message> {
@@ -2660,7 +2828,7 @@ impl FileManager {
 
         if self.selected_paths.len() == 1
             && self.selected_paths.contains(&entry.file.path)
-            && matches!(entry.file.kind, EntryKind::Directory)
+            && matches!(Self::entry_effective_kind(entry), EntryKind::Directory)
         {
             Some(entry.file.path.clone())
         } else {
@@ -2673,7 +2841,7 @@ impl FileManager {
 
         if self.selected_paths.len() == 1
             && self.selected_paths.contains(&entry.file.path)
-            && !matches!(entry.file.kind, EntryKind::Directory)
+            && !matches!(Self::entry_effective_kind(entry), EntryKind::Directory)
         {
             Some(entry.file.path.clone())
         } else {

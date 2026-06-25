@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::model::PermissionClass;
-use filesystem_core::{EntryKind, FileEntry};
+use filesystem_core::{EntryKind, FileEntry, SymlinkTargetKind};
 use iced::{Point, Rectangle, Size};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -100,18 +100,32 @@ pub(crate) fn short_list_text(value: &str) -> String {
 }
 
 pub(crate) fn entry_meta(entry: &FileEntry) -> String {
-    match (entry.kind, entry.size) {
-        (EntryKind::Directory, _) => "Folder".to_string(),
-        (EntryKind::Symlink, _) => "Link".to_string(),
-        (EntryKind::File, Some(size)) => format_size(size),
-        (EntryKind::File, None) => "File".to_string(),
-        (EntryKind::Other, _) => "Other".to_string(),
+    match entry.kind {
+        EntryKind::Directory => "Folder".to_string(),
+        EntryKind::Symlink => match entry.symlink_target.as_ref() {
+            Some(target) if target.broken => "Broken Link".to_string(),
+            Some(target) if target.kind == SymlinkTargetKind::Directory => {
+                "Folder Link".to_string()
+            }
+            Some(target) if target.kind == SymlinkTargetKind::File => entry
+                .size
+                .map(format_size)
+                .unwrap_or_else(|| "File Link".to_string()),
+            _ => "Link".to_string(),
+        },
+        EntryKind::File => entry
+            .size
+            .map(format_size)
+            .unwrap_or_else(|| "File".to_string()),
+        EntryKind::Other => "Other".to_string(),
     }
 }
 
 pub(crate) fn entry_size(entry: &FileEntry) -> String {
-    match (entry.kind, entry.size) {
-        (EntryKind::File, Some(size)) => format_size(size),
+    match entry.kind {
+        EntryKind::File | EntryKind::Symlink => {
+            entry.size.map(format_size).unwrap_or("-".to_string())
+        }
         _ => "-".to_string(),
     }
 }
