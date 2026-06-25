@@ -1,7 +1,7 @@
 use filesystem_core::{
-    ClipboardPaths, DirectoryListing, EntryKind, FileEntry, FolderProperties, FsError, ScanOptions,
-    create_file, create_folder, folder_properties, parse_clipboard_paths, paste_paths,
-    rename_entry, scan_dir, search_file_names,
+    ChildPathLimits, ClipboardPaths, DirectoryListing, EntryKind, FileEntry, FolderProperties,
+    FsError, ScanOptions, child_path_limits, create_file, create_folder, folder_properties,
+    parse_clipboard_paths, paste_paths, rename_entry, scan_dir, search_file_names,
 };
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
@@ -16,6 +16,7 @@ use iced::{
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -50,10 +51,11 @@ const RENAME_LINE_HEIGHT: f32 = 1.5;
 const RENAME_VERTICAL_PADDING: f32 = 14.0;
 const RENAME_HORIZONTAL_PADDING: f32 = 10.0;
 const RENAME_MIN_HEIGHT: f32 = 64.0;
-const RENAME_TILE_NON_EDITOR_HEIGHT: f32 = 128.0;
 const RENAME_AVERAGE_CHAR_WIDTH: f32 = 12.0;
 const RENAME_MAX_WIDTH_MULTIPLIER: f32 = 3.0;
 const LIST_RENAME_BASE_WIDTH: f32 = 340.0;
+const GRID_RENAME_Y_OFFSET: f32 = 94.0;
+const LIST_RENAME_X_OFFSET: f32 = 48.0;
 
 pub fn main() -> IcedResult {
     iced::application(FileManager::new, FileManager::update, FileManager::view)
@@ -206,19 +208,23 @@ enum NewEntryKind {
 #[derive(Debug, Clone)]
 struct RenameState {
     path: PathBuf,
+    fallback_name: String,
     value: String,
     content: text_editor::Content,
+    limits: ChildPathLimits,
 }
 
 impl RenameState {
-    fn new(path: PathBuf, value: String) -> Self {
+    fn new(path: PathBuf, value: String, limits: ChildPathLimits) -> Self {
         let mut content = text_editor::Content::with_text(&value);
         content.perform(text_editor::Action::SelectAll);
 
         Self {
             path,
+            fallback_name: value.clone(),
             value,
             content,
+            limits,
         }
     }
 }
@@ -812,7 +818,11 @@ impl FileManager {
                         .file_name()
                         .map(|name| name.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    self.rename_state = Some(RenameState::new(path.clone(), value));
+                    let limits = path
+                        .parent()
+                        .and_then(|parent| child_path_limits(parent).ok())
+                        .unwrap_or_default();
+                    self.rename_state = Some(RenameState::new(path.clone(), value, limits));
                     self.status = match kind {
                         NewEntryKind::File => "File created; enter a new name".to_string(),
                         NewEntryKind::Folder => "Folder created; enter a new name".to_string(),
@@ -830,8 +840,19 @@ impl FileManager {
                 }
 
                 if let Some(rename) = &mut self.rename_state {
+                    let previous_content = rename.content.clone();
+                    let previous_value = rename.value.clone();
                     rename.content.perform(action);
-                    rename.value = rename.content.text();
+                    let value = rename.content.text();
+
+                    if let Some(message) = rename_limit_error(rename, &value) {
+                        rename.content = previous_content;
+                        rename.value = previous_value;
+                        self.status = message;
+                        return self.focus_rename_input(false);
+                    }
+
+                    rename.value = value;
                 }
                 Task::none()
             }
@@ -847,6 +868,21 @@ impl FileManager {
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::AlreadyExists {
                         self.status = "Name already exists; enter another name".to_string();
+                    } else if error.is_name_too_long()
+                        && self.rename_state.as_ref().is_some_and(|rename| {
+                            rename.limits.name_bytes.is_none() || rename.limits.path_bytes.is_none()
+                        })
+                    {
+                        let Some(rename) = self.rename_state.take() else {
+                            return Task::none();
+                        };
+                        self.selected_paths.clear();
+                        self.selected_paths.insert(rename.path);
+                        self.status = format!(
+                            "Name is too long; kept default name {}",
+                            rename.fallback_name
+                        );
+                        return Task::none();
                     } else {
                         self.status = error.to_string();
                     }
@@ -1252,6 +1288,7 @@ impl FileManager {
         stack([
             content.into(),
             self.selection_overlay(),
+            self.rename_overlay(),
             self.context_menu_overlay(),
         ])
         .height(Fill)
@@ -1282,11 +1319,7 @@ impl FileManager {
             );
         } else {
             for chunk in self.entries.chunks(columns) {
-                let row_height = chunk
-                    .iter()
-                    .map(|entry| self.tile_height(entry))
-                    .fold(TILE_HEIGHT, f32::max);
-                let mut row = row![].spacing(GRID_COLUMN_SPACING).height(row_height);
+                let mut row = row![].spacing(GRID_COLUMN_SPACING).height(TILE_HEIGHT);
 
                 for entry in chunk {
                     row = row.push(self.tile(entry));
@@ -1404,20 +1437,11 @@ impl FileManager {
         let size = entry_size(&entry.file);
         let owner = entry_owner(&entry.file);
         let modified = format_modified(entry.file.modified);
-        let rename_state = self.rename_state_for(&entry.file.path);
-        let row_height = rename_state
-            .map(|rename| rename_editor_layout(&rename.value, LIST_RENAME_BASE_WIDTH).height)
-            .unwrap_or(LIST_ROW_HEIGHT)
-            .max(LIST_ROW_HEIGHT);
-        let name_cell = if let Some(rename) = rename_state {
-            list_rename_cell(rename, Length::FillPortion(5), row_height)
-        } else {
-            list_name_cell(
-                entry,
-                short_list_text(&self.entry_display_name(entry)),
-                Length::FillPortion(5),
-            )
-        };
+        let name_cell = list_name_cell(
+            entry,
+            short_list_text(&self.entry_display_name(entry)),
+            Length::FillPortion(5),
+        );
 
         let content = row![
             name_cell,
@@ -1427,10 +1451,10 @@ impl FileManager {
         ]
         .spacing(12)
         .align_y(iced::Center)
-        .height(row_height);
+        .height(LIST_ROW_HEIGHT);
 
         let row = container(content)
-            .height(row_height)
+            .height(LIST_ROW_HEIGHT)
             .width(Fill)
             .padding([0, 14])
             .style(move |_| style::list_row_container(selected));
@@ -1444,40 +1468,27 @@ impl FileManager {
 
     fn tile(&self, entry: &DisplayEntry) -> Element<'_, Message> {
         let selected = self.is_selected(entry);
-        let rename_state = self.rename_state_for(&entry.file.path);
-        let rename_layout =
-            rename_state.map(|rename| rename_editor_layout(&rename.value, TILE_WIDTH));
-        let tile_width = rename_layout
-            .map(|layout| layout.width)
-            .unwrap_or(TILE_WIDTH);
-        let tile_height = self.tile_height(entry);
-
-        let name: Element<'_, Message> =
-            if let (Some(rename), Some(layout)) = (rename_state, rename_layout) {
-                rename_editor(rename, layout.width, layout.height)
-            } else {
-                text(short_name(&entry.file.name))
-                    .size(15)
-                    .width(tile_width)
-                    .align_x(Horizontal::Center)
-                    .style(style::primary_text)
-                    .into()
-            };
+        let name: Element<'_, Message> = text(short_name(&entry.file.name))
+            .size(15)
+            .width(TILE_WIDTH)
+            .align_x(Horizontal::Center)
+            .style(style::primary_text)
+            .into();
 
         let meta = text(self.entry_subtitle(entry))
             .size(12)
-            .width(tile_width)
+            .width(TILE_WIDTH)
             .align_x(Horizontal::Center)
             .style(style::muted_text);
 
         let content = column![entry_icon(&entry.icon, 78.0), name, meta]
             .spacing(8)
             .align_x(iced::Center)
-            .width(tile_width);
+            .width(TILE_WIDTH);
 
         let tile = container(content)
-            .height(tile_height)
-            .width(tile_width)
+            .height(TILE_HEIGHT)
+            .width(TILE_WIDTH)
             .padding(8)
             .style(move |_| style::tile_container(selected));
 
@@ -1881,6 +1892,61 @@ impl FileManager {
         .into()
     }
 
+    fn rename_overlay(&self) -> Element<'_, Message> {
+        let Some(rename) = &self.rename_state else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let Some((index, _entry)) = self
+            .entries
+            .iter()
+            .enumerate()
+            .find(|(_, entry)| entry.file.path == rename.path)
+        else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let Some(rect) = self.entry_content_rect(index) else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let layout = match self.view_mode {
+            ViewMode::Icons => rename_editor_layout(&rename.value, TILE_WIDTH),
+            ViewMode::List => rename_editor_layout(&rename.value, LIST_RENAME_BASE_WIDTH),
+        };
+        let (x, y) = match self.view_mode {
+            ViewMode::Icons => (
+                self.clamped_overlay_x(rect.x + (TILE_WIDTH - layout.width) / 2.0, layout.width),
+                rect.y + GRID_RENAME_Y_OFFSET - self.browser_scroll_y,
+            ),
+            ViewMode::List => (
+                self.clamped_overlay_x(rect.x + LIST_RENAME_X_OFFSET, layout.width),
+                rect.y + (LIST_ROW_HEIGHT - layout.height) / 2.0 - self.browser_scroll_y,
+            ),
+        };
+
+        container(
+            column![
+                space().height(Length::Fixed(y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(x)),
+                    rename_editor(rename, layout.width, layout.height),
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .height(Fill)
+        .width(Fill)
+        .into()
+    }
+
+    fn clamped_overlay_x(&self, x: f32, width: f32) -> f32 {
+        let max_x = (self.browser_width - width).max(0.0);
+        x.clamp(0.0, max_x)
+    }
+
     fn context_menu_overlay(&self) -> Element<'_, Message> {
         let Some(position) = self.context_menu else {
             return container(space()).height(Fill).width(Fill).into();
@@ -2189,21 +2255,6 @@ impl FileManager {
         .into()
     }
 
-    fn rename_state_for(&self, path: &PathBuf) -> Option<&RenameState> {
-        self.rename_state
-            .as_ref()
-            .filter(|rename| rename.path == *path)
-    }
-
-    fn tile_height(&self, entry: &DisplayEntry) -> f32 {
-        self.rename_state_for(&entry.file.path)
-            .map(|rename| {
-                let layout = rename_editor_layout(&rename.value, TILE_WIDTH);
-                RENAME_TILE_NON_EDITOR_HEIGHT + layout.height
-            })
-            .unwrap_or(TILE_HEIGHT)
-    }
-
     fn submit_rename(&mut self) -> Task<Message> {
         if let Some(rename) = &mut self.rename_state {
             rename.value = rename.content.text();
@@ -2214,6 +2265,11 @@ impl FileManager {
         };
 
         let new_name = rename.content.text().trim().to_string();
+        if let Some(message) = rename_limit_error(&rename, &new_name) {
+            self.status = message;
+            return self.focus_rename_input(false);
+        }
+
         if new_name.is_empty() {
             self.status = "File name cannot be empty".to_string();
             return self.focus_rename_input(false);
@@ -2456,20 +2512,6 @@ fn list_name_cell<'a>(entry: &DisplayEntry, value: String, width: Length) -> Ele
         .into()
 }
 
-fn list_rename_cell<'a>(
-    rename: &'a RenameState,
-    width: Length,
-    row_height: f32,
-) -> Element<'a, Message> {
-    let layout = rename_editor_layout(&rename.value, LIST_RENAME_BASE_WIDTH);
-
-    container(rename_editor(rename, layout.width, layout.height))
-        .width(width)
-        .height(row_height)
-        .align_y(Vertical::Center)
-        .into()
-}
-
 fn rename_editor<'a>(rename: &'a RenameState, width: f32, height: f32) -> Element<'a, Message> {
     text_editor(&rename.content)
         .id(rename_input_id())
@@ -2487,6 +2529,32 @@ fn rename_editor<'a>(rename: &'a RenameState, width: f32, height: f32) -> Elemen
 
 fn rename_input_id() -> iced::widget::Id {
     iced::widget::Id::new(RENAME_INPUT_ID)
+}
+
+fn rename_limit_error(rename: &RenameState, value: &str) -> Option<String> {
+    let name = value.trim();
+    if name.is_empty() {
+        return None;
+    }
+
+    let name_bytes = name.as_bytes().len();
+    if let Some(limit) = rename.limits.name_bytes {
+        if name_bytes > limit {
+            return Some(format!("File name is too long; limit is {limit} bytes"));
+        }
+    }
+
+    if let (Some(limit), Some(parent)) = (rename.limits.path_bytes, rename.path.parent()) {
+        let parent_bytes = parent.as_os_str().as_bytes().len();
+        let separator_bytes = usize::from(!parent.as_os_str().as_bytes().ends_with(b"/"));
+        let path_bytes = parent_bytes + separator_bytes + name_bytes;
+
+        if path_bytes > limit {
+            return Some(format!("File path is too long; limit is {limit} bytes"));
+        }
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2836,6 +2904,36 @@ mod tests {
             browser_width_from_window(WINDOW_MIN_WIDTH),
             WINDOW_MIN_WIDTH - SIDEBAR_WIDTH
         );
+    }
+
+    #[test]
+    fn rename_limit_error_blocks_names_over_name_limit() {
+        let rename = RenameState::new(
+            PathBuf::from("/tmp/default"),
+            "default".to_string(),
+            ChildPathLimits {
+                name_bytes: Some(4),
+                path_bytes: None,
+            },
+        );
+
+        assert!(rename_limit_error(&rename, "abcd").is_none());
+        assert!(rename_limit_error(&rename, "abcde").is_some());
+    }
+
+    #[test]
+    fn rename_limit_error_blocks_paths_over_path_limit() {
+        let rename = RenameState::new(
+            PathBuf::from("/tmp/default"),
+            "default".to_string(),
+            ChildPathLimits {
+                name_bytes: None,
+                path_bytes: Some(8),
+            },
+        );
+
+        assert!(rename_limit_error(&rename, "abc").is_none());
+        assert!(rename_limit_error(&rename, "abcd").is_some());
     }
 }
 

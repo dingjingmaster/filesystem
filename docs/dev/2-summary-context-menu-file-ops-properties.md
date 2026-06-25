@@ -15,7 +15,7 @@
 - 完成状态：已完成首版。
 - 用户可见结果：
   - 图标视图和列表视图空白处右键弹出菜单，包含“新建文件”“新建文件夹”“粘贴”“全选”“在终端打开”“属性”和分割线。
-  - 新建文件/文件夹在当前目录创建唯一名称，并在图标/列表视图中进入内联重命名；默认名称进入全选状态，编辑框使用 1.5 倍行高，长名称最多扩展到基础宽度 3 倍，继续输入会换行并增高；回车或点击文件视图/工具栏/侧边栏等外部区域提交，目标存在时失败不覆盖。
+  - 新建文件/文件夹在当前目录创建唯一名称，并在图标/列表视图中进入内联重命名；默认名称进入全选状态，编辑框作为文件视图上层覆盖层显示，不挤压其它文件/文件夹位置；编辑框使用 1.5 倍行高，长名称最多扩展到基础宽度 3 倍，继续输入会换行并增高；编辑时按当前目录 `NAME_MAX` 和 `PATH_MAX` 字节限制拒绝超限输入；回车或点击文件视图/工具栏/侧边栏等外部区域提交，目标存在时失败不覆盖。
   - 粘贴读取标准剪贴板文本，支持绝对路径、`file://` URI、`copy` 和 `cut`/`move` 文本标记；复制递归复制文件夹，剪切首版使用同文件系统 `rename`。
   - 全选会选中当前视图列出的全部条目。
   - 在终端打开按 `terminator`、`mate-terminal`、`gnome-terminal` 顺序查找 PATH，并用 `--working-directory` 在当前目录启动。
@@ -25,14 +25,15 @@
 ## 2. 关键改动
 
 - `filesystem-core`
-  - 新增 `create_file`、`create_folder`、`rename_entry`、`paste_paths`、`parse_clipboard_paths`、`folder_properties`。
-  - 新增 `PasteAction`、`ClipboardPaths`、`FolderProperties`。
+  - 新增 `create_file`、`create_folder`、`rename_entry`、`paste_paths`、`parse_clipboard_paths`、`folder_properties`、`child_path_limits`。
+  - 新增 `PasteAction`、`ClipboardPaths`、`FolderProperties`、`ChildPathLimits`。
   - 新增 `libc` 直接依赖，用于 Linux `statvfs` 查询当前文件夹所在文件系统剩余空间。
-  - 测试从 8 个增加到 15 个，覆盖唯一命名、防覆盖重命名、递归复制、同文件系统移动、剪贴板文本解析和属性统计。
+  - 测试从 8 个增加到 17 个，覆盖唯一命名、防覆盖重命名、文件名过长识别、目录路径限制查询、递归复制、同文件系统移动、剪贴板文本解析和属性统计。
 - `filesystem-gui`
   - 新增 `context_menu`、`RenameState`、`PropertiesDialog` 状态和对应消息。
   - 文件视图 `mouse_area` 增加右键消息；右键菜单用 `stack` 覆盖显示，不改变文件布局。
-  - 新建成功后的重命名编辑框使用固定 widget id 和 `text_editor::Content`；目录刷新后用 iced widget operation 聚焦，默认名称在 content 内全选；编辑框用 `text_editor` 支持 wrapping、1.5 倍行高、动态宽度和动态高度。
+  - 新建成功后的重命名编辑框使用固定 widget id 和 `text_editor::Content`；目录刷新后用 iced widget operation 聚焦，默认名称在 content 内全选；编辑框用 `text_editor` 支持 wrapping、1.5 倍行高、动态宽度和动态高度，并通过 `stack` 覆盖层按条目矩形定位，不参与图标网格或列表行的布局测量。
+  - 新建成功后查询当前目录子路径限制；可获取限制时 GUI 在编辑动作后按 UTF-8 字节数回滚超限输入；限制未知且系统返回文件名过长时退出编辑并保留新建时的默认名称。
   - 新建、重命名、粘贴、终端启动、属性统计均通过 `Task::perform` 后台执行。
   - 属性弹窗使用三页视图：概要、权限、内容权限参考页。
 - 文档：
@@ -54,14 +55,14 @@
 
 - 执行验证：
   - `cargo fmt --check`：通过。
-  - `cargo test -p filesystem-core`：通过，15 个测试。
+  - `cargo test -p filesystem-core`：通过，17 个测试。
   - `cargo check -p filesystem-gui`：通过。
-  - `cargo test -p filesystem-gui`：通过，3 个测试。
+  - `cargo test -p filesystem-gui`：通过，5 个测试。
   - `cargo test`：通过。
   - `make test`：通过。
   - `git diff --check`：通过。
 - 未执行验证：
-  - 未在真实 X11/Wayland 图形会话中手工验证右键菜单定位、重命名编辑框焦点/全选/长名称换行视觉状态、真实剪贴板内容、属性弹窗视觉细节和终端开窗。
+  - 未在真实 X11/Wayland 图形会话中手工验证右键菜单定位、重命名编辑框覆盖层定位、焦点/全选/长名称换行视觉状态、超限输入提示、真实剪贴板内容、属性弹窗视觉细节和终端开窗。
   - 未验证跨设备剪切；首版也不做复制后删除退化。
   - 未验证 GNOME/KDE/COSMIC 文件管理器专用剪贴板 MIME target。
 

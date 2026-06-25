@@ -74,6 +74,12 @@ pub struct FolderProperties {
     pub created: Option<SystemTime>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChildPathLimits {
+    pub name_bytes: Option<usize>,
+    pub path_bytes: Option<usize>,
+}
+
 impl Default for ScanOptions {
     fn default() -> Self {
         Self { show_hidden: false }
@@ -85,6 +91,7 @@ pub struct FsError {
     path: PathBuf,
     kind: io::ErrorKind,
     message: String,
+    raw_os_error: Option<i32>,
 }
 
 impl FsError {
@@ -94,6 +101,14 @@ impl FsError {
 
     pub fn kind(&self) -> io::ErrorKind {
         self.kind
+    }
+
+    pub fn raw_os_error(&self) -> Option<i32> {
+        self.raw_os_error
+    }
+
+    pub fn is_name_too_long(&self) -> bool {
+        self.raw_os_error == Some(libc::ENAMETOOLONG)
     }
 }
 
@@ -215,6 +230,20 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: impl AsRef<str>) -> Result
     Ok(target)
 }
 
+pub fn child_path_limits(parent: impl AsRef<Path>) -> Result<ChildPathLimits, FsError> {
+    let parent = parent.as_ref();
+    let c_path = path_to_cstring(parent)?;
+
+    Ok(ChildPathLimits {
+        name_bytes: pathconf_limit(&c_path, libc::_PC_NAME_MAX),
+        path_bytes: pathconf_limit(&c_path, libc::_PC_PATH_MAX),
+    })
+}
+
+pub fn child_name_limit(parent: impl AsRef<Path>) -> Result<Option<usize>, FsError> {
+    child_path_limits(parent).map(|limits| limits.name_bytes)
+}
+
 pub fn paste_paths(
     sources: impl IntoIterator<Item = PathBuf>,
     destination: impl AsRef<Path>,
@@ -312,6 +341,7 @@ impl FsError {
         Self {
             path: path.to_path_buf(),
             kind: error.kind(),
+            raw_os_error: error.raw_os_error(),
             message: error.to_string(),
         }
     }
@@ -320,6 +350,7 @@ impl FsError {
         Self {
             path: path.to_path_buf(),
             kind,
+            raw_os_error: None,
             message: message.into(),
         }
     }
@@ -569,9 +600,7 @@ fn directory_stats(path: &Path) -> Result<(u64, u64), FsError> {
 }
 
 fn free_space(path: &Path) -> Result<u64, FsError> {
-    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
-        FsError::from_message(path, io::ErrorKind::InvalidInput, "path contains NUL byte")
-    })?;
+    let path = path_to_cstring(path)?;
     let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
     let result = unsafe { libc::statvfs(path.as_ptr(), stats.as_mut_ptr()) };
 
@@ -584,6 +613,18 @@ fn free_space(path: &Path) -> Result<u64, FsError> {
 
     let stats = unsafe { stats.assume_init() };
     Ok(stats.f_bavail as u64 * stats.f_frsize as u64)
+}
+
+fn pathconf_limit(path: &CString, name: libc::c_int) -> Option<usize> {
+    let limit = unsafe { libc::pathconf(path.as_ptr(), name) };
+
+    (limit >= 0).then_some(limit as usize)
+}
+
+fn path_to_cstring(path: &Path) -> Result<CString, FsError> {
+    CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        FsError::from_message(path, io::ErrorKind::InvalidInput, "path contains NUL byte")
+    })
 }
 
 fn compare_entries(left: &FileEntry, right: &FileEntry) -> Ordering {
@@ -777,6 +818,31 @@ mod tests {
         assert_eq!(target, fixture.path().join("renamed.txt"));
         assert!(!source.exists());
         assert_eq!(fs::read_to_string(target).unwrap(), "source");
+    }
+
+    #[test]
+    fn child_name_limit_reports_directory_name_limit() {
+        let fixture = TempDir::new("name-limit");
+
+        let limits = child_path_limits(fixture.path()).unwrap();
+        let limit = child_name_limit(fixture.path()).unwrap();
+
+        assert_eq!(limits.name_bytes, limit);
+        assert!(limits.name_bytes.is_none_or(|limit| limit > 0));
+        assert!(limits.path_bytes.is_none_or(|limit| limit > 0));
+    }
+
+    #[test]
+    fn rename_entry_marks_name_too_long_errors() {
+        let fixture = TempDir::new("rename-too-long");
+        let source = fixture.path().join("source.txt");
+        fs::write(&source, b"source").unwrap();
+        let long_name = "a".repeat(4096);
+
+        let error = rename_entry(&source, long_name).unwrap_err();
+
+        assert!(error.is_name_too_long());
+        assert!(source.exists());
     }
 
     #[test]
