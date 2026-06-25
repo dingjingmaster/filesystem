@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -22,6 +23,7 @@ pub struct FileEntry {
     pub kind: EntryKind,
     pub hidden: bool,
     pub size: Option<u64>,
+    pub owner: Option<u32>,
     pub modified: Option<SystemTime>,
 }
 
@@ -165,6 +167,7 @@ fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
         EntryKind::Other
     };
     let size = matches!(kind, EntryKind::File).then_some(metadata.len());
+    let owner = Some(metadata.uid());
     let modified = metadata.modified().ok();
 
     Ok(FileEntry {
@@ -173,6 +176,7 @@ fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
         kind,
         hidden,
         size,
+        owner,
         modified,
     })
 }
@@ -250,6 +254,7 @@ mod tests {
         assert!(listing.entries.iter().all(|entry| !entry.hidden));
         assert_eq!(listing.entries[0].kind, EntryKind::Directory);
         assert_eq!(listing.entries[1].size, Some(7));
+        assert!(listing.entries[1].owner.is_some());
     }
 
     #[test]
