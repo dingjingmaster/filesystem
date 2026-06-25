@@ -21,3 +21,6 @@
 | 2 | 2026-06-25 | L4 | research | [2-research-context-menu-file-ops-properties.md](2-research-context-menu-file-ops-properties.md) | 已完成 | 调研文件视图空白区右键菜单、新建/粘贴/终端/属性弹窗实现边界，明确首版剪贴板只解析文本路径或 file URI。 |
 | 2 | 2026-06-25 | L4 | plan | [2-plan-context-menu-file-ops-properties.md](2-plan-context-menu-file-ops-properties.md) | 已完成 | 规划 core 写操作、GUI 右键菜单、内联重命名、属性弹窗、终端启动和验证步骤。 |
 | 2 | 2026-06-25 | L4 | summary | [2-summary-context-menu-file-ops-properties.md](2-summary-context-menu-file-ops-properties.md) | 已完成 | 总结空白区右键菜单、新建/重命名、文本路径粘贴、全选、终端打开、属性查看、验证结果和残余风险。 |
+| 3 | 2026-06-25 | L4 | research | [3-research-properties-permission-edit.md](3-research-properties-permission-edit.md) | 已完成 | 调研属性弹窗事件隔离、拖拽、按钮统一、对齐和当前文件夹权限修改方案。 |
+| 3 | 2026-06-25 | L4 | plan | [3-plan-properties-permission-edit.md](3-plan-properties-permission-edit.md) | 已完成 | 规划 core 权限修改 API、GUI 属性弹窗交互修正、权限保存后台任务和验证步骤。 |
+| 3 | 2026-06-25 | L4 | summary | [3-summary-properties-permission-edit.md](3-summary-properties-permission-edit.md) | 已完成 | 总结属性弹窗事件隔离、拖拽、关闭按钮统一、对齐和当前文件夹权限修改实现。 |

@@ -1,7 +1,7 @@
 use filesystem_core::{
     ChildPathLimits, ClipboardPaths, DirectoryListing, EntryKind, FileEntry, FolderProperties,
     FsError, ScanOptions, child_path_limits, create_file, create_folder, folder_properties,
-    parse_clipboard_paths, paste_paths, rename_entry, scan_dir, search_file_names,
+    parse_clipboard_paths, paste_paths, rename_entry, scan_dir, search_file_names, set_permissions,
 };
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
@@ -45,6 +45,9 @@ const LIST_HEADER_HEIGHT: f32 = 34.0;
 const SELECTION_DRAG_THRESHOLD: f32 = 3.0;
 const CONTEXT_MENU_WIDTH: f32 = 184.0;
 const PROPERTIES_DIALOG_WIDTH: f32 = 460.0;
+const PROPERTIES_DIALOG_HEIGHT: f32 = 560.0;
+const PROPERTIES_LABEL_WIDTH: f32 = 124.0;
+const DIRECTORY_ACCESS_PRESETS: [u32; 5] = [0o0, 0o1, 0o4, 0o5, 0o7];
 const RENAME_INPUT_ID: &str = "file-rename-input";
 const RENAME_TEXT_SIZE: f32 = 16.0;
 const RENAME_LINE_HEIGHT: f32 = 1.5;
@@ -129,11 +132,14 @@ struct FileManager {
     context_menu: Option<Point>,
     rename_state: Option<RenameState>,
     properties_dialog: Option<PropertiesDialog>,
+    properties_drag: Option<PropertiesDrag>,
+    properties_pointer: Option<Point>,
     selected_paths: BTreeSet<PathBuf>,
     selection_drag: Option<SelectionDrag>,
     browser_pointer: Option<Point>,
     browser_scroll_y: f32,
     browser_width: f32,
+    window_size: Size,
     next_request_id: u64,
     active_request_id: Option<u64>,
     back_history: Vec<PathBuf>,
@@ -171,8 +177,16 @@ enum Message {
     PasteFinished(Result<Vec<PathBuf>, FsError>),
     TerminalOpened(Result<String, String>),
     PropertiesLoaded(Result<FolderProperties, FsError>),
+    PropertiesPermissionsSaved(Result<FolderProperties, FsError>),
     CloseProperties,
     SetPropertiesView(PropertiesView),
+    PropertiesPointerMoved(Point),
+    PropertiesDragStarted,
+    PropertiesDragEnded,
+    PropertiesEventSink,
+    CyclePermission(PermissionClass),
+    CancelPermissions,
+    ApplyPermissions,
     ToggleHidden(bool),
     ToggleMenu,
     ToggleViewSubmenu,
@@ -233,7 +247,23 @@ impl RenameState {
 enum PropertiesView {
     Summary,
     Permissions,
-    Contents,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PermissionClass {
+    Owner,
+    Group,
+    Other,
+}
+
+impl PermissionClass {
+    fn shift(self) -> u8 {
+        match self {
+            Self::Owner => 6,
+            Self::Group => 3,
+            Self::Other => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +277,16 @@ enum PropertiesState {
 struct PropertiesDialog {
     view: PropertiesView,
     state: PropertiesState,
+    position: Point,
+    permissions_mode: Option<u32>,
+    saving_permissions: bool,
+    permission_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PropertiesDrag {
+    pointer_origin: Point,
+    dialog_origin: Point,
 }
 
 impl ViewMode {
@@ -620,11 +660,14 @@ impl FileManager {
             context_menu: None,
             rename_state: None,
             properties_dialog: None,
+            properties_drag: None,
+            properties_pointer: None,
             selected_paths: BTreeSet::new(),
             selection_drag: None,
             browser_pointer: None,
             browser_scroll_y: 0.0,
             browser_width: browser_width_from_window(WINDOW_INITIAL_WIDTH),
+            window_size: Size::new(WINDOW_INITIAL_WIDTH, WINDOW_INITIAL_HEIGHT),
             next_request_id: 0,
             active_request_id: None,
             back_history: Vec::new(),
@@ -746,7 +789,9 @@ impl FileManager {
                 Task::none()
             }
             Message::WindowResized(size) => {
+                self.window_size = size;
                 self.browser_width = browser_width_from_window(size.width);
+                self.clamp_properties_position();
                 if self.selection_drag.is_some() {
                     self.select_entries_in_drag_rect();
                 }
@@ -806,6 +851,10 @@ impl FileManager {
                 self.properties_dialog = Some(PropertiesDialog {
                     view: PropertiesView::Summary,
                     state: PropertiesState::Loading(path.clone()),
+                    position: self.default_properties_position(),
+                    permissions_mode: None,
+                    saving_permissions: false,
+                    permission_error: None,
                 });
                 Task::perform(
                     async move { folder_properties(path) },
@@ -929,22 +978,84 @@ impl FileManager {
             Message::PropertiesLoaded(result) => {
                 if let Some(dialog) = &mut self.properties_dialog {
                     dialog.state = match result {
-                        Ok(properties) => PropertiesState::Loaded(properties),
+                        Ok(properties) => {
+                            dialog.permissions_mode = properties.mode;
+                            dialog.permission_error = None;
+                            PropertiesState::Loaded(properties)
+                        }
                         Err(error) => PropertiesState::Error(error.to_string()),
                     };
                 }
                 Task::none()
             }
+            Message::PropertiesPermissionsSaved(result) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.saving_permissions = false;
+                    match result {
+                        Ok(properties) => {
+                            dialog.permissions_mode = properties.mode;
+                            dialog.permission_error = None;
+                            dialog.state = PropertiesState::Loaded(properties);
+                            self.status = "Permissions changed".to_string();
+                        }
+                        Err(error) => {
+                            dialog.permission_error = Some(error.to_string());
+                            self.status = "Failed to change permissions".to_string();
+                        }
+                    }
+                }
+                Task::none()
+            }
             Message::CloseProperties => {
                 self.properties_dialog = None;
+                self.properties_drag = None;
                 Task::none()
             }
             Message::SetPropertiesView(view) => {
                 if let Some(dialog) = &mut self.properties_dialog {
                     dialog.view = view;
+                    if view == PropertiesView::Permissions {
+                        if let PropertiesState::Loaded(properties) = &dialog.state {
+                            dialog.permissions_mode = properties.mode;
+                        }
+                    }
                 }
                 Task::none()
             }
+            Message::PropertiesPointerMoved(position) => {
+                self.properties_pointer = Some(position);
+                if let Some(drag) = self.properties_drag {
+                    let x = drag.dialog_origin.x + position.x - drag.pointer_origin.x;
+                    let y = drag.dialog_origin.y + position.y - drag.pointer_origin.y;
+                    self.set_properties_position(Point::new(x, y));
+                }
+                Task::none()
+            }
+            Message::PropertiesDragStarted => {
+                if let (Some(pointer), Some(dialog)) =
+                    (self.properties_pointer, self.properties_dialog.as_ref())
+                {
+                    self.properties_drag = Some(PropertiesDrag {
+                        pointer_origin: pointer,
+                        dialog_origin: dialog.position,
+                    });
+                }
+                Task::none()
+            }
+            Message::PropertiesDragEnded => {
+                self.properties_drag = None;
+                Task::none()
+            }
+            Message::PropertiesEventSink => Task::none(),
+            Message::CyclePermission(class) => {
+                self.cycle_permission(class);
+                Task::none()
+            }
+            Message::CancelPermissions => {
+                self.cancel_permissions();
+                Task::none()
+            }
+            Message::ApplyPermissions => self.apply_permissions(),
             Message::ToggleHidden(show_hidden) => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
@@ -1953,6 +2064,30 @@ impl FileManager {
         )
     }
 
+    fn default_properties_position(&self) -> Point {
+        clamp_properties_position(
+            self.window_size,
+            Point::new(
+                (self.window_size.width - PROPERTIES_DIALOG_WIDTH) / 2.0,
+                (self.window_size.height - PROPERTIES_DIALOG_HEIGHT) / 2.0,
+            ),
+        )
+    }
+
+    fn clamp_properties_position(&mut self) {
+        let window_size = self.window_size;
+        if let Some(dialog) = &mut self.properties_dialog {
+            dialog.position = clamp_properties_position(window_size, dialog.position);
+        }
+    }
+
+    fn set_properties_position(&mut self, position: Point) {
+        let window_size = self.window_size;
+        if let Some(dialog) = &mut self.properties_dialog {
+            dialog.position = clamp_properties_position(window_size, position);
+        }
+    }
+
     fn context_menu_overlay(&self) -> Element<'_, Message> {
         let Some(position) = self.context_menu else {
             return container(space()).height(Fill).width(Fill).into();
@@ -1999,36 +2134,44 @@ impl FileManager {
         let Some(dialog) = &self.properties_dialog else {
             return container(space()).height(Fill).width(Fill).into();
         };
+        let position = dialog.position;
 
         let title = match dialog.view {
             PropertiesView::Summary => "属性",
             PropertiesView::Permissions => "设置自定义权限",
-            PropertiesView::Contents => "更改内容文件的权限",
         };
 
         let back = if dialog.view == PropertiesView::Summary {
             button(text("").size(16))
-                .height(30)
-                .width(30)
+                .height(36)
+                .width(36)
                 .style(style::toolbar_button)
         } else {
             button(text("‹").size(26).style(style::primary_text))
-                .height(30)
-                .width(30)
+                .height(36)
+                .width(36)
                 .padding(0)
                 .style(style::toolbar_button)
                 .on_press(Message::SetPropertiesView(PropertiesView::Summary))
         };
 
+        let draggable_title = mouse_area(
+            container(text(title).size(16).style(style::muted_text))
+                .height(36)
+                .width(Fill)
+                .align_x(Horizontal::Left)
+                .align_y(Vertical::Center),
+        )
+        .on_press(Message::PropertiesDragStarted);
+
         let header = row![
             back,
-            text(title).size(16).style(style::muted_text),
-            space().width(Fill),
-            button(text("×").size(18).style(style::primary_text))
-                .height(30)
-                .width(30)
-                .padding(0)
-                .style(style::toolbar_button)
+            draggable_title,
+            button(window_icon(include_bytes!("../../../icons/close.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::close_button)
                 .on_press(Message::CloseProperties),
         ]
         .align_y(iced::Center);
@@ -2042,21 +2185,35 @@ impl FileManager {
             (PropertiesState::Loaded(properties), PropertiesView::Permissions) => {
                 self.properties_permissions(properties)
             }
-            (PropertiesState::Loaded(properties), PropertiesView::Contents) => {
-                self.properties_contents_permissions(properties)
-            }
         };
 
         let dialog = container(column![header, body].spacing(16).padding(14))
             .width(PROPERTIES_DIALOG_WIDTH)
             .style(style::properties_dialog);
 
-        container(dialog)
-            .width(Fill)
-            .height(Fill)
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Center)
-            .style(style::modal_overlay)
+        let overlay = container(
+            column![
+                space().height(Length::Fixed(position.y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(position.x.max(0.0))),
+                    dialog,
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .width(Fill)
+        .height(Fill)
+        .style(style::modal_overlay);
+
+        mouse_area(overlay)
+            .on_move(Message::PropertiesPointerMoved)
+            .on_press(Message::PropertiesEventSink)
+            .on_release(Message::PropertiesDragEnded)
+            .on_right_press(Message::PropertiesEventSink)
+            .on_middle_press(Message::PropertiesEventSink)
+            .on_scroll(|_| Message::PropertiesEventSink)
             .into()
     }
 
@@ -2071,11 +2228,12 @@ impl FileManager {
                     .style(style::primary_text),
             ]
             .spacing(10)
-            .align_x(iced::Center),
+            .align_x(iced::Alignment::Start),
         )
         .height(220)
         .width(Fill)
-        .align_x(Horizontal::Center)
+        .padding(14)
+        .align_x(Horizontal::Left)
         .align_y(Vertical::Center)
         .into()
     }
@@ -2084,7 +2242,8 @@ impl FileManager {
         container(text(error).size(14).style(style::primary_text))
             .height(220)
             .width(Fill)
-            .align_x(Horizontal::Center)
+            .padding(14)
+            .align_x(Horizontal::Left)
             .align_y(Vertical::Center)
             .into()
     }
@@ -2101,42 +2260,34 @@ impl FileManager {
             .unwrap_or_else(|| "剩余空间未知".to_string());
 
         column![
-            column![
+            row![
                 entry_icon(
                     &EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg")),
-                    82.0
+                    72.0
                 ),
-                text(properties.name.clone())
-                    .size(22)
-                    .style(style::primary_text)
-                    .align_x(Horizontal::Center),
-                text(format!(
-                    "{} 项，共 {}",
-                    properties.item_count,
-                    format_size(properties.total_size)
-                ))
-                .size(14)
-                .style(style::primary_text),
-                text(free).size(13).style(style::muted_text),
-            ]
-            .spacing(8)
-            .align_x(iced::Center)
-            .width(Fill),
-            container(
-                row![
-                    column![
-                        text("上级文件夹(F)").size(12).style(style::muted_text),
-                        text(parent).size(15).style(style::primary_text),
-                    ]
-                    .spacing(4),
-                    space().width(Fill),
-                    text("...").size(18).style(style::primary_text),
+                column![
+                    text(properties.name.clone())
+                        .size(22)
+                        .style(style::primary_text),
+                    text(format!(
+                        "{} 项，共 {}",
+                        properties.item_count,
+                        format_size(properties.total_size)
+                    ))
+                    .size(14)
+                    .style(style::primary_text),
+                    text(free).size(13).style(style::muted_text),
                 ]
-                .align_y(iced::Center)
-            )
-            .padding(14)
-            .width(Fill)
-            .style(style::property_group),
+                .spacing(6)
+                .align_x(iced::Alignment::Start)
+                .width(Fill),
+            ]
+            .spacing(14)
+            .align_y(iced::Center)
+            .width(Fill),
+            container(property_row("上级文件夹(F)", parent))
+                .width(Fill)
+                .style(style::property_group),
             container(
                 column![
                     property_row("修改时间", format_modified(properties.modified)),
@@ -2148,11 +2299,14 @@ impl FileManager {
             .style(style::property_group),
             button(
                 row![
-                    text("权限(P)").size(15).style(style::primary_text),
-                    space().width(Fill),
+                    text("权限(P)")
+                        .size(15)
+                        .style(style::primary_text)
+                        .width(Length::Fixed(PROPERTIES_LABEL_WIDTH)),
                     text(permission_summary(properties.mode))
                         .size(14)
-                        .style(style::muted_text),
+                        .style(style::muted_text)
+                        .width(Fill),
                     text("›").size(22).style(style::primary_text),
                 ]
                 .align_y(iced::Center)
@@ -2168,13 +2322,49 @@ impl FileManager {
     }
 
     fn properties_permissions(&self, properties: &FolderProperties) -> Element<'_, Message> {
-        let mode = properties.mode.unwrap_or(0);
+        let dialog = self.properties_dialog.as_ref();
+        let pending_mode = dialog
+            .and_then(|dialog| dialog.permissions_mode)
+            .or(properties.mode)
+            .unwrap_or(0);
+        let saving = dialog.is_some_and(|dialog| dialog.saving_permissions);
+        let changed = properties.mode != Some(pending_mode);
+        let can_apply = changed && !saving;
+        let permission_error = dialog.and_then(|dialog| dialog.permission_error.as_ref());
+
+        let apply = if can_apply {
+            button(text("更改(H)").size(14).style(style::primary_text))
+                .height(36)
+                .padding([0, 16])
+                .style(style::disabled_button)
+                .on_press(Message::ApplyPermissions)
+        } else {
+            button(
+                text(if saving { "更改中..." } else { "更改(H)" })
+                    .size(14)
+                    .style(style::muted_text),
+            )
+            .height(36)
+            .padding([0, 16])
+            .style(style::toolbar_button)
+        };
+
+        let error: Element<'_, Message> = if let Some(error) = permission_error {
+            container(text(error).size(13).style(style::muted_text))
+                .height(32)
+                .width(Fill)
+                .align_x(Horizontal::Left)
+                .align_y(Vertical::Center)
+                .into()
+        } else {
+            container(space()).height(0).width(Fill).into()
+        };
 
         column![
             container(
                 column![
                     property_row("所有者(U)", owner_label(properties.owner)),
-                    property_row("访问", directory_permission(mode, 6)),
+                    permission_access_row("访问", pending_mode, PermissionClass::Owner, saving),
                 ]
                 .spacing(0)
             )
@@ -2183,84 +2373,108 @@ impl FileManager {
             container(
                 column![
                     property_row("用户组(G)", group_label(properties.group)),
-                    property_row("访问", directory_permission(mode, 3)),
+                    permission_access_row("访问", pending_mode, PermissionClass::Group, saving),
                 ]
                 .spacing(0)
             )
             .width(Fill)
             .style(style::property_group),
-            text("其他用户").size(15).style(style::primary_text),
-            container(property_row("访问", directory_permission(mode, 0)))
-                .width(Fill)
-                .style(style::property_group),
-            button(
-                text("更改内容文件的权限(E)...")
-                    .size(15)
-                    .style(style::primary_text)
+            container(
+                column![
+                    property_label_row("其它用户"),
+                    permission_access_row("访问", pending_mode, PermissionClass::Other, saving),
+                ]
+                .spacing(0)
             )
-            .height(44)
             .width(Fill)
-            .padding([0, 14])
-            .style(style::property_button)
-            .on_press(Message::SetPropertiesView(PropertiesView::Contents)),
+            .style(style::property_group),
+            error,
+            row![
+                button(text("取消(C)").size(14).style(style::primary_text))
+                    .height(36)
+                    .padding([0, 16])
+                    .style(style::toolbar_button)
+                    .on_press(Message::CancelPermissions),
+                space().width(Fill),
+                apply,
+            ]
+            .align_y(iced::Center),
         ]
         .spacing(16)
         .into()
     }
 
-    fn properties_contents_permissions(
-        &self,
-        properties: &FolderProperties,
-    ) -> Element<'_, Message> {
-        let mode = properties.mode.unwrap_or(0);
+    fn cycle_permission(&mut self, class: PermissionClass) {
+        let Some(dialog) = &mut self.properties_dialog else {
+            return;
+        };
 
-        column![
-            row![
-                button(text("取消(C)").size(14).style(style::primary_text))
-                    .height(36)
-                    .padding([0, 14])
-                    .style(style::toolbar_button)
-                    .on_press(Message::SetPropertiesView(PropertiesView::Permissions)),
-                space().width(Fill),
-                button(text("更改(H)").size(14).style(style::primary_text))
-                    .height(36)
-                    .padding([0, 14])
-                    .style(style::disabled_button),
-            ]
-            .align_y(iced::Center),
-            text("所有者").size(15).style(style::primary_text),
-            container(
-                column![
-                    property_row("文件(F)", file_permission(mode, 6)),
-                    property_row("文件夹(O)", directory_permission(mode, 6)),
-                ]
-                .spacing(0)
-            )
-            .width(Fill)
-            .style(style::property_group),
-            text("组").size(15).style(style::primary_text),
-            container(
-                column![
-                    property_row("文件(L)", file_permission(mode, 3)),
-                    property_row("文件夹(D)", directory_permission(mode, 3)),
-                ]
-                .spacing(0)
-            )
-            .width(Fill)
-            .style(style::property_group),
-            text("其它").size(15).style(style::primary_text),
-            container(
-                column![
-                    property_row("文件(E)", file_permission(mode, 0)),
-                    property_row("文件夹(R)", directory_permission(mode, 0)),
-                ]
-                .spacing(0)
-            )
-            .width(Fill)
-            .style(style::property_group),
-        ]
-        .spacing(14)
-        .into()
+        if dialog.saving_permissions {
+            return;
+        }
+
+        let current_mode = dialog.permissions_mode.or_else(|| match &dialog.state {
+            PropertiesState::Loaded(properties) => properties.mode,
+            _ => None,
+        });
+
+        if let Some(mode) = current_mode {
+            dialog.permissions_mode = Some(cycle_directory_access(mode, class));
+            dialog.permission_error = None;
+            self.status = "Permissions changed locally".to_string();
+        }
+    }
+
+    fn cancel_permissions(&mut self) {
+        let Some(dialog) = &mut self.properties_dialog else {
+            return;
+        };
+
+        if dialog.saving_permissions {
+            return;
+        }
+
+        if let PropertiesState::Loaded(properties) = &dialog.state {
+            dialog.permissions_mode = properties.mode;
+            dialog.permission_error = None;
+            self.status = "Permissions unchanged".to_string();
+        }
+    }
+
+    fn apply_permissions(&mut self) -> Task<Message> {
+        let Some(dialog) = &mut self.properties_dialog else {
+            return Task::none();
+        };
+
+        if dialog.saving_permissions {
+            return Task::none();
+        }
+
+        let PropertiesState::Loaded(properties) = &dialog.state else {
+            return Task::none();
+        };
+
+        let Some(mode) = dialog.permissions_mode else {
+            return Task::none();
+        };
+
+        if properties.mode == Some(mode) {
+            self.status = "Permissions unchanged".to_string();
+            return Task::none();
+        }
+
+        let path = properties.path.clone();
+        dialog.saving_permissions = true;
+        dialog.permission_error = None;
+        self.status = "Changing permissions...".to_string();
+
+        Task::perform(
+            async move {
+                set_permissions(&path, mode)?;
+                folder_properties(path)
+            },
+            Message::PropertiesPermissionsSaved,
+        )
     }
 
     fn submit_rename(&mut self) -> Task<Message> {
@@ -2649,12 +2863,52 @@ fn context_menu_separator<'a>() -> Element<'a, Message> {
         .into()
 }
 
+fn permission_access_row<'a>(
+    label: &'static str,
+    mode: u32,
+    class: PermissionClass,
+    disabled: bool,
+) -> Element<'a, Message> {
+    let content = row![
+        text(label)
+            .size(14)
+            .style(style::primary_text)
+            .width(Length::Fixed(PROPERTIES_LABEL_WIDTH)),
+        text(directory_permission(mode, class.shift()))
+            .size(14)
+            .style(style::primary_text)
+            .width(Fill),
+        text("›").size(20).style(style::muted_text),
+    ]
+    .align_y(iced::Center);
+
+    button(content)
+        .height(52)
+        .width(Fill)
+        .padding([0, 14])
+        .style(move |theme, status| style::menu_button(theme, status, false))
+        .on_press_maybe((!disabled).then_some(Message::CyclePermission(class)))
+        .into()
+}
+
+fn property_label_row<'a>(label: &'static str) -> Element<'a, Message> {
+    container(text(label).size(15).style(style::primary_text))
+        .height(52)
+        .width(Fill)
+        .padding([0, 14])
+        .align_x(Horizontal::Left)
+        .align_y(Vertical::Center)
+        .into()
+}
+
 fn property_row<'a>(label: &'static str, value: String) -> Element<'a, Message> {
     container(
         row![
-            text(label).size(14).style(style::primary_text),
-            space().width(Fill),
-            text(value).size(14).style(style::primary_text),
+            text(label)
+                .size(14)
+                .style(style::primary_text)
+                .width(Length::Fixed(PROPERTIES_LABEL_WIDTH)),
+            text(value).size(14).style(style::primary_text).width(Fill),
         ]
         .align_y(iced::Center),
     )
@@ -2680,8 +2934,36 @@ fn clamped_overlay_x_for_width(browser_width: f32, x: f32, width: f32) -> f32 {
     x.clamp(0.0, max_x)
 }
 
+fn clamp_properties_position(window_size: Size, position: Point) -> Point {
+    Point::new(
+        position
+            .x
+            .clamp(0.0, (window_size.width - PROPERTIES_DIALOG_WIDTH).max(0.0)),
+        position.y.clamp(
+            0.0,
+            (window_size.height - PROPERTIES_DIALOG_HEIGHT).max(0.0),
+        ),
+    )
+}
+
 fn should_show_blank_context_menu(has_selection: bool, pointer_over_entry: bool) -> bool {
     !has_selection || !pointer_over_entry
+}
+
+fn cycle_directory_access(mode: u32, class: PermissionClass) -> u32 {
+    let shift = class.shift();
+    let bits = (mode >> shift) & 0o7;
+    let next = next_directory_access(bits);
+
+    (mode & !(0o7 << shift)) | (next << shift)
+}
+
+fn next_directory_access(bits: u32) -> u32 {
+    let index = DIRECTORY_ACCESS_PRESETS
+        .iter()
+        .position(|candidate| *candidate == bits)
+        .unwrap_or(0);
+    DIRECTORY_ACCESS_PRESETS[(index + 1) % DIRECTORY_ACCESS_PRESETS.len()]
 }
 
 fn rect_from_points(start: Point, end: Point) -> Rectangle {
@@ -2853,19 +3135,6 @@ fn permission_summary(mode: Option<u32>) -> String {
         .unwrap_or_else(|| "未知".to_string())
 }
 
-fn file_permission(mode: u32, shift: u8) -> String {
-    let bits = (mode >> shift) & 0o7;
-    let read = bits & 0o4 != 0;
-    let write = bits & 0o2 != 0;
-
-    match (read, write) {
-        (true, true) => "读取和写入".to_string(),
-        (true, false) => "只能读取".to_string(),
-        (false, true) => "只能写入".to_string(),
-        (false, false) => "无".to_string(),
-    }
-}
-
 fn directory_permission(mode: u32, shift: u8) -> String {
     let bits = (mode >> shift) & 0o7;
     let read = bits & 0o4 != 0;
@@ -2946,6 +3215,27 @@ mod tests {
         assert!(should_show_blank_context_menu(false, false));
         assert!(should_show_blank_context_menu(true, false));
         assert!(!should_show_blank_context_menu(true, true));
+    }
+
+    #[test]
+    fn properties_position_clamps_inside_window() {
+        let position = clamp_properties_position(Size::new(800.0, 600.0), Point::new(780.0, -8.0));
+
+        assert_eq!(position.x, 340.0);
+        assert_eq!(position.y, 0.0);
+    }
+
+    #[test]
+    fn cycle_directory_access_changes_only_requested_class() {
+        let mode = cycle_directory_access(0o754, PermissionClass::Group);
+
+        assert_eq!(mode, 0o774);
+    }
+
+    #[test]
+    fn next_directory_access_wraps_known_presets() {
+        assert_eq!(next_directory_access(0o0), 0o1);
+        assert_eq!(next_directory_access(0o7), 0o0);
     }
 
     #[test]

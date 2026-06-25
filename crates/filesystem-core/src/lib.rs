@@ -6,7 +6,7 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -334,6 +334,21 @@ pub fn folder_properties(path: impl AsRef<Path>) -> Result<FolderProperties, FsE
         modified: metadata.modified().ok(),
         created: metadata.created().ok(),
     })
+}
+
+pub fn set_permissions(path: impl AsRef<Path>, mode: u32) -> Result<(), FsError> {
+    let path = path.as_ref();
+
+    if mode > 0o7777 {
+        return Err(FsError::from_message(
+            path,
+            io::ErrorKind::InvalidInput,
+            "invalid permission mode",
+        ));
+    }
+
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|error| FsError::from_io(path, error))
 }
 
 impl FsError {
@@ -918,6 +933,31 @@ mod tests {
             Some(fs::metadata(fixture.path()).unwrap().uid())
         );
         assert!(properties.free_space.is_some());
+    }
+
+    #[test]
+    fn set_permissions_changes_mode() {
+        let fixture = TempDir::new("set-permissions");
+        let target = fixture.path().join("target");
+        fs::create_dir(&target).unwrap();
+
+        set_permissions(&target, 0o750).unwrap();
+
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o7777,
+            0o750
+        );
+    }
+
+    #[test]
+    fn set_permissions_rejects_invalid_modes() {
+        let fixture = TempDir::new("set-permissions-invalid");
+        let target = fixture.path().join("target");
+        fs::create_dir(&target).unwrap();
+
+        let error = set_permissions(&target, 0o10000).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     fn names(listing: &DirectoryListing) -> Vec<&str> {
