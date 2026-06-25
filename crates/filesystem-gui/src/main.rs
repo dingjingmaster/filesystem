@@ -728,13 +728,13 @@ impl FileManager {
                 self.view_submenu_open = false;
                 self.selection_drag = None;
 
-                if let Some(position) = self.browser_pointer {
-                    if self.pointer_over_entry(position) {
-                        self.context_menu = None;
-                    } else {
-                        self.context_menu = Some(position);
-                    }
-                }
+                self.context_menu = self.browser_pointer.and_then(|position| {
+                    should_show_blank_context_menu(
+                        !self.selected_paths.is_empty(),
+                        self.pointer_over_entry(position),
+                    )
+                    .then_some(position)
+                });
 
                 Task::none()
             }
@@ -1943,14 +1943,21 @@ impl FileManager {
     }
 
     fn clamped_overlay_x(&self, x: f32, width: f32) -> f32 {
-        let max_x = (self.browser_width - width).max(0.0);
-        x.clamp(0.0, max_x)
+        clamped_overlay_x_for_width(self.browser_width, x, width)
+    }
+
+    fn context_menu_position(&self, position: Point) -> Point {
+        Point::new(
+            self.clamped_overlay_x(position.x, CONTEXT_MENU_WIDTH),
+            position.y.max(0.0),
+        )
     }
 
     fn context_menu_overlay(&self) -> Element<'_, Message> {
         let Some(position) = self.context_menu else {
             return container(space()).height(Fill).width(Fill).into();
         };
+        let position = self.context_menu_position(position);
 
         let menu = container(
             column![
@@ -1965,6 +1972,7 @@ impl FileManager {
                 context_menu_item("属性", Message::ContextProperties),
             ]
             .spacing(2)
+            .align_x(iced::Alignment::Start)
             .padding(6),
         )
         .width(CONTEXT_MENU_WIDTH)
@@ -2618,7 +2626,13 @@ fn rename_editor_key_binding(
 }
 
 fn context_menu_item<'a>(label: &'static str, message: Message) -> Element<'a, Message> {
-    button(text(label).size(14).style(style::primary_text))
+    let content = container(text(label).size(14).style(style::primary_text))
+        .height(Fill)
+        .width(Fill)
+        .align_x(Horizontal::Left)
+        .align_y(Vertical::Center);
+
+    button(content)
         .height(32)
         .width(Fill)
         .padding([0, 10])
@@ -2659,6 +2673,15 @@ fn icon_grid_columns(browser_width: f32) -> usize {
     ((content_width + GRID_COLUMN_SPACING) / (TILE_WIDTH + GRID_COLUMN_SPACING))
         .floor()
         .max(1.0) as usize
+}
+
+fn clamped_overlay_x_for_width(browser_width: f32, x: f32, width: f32) -> f32 {
+    let max_x = (browser_width - width).max(0.0);
+    x.clamp(0.0, max_x)
+}
+
+fn should_show_blank_context_menu(has_selection: bool, pointer_over_entry: bool) -> bool {
+    !has_selection || !pointer_over_entry
 }
 
 fn rect_from_points(start: Point, end: Point) -> Rectangle {
@@ -2904,6 +2927,25 @@ mod tests {
             browser_width_from_window(WINDOW_MIN_WIDTH),
             WINDOW_MIN_WIDTH - SIDEBAR_WIDTH
         );
+    }
+
+    #[test]
+    fn context_menu_x_clamps_to_fixed_width_inside_browser() {
+        assert_eq!(clamped_overlay_x_for_width(500.0, 480.0, 184.0), 316.0);
+        assert_eq!(clamped_overlay_x_for_width(500.0, -12.0, 184.0), 0.0);
+    }
+
+    #[test]
+    fn context_menu_x_clamps_to_zero_when_menu_is_wider_than_browser() {
+        assert_eq!(clamped_overlay_x_for_width(120.0, 80.0, 184.0), 0.0);
+    }
+
+    #[test]
+    fn blank_context_menu_opens_on_entries_when_nothing_is_selected() {
+        assert!(should_show_blank_context_menu(false, true));
+        assert!(should_show_blank_context_menu(false, false));
+        assert!(should_show_blank_context_menu(true, false));
+        assert!(!should_show_blank_context_menu(true, true));
     }
 
     #[test]
