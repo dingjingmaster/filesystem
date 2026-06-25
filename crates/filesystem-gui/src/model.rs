@@ -1,6 +1,7 @@
 use filesystem_core::{
     ChildPathLimits, EntryKind, FileEntry, FileProperties, FolderProperties, FsError, PasteAction,
 };
+use filesystem_mime::MimeInfo;
 use iced::widget::text_editor;
 use iced::{Point, Size, window};
 use std::collections::BTreeMap;
@@ -203,6 +204,7 @@ pub(crate) struct DesktopApp {
     pub(crate) name: String,
     pub(crate) exec: String,
     pub(crate) mime_types: Vec<String>,
+    pub(crate) text_editor: bool,
     pub(crate) icon: EntryIcon,
 }
 
@@ -254,6 +256,7 @@ pub(crate) struct HomeShortcut {
 #[derive(Debug, Clone)]
 pub(crate) struct DisplayEntry {
     pub(crate) file: FileEntry,
+    pub(crate) mime: MimeInfo,
     pub(crate) icon: EntryIcon,
 }
 

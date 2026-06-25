@@ -625,9 +625,14 @@ name = "filesystem-gui"
 version = "0.1.0"
 dependencies = [
  "filesystem-core",
+ "filesystem-mime",
  "iced",
  "resvg",
 ]
+
+[[package]]
+name = "filesystem-mime"
+version = "0.1.0"
 
 [[package]]
 name = "find-msvc-tools"

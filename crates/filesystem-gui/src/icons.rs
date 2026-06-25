@@ -1,5 +1,6 @@
 use crate::model::{DisplayEntry, EntryIcon};
 use filesystem_core::{EntryKind, FileEntry};
+use filesystem_mime::{MimeInfo, detect_path};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,8 +11,9 @@ pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
     entries
         .into_iter()
         .map(|file| {
-            let icon = resolver.entry_icon(&file);
-            DisplayEntry { file, icon }
+            let mime = entry_mime(&file);
+            let icon = resolver.entry_icon(&file, &mime);
+            DisplayEntry { file, mime, icon }
         })
         .collect()
 }
@@ -33,13 +35,13 @@ impl IconResolver {
         Self { roots, themes }
     }
 
-    fn entry_icon(&self, entry: &FileEntry) -> EntryIcon {
+    fn entry_icon(&self, entry: &FileEntry, mime: &MimeInfo) -> EntryIcon {
         match entry.kind {
             EntryKind::Directory => {
                 EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg"))
             }
             EntryKind::File => self
-                .file_icon(entry)
+                .file_icon(mime)
                 .map(EntryIcon::Theme)
                 .unwrap_or_else(fallback_file_icon),
             EntryKind::Symlink | EntryKind::Other => fallback_file_icon(),
@@ -53,13 +55,8 @@ impl IconResolver {
             .unwrap_or_else(fallback_app_icon)
     }
 
-    fn file_icon(&self, entry: &FileEntry) -> Option<Vec<u8>> {
-        let extension = entry
-            .path
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(str::to_ascii_lowercase)?;
-        let names = icon_names_for_extension(&extension);
+    fn file_icon(&self, mime: &MimeInfo) -> Option<Vec<u8>> {
+        let names = icon_names_for_mime(&mime.mime);
 
         if names.is_empty() {
             return None;
@@ -119,6 +116,22 @@ impl IconResolver {
         };
 
         self.find_icon(&[name])
+    }
+}
+
+fn entry_mime(entry: &FileEntry) -> MimeInfo {
+    match entry.kind {
+        EntryKind::Directory => {
+            MimeInfo::new("inode/directory", filesystem_mime::MimeSource::BuiltInName)
+        }
+        EntryKind::File => detect_path(&entry.path),
+        EntryKind::Symlink => {
+            MimeInfo::new("inode/symlink", filesystem_mime::MimeSource::BuiltInName)
+        }
+        EntryKind::Other => MimeInfo::new(
+            "application/octet-stream",
+            filesystem_mime::MimeSource::Unknown,
+        ),
     }
 }
 
@@ -228,27 +241,43 @@ fn icon_filenames(name: &str) -> [String; 2] {
     [format!("{name}.svg"), format!("{name}-symbolic.svg")]
 }
 
-fn icon_names_for_extension(extension: &str) -> &'static [&'static str] {
-    match extension {
-        "txt" | "md" | "markdown" | "log" | "ini" | "conf" | "toml" | "yaml" | "yml" | "json"
-        | "xml" | "html" | "css" | "scss" | "rs" | "c" | "h" | "cpp" | "hpp" | "js" | "jsx"
-        | "ts" | "tsx" | "py" | "go" | "java" | "sh" | "bash" | "zsh" => &["text-x-generic"],
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "svg" | "ico" => {
-            &["image-x-generic"]
-        }
-        "mp3" | "flac" | "wav" | "ogg" | "opus" | "m4a" | "aac" => &["audio-x-generic"],
-        "mp4" | "mkv" | "mov" | "webm" | "avi" | "flv" | "wmv" => &["video-x-generic"],
-        "pdf" => &["application-pdf", "gnome-mime-application-pdf"],
-        "zip" => &["application-zip", "package-x-generic", "media-zip"],
-        "tar" | "gz" | "tgz" | "xz" | "bz2" | "7z" | "rar" => &[
+fn icon_names_for_mime(mime: &str) -> &'static [&'static str] {
+    match mime {
+        "application/pdf" => &["application-pdf", "gnome-mime-application-pdf"],
+        "application/zip" => &["application-zip", "package-x-generic", "media-zip"],
+        "application/gzip"
+        | "application/x-tar"
+        | "application/x-xz"
+        | "application/x-bzip2"
+        | "application/zstd"
+        | "application/x-7z-compressed"
+        | "application/vnd.rar" => &[
             "package-x-generic",
             "application-zip",
             "application-x-gzip",
             "media-zip",
         ],
-        "ods" | "xls" | "xlsx" | "csv" => &["x-office-spreadsheet"],
-        "odp" | "ppt" | "pptx" => &["x-office-presentation"],
-        "odt" | "doc" | "docx" => &["x-office-document", "text-x-generic"],
+        "text/csv"
+        | "application/vnd.ms-excel"
+        | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        | "application/vnd.oasis.opendocument.spreadsheet" => &["x-office-spreadsheet"],
+        "application/vnd.ms-powerpoint"
+        | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        | "application/vnd.oasis.opendocument.presentation" => &["x-office-presentation"],
+        "application/msword"
+        | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        | "application/vnd.oasis.opendocument.text"
+        | "application/rtf" => &["x-office-document", "text-x-generic"],
+        value
+            if value.starts_with("text/")
+                || value == "application/json"
+                || value == "application/xml" =>
+        {
+            &["text-x-generic"]
+        }
+        value if value.starts_with("image/") => &["image-x-generic"],
+        value if value.starts_with("audio/") => &["audio-x-generic"],
+        value if value.starts_with("video/") => &["video-x-generic"],
         _ => &[],
     }
 }

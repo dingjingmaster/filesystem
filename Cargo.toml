@@ -2,6 +2,7 @@
 members = [
     "crates/filesystem-core",
     "crates/filesystem-gui",
+    "crates/filesystem-mime",
 ]
 resolver = "2"
 

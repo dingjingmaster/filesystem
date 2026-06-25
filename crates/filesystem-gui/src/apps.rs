@@ -3,6 +3,7 @@ use crate::model::{AppRegistry, DesktopApp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -61,160 +62,33 @@ fn collect_desktop_files(directory: &Path, prefix: String, files: &mut Vec<(Stri
     }
 }
 
-pub(crate) fn mime_for_path(path: &Path) -> String {
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let lower_name = file_name.to_ascii_lowercase();
-
-    if is_makefile_name(&lower_name) {
-        return "text/x-makefile".to_string();
-    }
-
-    if is_plain_text_name(&lower_name) {
-        return "text/plain".to_string();
-    }
-
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(str::to_ascii_lowercase);
-
-    match extension.as_deref() {
-        Some("txt" | "text" | "log" | "md" | "markdown" | "conf" | "ini" | "toml" | "yaml")
-        | Some("yml" | "rs" | "c" | "h" | "cpp" | "hpp" | "js" | "ts" | "py" | "go" | "sh")
-        | Some("csv") => "text/plain",
-        Some("mk") => "text/x-makefile",
-        Some("html" | "htm") => "text/html",
-        Some("json") => "application/json",
-        Some("xml") => "application/xml",
-        Some("pdf") => "application/pdf",
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        Some("mp3") => "audio/mpeg",
-        Some("flac") => "audio/flac",
-        Some("wav") => "audio/wav",
-        Some("ogg") => "audio/ogg",
-        Some("mp4") => "video/mp4",
-        Some("mkv") => "video/x-matroska",
-        Some("webm") => "video/webm",
-        Some("zip") => "application/zip",
-        Some("gz" | "tgz") => "application/gzip",
-        Some("tar") => "application/x-tar",
-        Some("xz") => "application/x-xz",
-        Some("doc") => "application/msword",
-        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        Some("odt") => "application/vnd.oasis.opendocument.text",
-        Some("xls") => "application/vnd.ms-excel",
-        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        Some("ods") => "application/vnd.oasis.opendocument.spreadsheet",
-        Some("ppt") => "application/vnd.ms-powerpoint",
-        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        Some("odp") => "application/vnd.oasis.opendocument.presentation",
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
-
-fn is_makefile_name(lower_name: &str) -> bool {
-    matches!(lower_name, "makefile" | "gnumakefile" | "bsdmakefile")
-        || lower_name.starts_with("makefile.")
-}
-
-fn is_plain_text_name(lower_name: &str) -> bool {
-    matches!(
-        lower_name,
-        "dockerfile"
-            | "containerfile"
-            | "readme"
-            | "license"
-            | "copying"
-            | "changelog"
-            | "changes"
-            | "install"
-            | "authors"
-            | "contributors"
-            | "todo"
-            | "news"
-            | ".gitignore"
-            | ".gitattributes"
-            | ".gitmodules"
-            | ".dockerignore"
-            | ".env"
-            | ".editorconfig"
-    )
-}
-
-pub(crate) fn file_type_label(path: &Path, mime: &str) -> String {
-    if path
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("log"))
-    {
-        return "Application Log".to_string();
-    }
-
-    match mime {
-        "text/plain" => "Plain Text".to_string(),
-        "text/x-makefile" => "Makefile".to_string(),
-        "text/html" => "HTML Document".to_string(),
-        "application/json" => "JSON Document".to_string(),
-        "application/xml" => "XML Document".to_string(),
-        "application/pdf" => "PDF Document".to_string(),
-        "application/msword"
-        | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        | "application/vnd.oasis.opendocument.text" => "Document".to_string(),
-        "application/vnd.ms-excel"
-        | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        | "application/vnd.oasis.opendocument.spreadsheet" => "Spreadsheet".to_string(),
-        "application/vnd.ms-powerpoint"
-        | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        | "application/vnd.oasis.opendocument.presentation" => "Presentation".to_string(),
-        value if value.starts_with("image/") => "Image".to_string(),
-        value if value.starts_with("audio/") => "Audio".to_string(),
-        value if value.starts_with("video/") => "Video".to_string(),
-        "application/zip" | "application/gzip" | "application/x-tar" | "application/x-xz" => {
-            "Archive".to_string()
-        }
-        "application/octet-stream" => "File".to_string(),
-        _ => mime.to_string(),
-    }
-}
-
-pub(crate) fn apps_for_file(registry: &AppRegistry, path: &Path) -> Vec<DesktopApp> {
-    let mime = mime_for_path(path);
-    let default_id = default_app_for_file(registry, path).map(|app| app.id);
+pub(crate) fn apps_for_mime(registry: &AppRegistry, mime: &str) -> Vec<DesktopApp> {
+    let default_id = default_app_for_mime(registry, mime).map(|app| app.id);
     let mut apps: Vec<DesktopApp> = registry
         .apps
         .iter()
-        .filter(|app| app_supports_mime(app, &mime))
+        .filter(|app| app_supports_mime(app, mime))
         .cloned()
         .collect();
 
-    apps.sort_by(|left, right| compare_app_candidates(left, right, &mime, default_id.as_deref()));
+    apps.sort_by(|left, right| compare_app_candidates(left, right, mime, default_id.as_deref()));
 
     apps
 }
 
-pub(crate) fn best_app_for_file(registry: &AppRegistry, path: &Path) -> Option<DesktopApp> {
-    default_app_for_file(registry, path)
-        .or_else(|| apps_for_file(registry, path).into_iter().next())
+pub(crate) fn best_app_for_mime(registry: &AppRegistry, mime: &str) -> Option<DesktopApp> {
+    default_app_for_mime(registry, mime)
+        .or_else(|| apps_for_mime(registry, mime).into_iter().next())
 }
 
-pub(crate) fn default_app_for_file(registry: &AppRegistry, path: &Path) -> Option<DesktopApp> {
-    let mime = mime_for_path(path);
-
+pub(crate) fn default_app_for_mime(registry: &AppRegistry, mime: &str) -> Option<DesktopApp> {
     for candidate_mime in default_mime_candidates(&mime) {
         if let Some(defaults) = registry.defaults.get(candidate_mime) {
             for id in defaults {
                 if let Some(app) = registry
                     .apps
                     .iter()
-                    .find(|app| &app.id == id && app_supports_mime(app, &mime))
+                    .find(|app| &app.id == id && app_supports_mime(app, mime))
                 {
                     return Some(app.clone());
                 }
@@ -269,19 +143,22 @@ fn compare_app_candidates(
 }
 
 fn app_mime_match_score(app: &DesktopApp, mime: &str) -> Option<u8> {
-    app.mime_types
+    let mime_score = app
+        .mime_types
         .iter()
         .filter_map(|candidate| mime_match_score(candidate, mime))
-        .max()
+        .max();
+
+    mime_score.or_else(|| (is_text_editable_mime(mime) && app.text_editor).then_some(4))
 }
 
 fn mime_match_score(candidate: &str, mime: &str) -> Option<u8> {
     if candidate == mime {
-        return Some(4);
+        return Some(6);
     }
 
-    if mime.starts_with("text/") && candidate == "text/plain" {
-        return Some(3);
+    if is_text_editable_mime(mime) && candidate == "text/plain" {
+        return Some(5);
     }
 
     if candidate
@@ -296,10 +173,34 @@ fn mime_match_score(candidate: &str, mime: &str) -> Option<u8> {
 
 fn default_mime_candidates(mime: &str) -> Vec<&str> {
     let mut candidates = vec![mime];
-    if mime.starts_with("text/") && mime != "text/plain" {
+    if is_text_editable_mime(mime) && mime != "text/plain" {
         candidates.push("text/plain");
     }
     candidates
+}
+
+fn is_text_editable_mime(mime: &str) -> bool {
+    mime.starts_with("text/")
+        || mime.ends_with("+xml")
+        || mime.ends_with("+json")
+        || matches!(
+            mime,
+            "application/ecmascript"
+                | "application/javascript"
+                | "application/json"
+                | "application/toml"
+                | "application/x-desktop"
+                | "application/x-gnome-app-info"
+                | "application/x-javascript"
+                | "application/x-perl"
+                | "application/x-php"
+                | "application/x-ruby"
+                | "application/x-shellscript"
+                | "application/x-yaml"
+                | "application/xml"
+                | "application/yaml"
+                | "image/svg+xml"
+        )
 }
 
 fn parse_desktop_app(id: String, path: &Path) -> Option<DesktopApp> {
@@ -311,6 +212,8 @@ fn parse_desktop_app(id: String, path: &Path) -> Option<DesktopApp> {
     let mut icon = None;
     let mut mime_types = Vec::new();
     let mut hidden = false;
+    let mut terminal = false;
+    let mut text_editor = false;
 
     for raw_line in contents.lines() {
         let line = raw_line.trim();
@@ -339,17 +242,25 @@ fn parse_desktop_app(id: String, path: &Path) -> Option<DesktopApp> {
             "MimeType" => {
                 mime_types = value
                     .split(';')
+                    .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .map(ToString::to_string)
                     .collect();
             }
+            "Categories" => {
+                text_editor = value
+                    .split(';')
+                    .map(str::trim)
+                    .any(|category| category == "TextEditor");
+            }
             "Hidden" => hidden = value.eq_ignore_ascii_case("true"),
+            "Terminal" => terminal = value.eq_ignore_ascii_case("true"),
             "NoDisplay" => {}
             _ => {}
         }
     }
 
-    if hidden || (!entry_type.is_empty() && entry_type != "Application") {
+    if hidden || terminal || (!entry_type.is_empty() && entry_type != "Application") {
         return None;
     }
 
@@ -358,9 +269,10 @@ fn parse_desktop_app(id: String, path: &Path) -> Option<DesktopApp> {
         name: name?,
         exec: exec?,
         mime_types,
+        text_editor,
         icon: resolve_app_icon(icon.as_deref()),
     })
-    .filter(|app| !app.mime_types.is_empty())
+    .filter(|app| !app.mime_types.is_empty() || app.text_editor)
 }
 
 fn load_mime_defaults() -> BTreeMap<String, Vec<String>> {
@@ -492,6 +404,7 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
 
 fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, String> {
     let path_value = path.to_string_lossy();
+    let uri_value = file_uri(path);
     let mut saw_file_code = false;
     let mut command = Vec::new();
 
@@ -507,9 +420,15 @@ fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, Stri
         }
 
         let before = value.clone();
-        for code in ["%f", "%F", "%u", "%U"] {
+        for code in ["%f", "%F"] {
             if value.contains(code) {
                 value = value.replace(code, &path_value);
+                saw_file_code = true;
+            }
+        }
+        for code in ["%u", "%U"] {
+            if value.contains(code) {
+                value = value.replace(code, &uri_value);
                 saw_file_code = true;
             }
         }
@@ -528,6 +447,21 @@ fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, Stri
     }
 
     Ok(command)
+}
+
+fn file_uri(path: &Path) -> String {
+    let mut value = String::from("file://");
+
+    for byte in path.as_os_str().as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                value.push(*byte as char)
+            }
+            byte => value.push_str(&format!("%{byte:02X}")),
+        }
+    }
+
+    value
 }
 
 fn split_exec(value: &str) -> Result<Vec<String>, String> {
@@ -591,50 +525,13 @@ mod tests {
     }
 
     #[test]
-    fn mime_for_path_maps_common_text_files() {
-        assert_eq!(mime_for_path(Path::new("a.log")), "text/plain");
-        assert_eq!(
-            file_type_label(Path::new("a.log"), "text/plain"),
-            "Application Log"
-        );
-    }
-
-    #[test]
-    fn mime_for_path_maps_common_extensionless_text_files() {
-        assert_eq!(mime_for_path(Path::new("Makefile")), "text/x-makefile");
-        assert_eq!(mime_for_path(Path::new("GNUmakefile")), "text/x-makefile");
-        assert_eq!(mime_for_path(Path::new("Makefile.in")), "text/x-makefile");
-        assert_eq!(mime_for_path(Path::new("rules.mk")), "text/x-makefile");
-        assert_eq!(
-            file_type_label(Path::new("Makefile"), "text/x-makefile"),
-            "Makefile"
-        );
-        assert_eq!(mime_for_path(Path::new("Dockerfile")), "text/plain");
-        assert_eq!(mime_for_path(Path::new(".gitignore")), "text/plain");
-    }
-
-    #[test]
-    fn mime_for_path_maps_common_office_files() {
-        assert_eq!(
-            mime_for_path(Path::new("a.docx")),
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        );
-        assert_eq!(
-            file_type_label(
-                Path::new("a.xlsx"),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-            "Spreadsheet"
-        );
-    }
-
-    #[test]
     fn build_exec_command_replaces_file_field_codes() {
         let app = DesktopApp {
             id: "editor.desktop".to_string(),
             name: "Editor".to_string(),
             exec: "editor --new-window %f".to_string(),
             mime_types: vec!["text/plain".to_string()],
+            text_editor: true,
             icon: resolve_app_icon(None),
         };
 
@@ -650,12 +547,29 @@ mod tests {
             name: "Viewer".to_string(),
             exec: "viewer".to_string(),
             mime_types: vec!["text/plain".to_string()],
+            text_editor: false,
             icon: resolve_app_icon(None),
         };
 
         let command = build_exec_command(&app, Path::new("/tmp/a.txt")).unwrap();
 
         assert_eq!(command, vec!["viewer", "/tmp/a.txt"]);
+    }
+
+    #[test]
+    fn build_exec_command_replaces_uri_field_codes_with_file_uri() {
+        let app = DesktopApp {
+            id: "viewer.desktop".to_string(),
+            name: "Viewer".to_string(),
+            exec: "viewer %u".to_string(),
+            mime_types: vec!["text/plain".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let command = build_exec_command(&app, Path::new("/tmp/a file#.txt")).unwrap();
+
+        assert_eq!(command, vec!["viewer", "file:///tmp/a%20file%23.txt"]);
     }
 
     #[test]
@@ -691,6 +605,7 @@ mod tests {
             name: "Editor".to_string(),
             exec: "editor %f".to_string(),
             mime_types: vec!["text/plain".to_string()],
+            text_editor: true,
             icon: resolve_app_icon(None),
         };
         let registry = AppRegistry {
@@ -698,7 +613,7 @@ mod tests {
             defaults: BTreeMap::new(),
         };
 
-        assert!(default_app_for_file(&registry, Path::new("a.log")).is_none());
+        assert!(default_app_for_mime(&registry, "text/x-log").is_none());
     }
 
     #[test]
@@ -708,6 +623,7 @@ mod tests {
             name: "Generic Viewer".to_string(),
             exec: "generic %f".to_string(),
             mime_types: vec!["application/*".to_string()],
+            text_editor: false,
             icon: resolve_app_icon(None),
         };
         let writer = DesktopApp {
@@ -718,6 +634,7 @@ mod tests {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     .to_string(),
             ],
+            text_editor: false,
             icon: resolve_app_icon(None),
         };
         let wildcard = DesktopApp {
@@ -725,6 +642,7 @@ mod tests {
             name: "Any File".to_string(),
             exec: "any %f".to_string(),
             mime_types: vec!["*/*".to_string()],
+            text_editor: false,
             icon: resolve_app_icon(None),
         };
         let registry = AppRegistry {
@@ -732,14 +650,21 @@ mod tests {
             defaults: BTreeMap::new(),
         };
 
-        let apps = apps_for_file(&registry, Path::new("a.docx"));
+        let apps = apps_for_mime(
+            &registry,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
 
         assert_eq!(
             apps.first().map(|app| app.id.as_str()),
             Some("writer.desktop")
         );
         assert_eq!(
-            best_app_for_file(&registry, Path::new("a.docx")).map(|app| app.id),
+            best_app_for_mime(
+                &registry,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            .map(|app| app.id),
             Some("writer.desktop".to_string())
         );
     }
@@ -751,6 +676,7 @@ mod tests {
             name: "Editor".to_string(),
             exec: "editor %f".to_string(),
             mime_types: vec!["text/plain".to_string()],
+            text_editor: true,
             icon: resolve_app_icon(None),
         };
         let registry = AppRegistry {
@@ -762,10 +688,58 @@ mod tests {
         };
 
         assert_eq!(
-            default_app_for_file(&registry, Path::new("Makefile")).map(|app| app.id),
+            default_app_for_mime(&registry, "text/x-makefile").map(|app| app.id),
             Some("editor.desktop".to_string())
         );
-        assert_eq!(apps_for_file(&registry, Path::new("Makefile")).len(), 1);
+        assert_eq!(apps_for_mime(&registry, "text/x-makefile").len(), 1);
+        assert_eq!(
+            default_app_for_mime(&registry, "text/markdown").map(|app| app.id),
+            Some("editor.desktop".to_string())
+        );
+        assert_eq!(
+            default_app_for_mime(&registry, "application/json").map(|app| app.id),
+            Some("editor.desktop".to_string())
+        );
+        assert_eq!(
+            default_app_for_mime(&registry, "application/x-desktop").map(|app| app.id),
+            Some("editor.desktop".to_string())
+        );
+    }
+
+    #[test]
+    fn text_editor_category_can_open_text_like_files_without_mime_match() {
+        let editor = DesktopApp {
+            id: "code.desktop".to_string(),
+            name: "Code".to_string(),
+            exec: "code %F".to_string(),
+            mime_types: vec!["application/x-code-workspace".to_string()],
+            text_editor: true,
+            icon: resolve_app_icon(None),
+        };
+        let generic = DesktopApp {
+            id: "generic.desktop".to_string(),
+            name: "Generic".to_string(),
+            exec: "generic %f".to_string(),
+            mime_types: vec!["application/*".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let registry = AppRegistry {
+            apps: vec![generic, editor.clone()],
+            defaults: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            best_app_for_mime(&registry, "application/x-desktop").map(|app| app.id),
+            Some("code.desktop".to_string())
+        );
+
+        let registry = AppRegistry {
+            apps: vec![editor],
+            defaults: BTreeMap::new(),
+        };
+
+        assert!(best_app_for_mime(&registry, "application/octet-stream").is_none());
     }
 
     #[test]
@@ -775,6 +749,7 @@ mod tests {
             name: "Editor".to_string(),
             exec: "editor %f".to_string(),
             mime_types: vec!["text/plain".to_string()],
+            text_editor: true,
             icon: resolve_app_icon(None),
         };
         let registry = AppRegistry {
@@ -785,8 +760,8 @@ mod tests {
             )]),
         };
 
-        assert!(default_app_for_file(&registry, Path::new("unknown.bin")).is_none());
-        assert!(best_app_for_file(&registry, Path::new("unknown.bin")).is_none());
+        assert!(default_app_for_mime(&registry, "application/octet-stream").is_none());
+        assert!(best_app_for_mime(&registry, "application/octet-stream").is_none());
     }
 
     #[test]
@@ -831,7 +806,43 @@ mod tests {
 
         assert_eq!(app.name, "Hidden Menu App");
         assert_eq!(app.mime_types, vec!["text/plain"]);
+        assert!(!app.text_editor);
         assert!(matches!(app.icon, crate::model::EntryIcon::Embedded(_)));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn desktop_app_parser_trims_mime_types_and_detects_text_editor_category() {
+        let root = temp_dir("desktop-app-trim");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("editor.desktop");
+        fs::write(
+            &path,
+            "[Desktop Entry]\nType=Application\nName=Editor\nExec=editor %F\nMimeType= text/x-c++src; text/markdown;\nCategories=Utility;TextEditor;\n",
+        )
+        .unwrap();
+
+        let app = parse_desktop_app("editor.desktop".to_string(), &path).unwrap();
+
+        assert_eq!(app.mime_types, vec!["text/x-c++src", "text/markdown"]);
+        assert!(app.text_editor);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_desktop_apps_are_ignored() {
+        let root = temp_dir("desktop-app-terminal");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("vim.desktop");
+        fs::write(
+            &path,
+            "[Desktop Entry]\nType=Application\nName=Vim\nExec=vim %F\nTerminal=true\nMimeType=text/plain;\nCategories=Utility;TextEditor;\n",
+        )
+        .unwrap();
+
+        assert!(parse_desktop_app("vim.desktop".to_string(), &path).is_none());
 
         fs::remove_dir_all(root).unwrap();
     }

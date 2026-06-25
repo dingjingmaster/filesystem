@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 filesystem-core = { path = "../filesystem-core" }
+filesystem-mime = { path = "../filesystem-mime" }
 iced = { version = "0.14", default-features = false, features = [
     "advanced",
     "thread-pool",

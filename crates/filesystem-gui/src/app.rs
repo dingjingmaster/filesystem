@@ -1,4 +1,4 @@
-use crate::apps::{apps_for_file, best_app_for_file, file_type_label, mime_for_path};
+use crate::apps::{apps_for_mime, best_app_for_mime};
 use crate::components::*;
 use crate::config::*;
 use crate::model::*;
@@ -10,6 +10,7 @@ use filesystem_core::{
     child_path_limits, file_properties, folder_properties, parse_clipboard_paths, paste_paths,
     rename_entry, set_permissions,
 };
+use filesystem_mime::{MimeInfo, detect_name};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, checkbox, column, container, mouse_area, operation, row, scrollable, space, stack,
@@ -1323,7 +1324,8 @@ impl FileManager {
     }
 
     fn open_file_with_default(&mut self, path: PathBuf) -> Task<Message> {
-        if let Some(app) = best_app_for_file(&self.app_registry, &path) {
+        let mime = self.mime_info_for_path(&path).mime;
+        if let Some(app) = best_app_for_mime(&self.app_registry, &mime) {
             self.status = format!("Opening with {}...", app.name);
             open_file_with_app_task(path, app)
         } else {
@@ -2266,8 +2268,8 @@ impl FileManager {
             .as_ref()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "-".to_string());
-        let mime = mime_for_path(&properties.path);
-        let file_type = file_type_label(&properties.path, &mime);
+        let mime = self.mime_info_for_path(&properties.path);
+        let file_type = mime.label;
         let executable = properties
             .mode
             .map(|mode| mode & 0o111 != 0)
@@ -2534,9 +2536,9 @@ impl FileManager {
     }
 
     fn open_with_dialog_for(&self, path: PathBuf) -> OpenWithDialog {
-        let mime = mime_for_path(&path);
-        let apps = apps_for_file(&self.app_registry, &path);
-        let selected_app_id = best_app_for_file(&self.app_registry, &path)
+        let mime = self.mime_info_for_path(&path).mime;
+        let apps = apps_for_mime(&self.app_registry, &mime);
+        let selected_app_id = best_app_for_mime(&self.app_registry, &mime)
             .and_then(|best| apps.iter().find(|app| app.id == best.id).cloned())
             .or_else(|| apps.first().cloned())
             .map(|app| app.id);
@@ -2550,7 +2552,16 @@ impl FileManager {
     }
 
     fn default_app_for_path(&self, path: &PathBuf) -> Option<DesktopApp> {
-        best_app_for_file(&self.app_registry, path)
+        let mime = self.mime_info_for_path(path).mime;
+        best_app_for_mime(&self.app_registry, &mime)
+    }
+
+    fn mime_info_for_path(&self, path: &PathBuf) -> MimeInfo {
+        self.entries
+            .iter()
+            .find(|entry| entry.file.path == *path)
+            .map(|entry| entry.mime.clone())
+            .unwrap_or_else(|| detect_name(path))
     }
 
     fn start_rename(&mut self, path: PathBuf) -> Task<Message> {
