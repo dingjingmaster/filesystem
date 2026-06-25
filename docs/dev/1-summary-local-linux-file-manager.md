@@ -14,7 +14,7 @@
 
 - 原始需求：基于 cosmic-files 调研结论，开始实现一个更少依赖、GUI only、Linux 本地文件系统的 Rust 文件管理器。
 - 最终方案：新建独立 Rust workspace，拆分 `filesystem-core` 与 `filesystem-gui`；core 做本地目录只读扫描和文件名正则搜索，GUI 直接使用 `iced` 和 `wgpu`；界面采用无系统边框暗色文件管理器布局。
-- 完成状态：部分完成。已完成最小只读浏览骨架、当前目录树文件名正则搜索、图标视图、列表视图、单击选中和框选多选；写操作、外部二进制适配和真实图形会话 smoke test 待后续。
+- 完成状态：部分完成。已完成最小只读浏览骨架、当前目录树文件名正则搜索、800x600 最小窗口、流式图标视图、列表视图、单击选中和框选多选；写操作、外部二进制适配和真实图形会话 smoke test 待后续。
 - 需求变更：用户反馈 tiny-skia 版本界面卡顿，要求改用 wgpu 并去掉 tiny-skia；`iced` 0.14 关闭 default features 后必须显式启用 executor，本次选择 `iced/thread-pool`。
 
 ## 2. 关键改动
@@ -42,6 +42,7 @@
   - 隐藏文件复选框已从工具栏移入地址栏右侧菜单。
   - 列表视图显示名称、大小、所有者、修改时间；所有者使用 Linux UID，不读取桌面服务或系统 MIME/portal 信息。
   - 图标视图和列表视图均显示条目图标；文件夹使用 `icons/folder.svg`，文件按扩展名优先查找本地图标主题中的 SVG MIME 图标，找不到时使用 `icons/file.svg`。
+  - 窗口最小尺寸为 800x600；图标视图保存主文件区宽度并按固定 tile 尺寸计算列数，窗口变宽时增加每行条目，变窄时把列尾条目换到下一行，不缩放文件/文件夹图标。
   - 侧边栏只显示“主文件夹”“根目录”，以及家目录中实际存在的下载/图片/桌面/文档/音乐/视频等常见目录；导航项内容左对齐、垂直居中。
   - 侧边栏导航图标改为指定 SVG 资源：`icons/home.svg`、`icons/root.svg`、`icons/download.svg`、`icons/picture.svg`、`icons/desktop.svg`、`icons/document.svg`、`icons/music.svg`、`icons/videos.svg`。
   - 参考 cosmic-files 模式补充窗口拖拽、双击最大化/还原、最小化、最大化/还原和关闭操作；底层使用 iced `window` task。
@@ -59,7 +60,7 @@
   - 目录扫描、文件名正则搜索和主题图标解析改为 iced `Task::perform` 后台任务；GUI 使用自增请求 ID 丢弃过期结果，避免旧后台结果覆盖新导航/搜索状态。
   - GUI 依赖固定启用 `iced/wgpu`、`iced/x11`、`iced/wayland`、`iced/thread-pool`、`iced/svg`，不再保留 renderer 互斥 feature；`resvg` 仅用于窗口 icon SVG 渲染，直接依赖不额外启用 default features。
   - 根目录新增 `Makefile`：`make`/`make release` 编译 release，`make debug` 编译 debug，`make test` 执行 workspace 测试。
-- 影响的使用场景：可以从当前工作目录启动 GUI，以图形文件管理器布局浏览本地目录，单击选择条目、框选多个条目、双击进入目录，在图标视图和列表视图之间切换，并通过地址栏正则搜索当前目录树文件名。
+- 影响的使用场景：可以从当前工作目录启动 GUI，以图形文件管理器布局浏览本地目录，单击选择条目、框选多个条目、双击进入目录，在流式图标视图和列表视图之间切换，并通过地址栏正则搜索当前目录树文件名。
 - 不影响的使用场景：不会调用 DBus/GVFS/portal/XDG MIME/通知/桌面配置服务；不会执行删除、移动、复制或打开文件动作。
 - 计划偏差：权限错误测试未做专项覆盖；未在真实 X11/Wayland 会话开窗测试。
 
@@ -84,6 +85,7 @@
   - `cargo fmt --check`：通过。
   - `cargo test -p filesystem-core`：通过，8 个单元测试，覆盖 UID 所有者元数据存在性。
   - `cargo check -p filesystem-gui`：通过，默认 wgpu。
+  - `cargo test -p filesystem-gui`：通过，3 个单元测试覆盖流式图标列数和窗口宽度换算。
   - `cargo test`：通过。
   - `make debug`：通过。
   - `make test`：通过。
@@ -92,7 +94,7 @@
   - `cargo tree -p filesystem-core`：仅 `filesystem-core` 自身。
   - `cargo tree -p filesystem-gui -i tiny-skia`：`tiny-skia <- sctk-adwaita <- winit <- iced_winit <- iced`，说明剩余 tiny-skia 来自 Wayland 客户端装饰，不是 iced tiny-skia renderer。
   - `Cargo.lock` 禁用依赖名检索：`gio`、`glib`、`gvfs`、`zbus`、`ashpd`、`notify-rust`、`xdg-mime`、`cosmic-config` 均无命中。
-- 结果：当前只读浏览、文件名正则搜索、列表视图依赖的元数据、条目图标数据流、菜单覆盖层布局、单击/双击消息路径和框选多选命中路径完成编译验证；core 自动化验证通过。
+- 结果：当前只读浏览、文件名正则搜索、列表视图依赖的元数据、条目图标数据流、菜单覆盖层布局、单击/双击消息路径、框选多选命中路径、流式图标列数和窗口宽度换算完成编译或单元测试验证；core 自动化验证通过。
 - 未执行验证项：
   - 未在真实 X11 和 Wayland 会话分别启动 GUI。
   - 未做权限错误专项用例、大目录扫描、大目录文件名正则搜索性能测试和后台任务压力验证。

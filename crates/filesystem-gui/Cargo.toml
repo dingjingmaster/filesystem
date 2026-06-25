@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 filesystem-core = { path = "../filesystem-core" }
 iced = { version = "0.14", default-features = false, features = [
+    "advanced",
     "thread-pool",
     "svg",
     "wgpu",

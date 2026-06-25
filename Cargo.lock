@@ -616,6 +616,7 @@ dependencies = [
 name = "filesystem-core"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "regex",
 ]
 

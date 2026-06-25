@@ -1,31 +1,38 @@
 use filesystem_core::{
-    DirectoryListing, EntryKind, FileEntry, FsError, ScanOptions, scan_dir, search_file_names,
+    ClipboardPaths, DirectoryListing, EntryKind, FileEntry, FolderProperties, FsError, ScanOptions,
+    create_file, create_folder, folder_properties, parse_clipboard_paths, paste_paths,
+    rename_entry, scan_dir, search_file_names,
 };
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
-    button, checkbox, column, container, mouse_area, row, scrollable, space, stack, svg, text,
-    text_input,
+    button, checkbox, column, container, mouse_area, operation, row, scrollable, space, stack, svg,
+    text, text_editor, text_input,
 };
 use iced::widget::{button as button_style, container as container_style, svg as svg_style};
 use iced::{
     Background, Border, Color, Element, Fill, Length, Padding, Point, Rectangle,
-    Result as IcedResult, Shadow, Size, Task, Theme, mouse, window,
+    Result as IcedResult, Shadow, Size, Subscription, Task, Theme, mouse, window,
 };
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const APP_NAME_EN: &str = "File";
 const APP_NAME_ZH: &str = "文件";
 const WINDOW_ICON_SIZE: u32 = 128;
+const WINDOW_INITIAL_WIDTH: f32 = 1220.0;
+const WINDOW_INITIAL_HEIGHT: f32 = 760.0;
+const WINDOW_MIN_WIDTH: f32 = 800.0;
+const WINDOW_MIN_HEIGHT: f32 = 600.0;
 const SIDEBAR_WIDTH: f32 = 240.0;
 const TOOLBAR_HEIGHT: f32 = 54.0;
 const RESIZE_HIT_SIZE: f32 = 6.0;
 const TILE_WIDTH: f32 = 142.0;
 const TILE_HEIGHT: f32 = 128.0;
-const GRID_COLUMNS: usize = 6;
 const LIST_ROW_HEIGHT: f32 = 40.0;
 const GRID_PADDING_TOP: f32 = 28.0;
 const GRID_PADDING_LEFT: f32 = 36.0;
@@ -35,18 +42,32 @@ const LIST_PADDING_TOP: f32 = 18.0;
 const LIST_PADDING_LEFT: f32 = 28.0;
 const LIST_HEADER_HEIGHT: f32 = 34.0;
 const SELECTION_DRAG_THRESHOLD: f32 = 3.0;
+const CONTEXT_MENU_WIDTH: f32 = 184.0;
+const PROPERTIES_DIALOG_WIDTH: f32 = 460.0;
+const RENAME_INPUT_ID: &str = "file-rename-input";
+const RENAME_TEXT_SIZE: f32 = 16.0;
+const RENAME_LINE_HEIGHT: f32 = 1.5;
+const RENAME_VERTICAL_PADDING: f32 = 14.0;
+const RENAME_HORIZONTAL_PADDING: f32 = 10.0;
+const RENAME_MIN_HEIGHT: f32 = 64.0;
+const RENAME_TILE_NON_EDITOR_HEIGHT: f32 = 128.0;
+const RENAME_AVERAGE_CHAR_WIDTH: f32 = 12.0;
+const RENAME_MAX_WIDTH_MULTIPLIER: f32 = 3.0;
+const LIST_RENAME_BASE_WIDTH: f32 = 340.0;
 
 pub fn main() -> IcedResult {
     iced::application(FileManager::new, FileManager::update, FileManager::view)
         .title(|manager: &FileManager| format!("{APP_NAME_EN} - {}", manager.cwd.display()))
         .theme(Theme::Dark)
         .window(window_settings())
+        .subscription(FileManager::subscription)
         .run()
 }
 
 fn window_settings() -> window::Settings {
     let mut settings = window::Settings {
-        size: Size::new(1220.0, 760.0),
+        size: Size::new(WINDOW_INITIAL_WIDTH, WINDOW_INITIAL_HEIGHT),
+        min_size: Some(Size::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)),
         decorations: false,
         icon: load_window_icon(),
         ..window::Settings::default()
@@ -103,10 +124,14 @@ struct FileManager {
     view_mode: ViewMode,
     menu_open: bool,
     view_submenu_open: bool,
+    context_menu: Option<Point>,
+    rename_state: Option<RenameState>,
+    properties_dialog: Option<PropertiesDialog>,
     selected_paths: BTreeSet<PathBuf>,
     selection_drag: Option<SelectionDrag>,
     browser_pointer: Option<Point>,
     browser_scroll_y: f32,
+    browser_width: f32,
     next_request_id: u64,
     active_request_id: Option<u64>,
     back_history: Vec<PathBuf>,
@@ -127,7 +152,25 @@ enum Message {
     BrowserPointerMoved(Point),
     BrowserPressed,
     BrowserReleased,
+    BrowserRightPressed,
     BrowserScrolled(f32),
+    WindowResized(Size),
+    ContextNewFile,
+    ContextNewFolder,
+    ContextPaste,
+    ContextSelectAll,
+    ContextOpenTerminal,
+    ContextProperties,
+    CreateFinished(NewEntryKind, Result<PathBuf, FsError>),
+    RenameEditorAction(text_editor::Action),
+    RenameSubmit,
+    RenameFinished(Result<PathBuf, FsError>),
+    PasteClipboardRead(Option<String>),
+    PasteFinished(Result<Vec<PathBuf>, FsError>),
+    TerminalOpened(Result<String, String>),
+    PropertiesLoaded(Result<FolderProperties, FsError>),
+    CloseProperties,
+    SetPropertiesView(PropertiesView),
     ToggleHidden(bool),
     ToggleMenu,
     ToggleViewSubmenu,
@@ -152,6 +195,52 @@ enum NavKind {
 enum ViewMode {
     Icons,
     List,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NewEntryKind {
+    File,
+    Folder,
+}
+
+#[derive(Debug, Clone)]
+struct RenameState {
+    path: PathBuf,
+    value: String,
+    content: text_editor::Content,
+}
+
+impl RenameState {
+    fn new(path: PathBuf, value: String) -> Self {
+        let mut content = text_editor::Content::with_text(&value);
+        content.perform(text_editor::Action::SelectAll);
+
+        Self {
+            path,
+            value,
+            content,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PropertiesView {
+    Summary,
+    Permissions,
+    Contents,
+}
+
+#[derive(Debug, Clone)]
+enum PropertiesState {
+    Loading(PathBuf),
+    Loaded(FolderProperties),
+    Error(String),
+}
+
+#[derive(Debug, Clone)]
+struct PropertiesDialog {
+    view: PropertiesView,
+    state: PropertiesState,
 }
 
 impl ViewMode {
@@ -522,10 +611,14 @@ impl FileManager {
             view_mode: ViewMode::Icons,
             menu_open: false,
             view_submenu_open: false,
+            context_menu: None,
+            rename_state: None,
+            properties_dialog: None,
             selected_paths: BTreeSet::new(),
             selection_drag: None,
             browser_pointer: None,
             browser_scroll_y: 0.0,
+            browser_width: browser_width_from_window(WINDOW_INITIAL_WIDTH),
             next_request_id: 0,
             active_request_id: None,
             back_history: Vec::new(),
@@ -540,18 +633,30 @@ impl FileManager {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Open(path, kind) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.open_path(path, kind)
             }
             Message::Go(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.visit_path(path)
             }
             Message::Back => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.go_back()
             }
             Message::Forward => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.go_forward()
             }
@@ -560,10 +665,20 @@ impl FileManager {
                 Task::none()
             }
             Message::PathSubmit => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.open_path_input()
             }
             Message::SelectEntry(path) => {
+                if self
+                    .rename_state
+                    .as_ref()
+                    .is_some_and(|rename| rename.path != path)
+                {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.selection_drag = None;
                 self.selected_paths.clear();
@@ -579,6 +694,9 @@ impl FileManager {
                 Task::none()
             }
             Message::BrowserPressed => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 if let Some(position) = self.browser_pointer {
                     self.selection_drag = Some(SelectionDrag {
@@ -596,6 +714,24 @@ impl FileManager {
                 }
                 Task::none()
             }
+            Message::BrowserRightPressed => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.menu_open = false;
+                self.view_submenu_open = false;
+                self.selection_drag = None;
+
+                if let Some(position) = self.browser_pointer {
+                    if self.pointer_over_entry(position) {
+                        self.context_menu = None;
+                    } else {
+                        self.context_menu = Some(position);
+                    }
+                }
+
+                Task::none()
+            }
             Message::BrowserScrolled(offset_y) => {
                 self.browser_scroll_y = offset_y;
                 if self.selection_drag.is_some() {
@@ -603,7 +739,180 @@ impl FileManager {
                 }
                 Task::none()
             }
+            Message::WindowResized(size) => {
+                self.browser_width = browser_width_from_window(size.width);
+                if self.selection_drag.is_some() {
+                    self.select_entries_in_drag_rect();
+                }
+                Task::none()
+            }
+            Message::ContextNewFile => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Creating file...".to_string();
+                create_entry_task(self.cwd.clone(), NewEntryKind::File)
+            }
+            Message::ContextNewFolder => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Creating folder...".to_string();
+                create_entry_task(self.cwd.clone(), NewEntryKind::Folder)
+            }
+            Message::ContextPaste => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Reading clipboard...".to_string();
+                iced::clipboard::read().map(Message::PasteClipboardRead)
+            }
+            Message::ContextSelectAll => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.selected_paths = self
+                    .entries
+                    .iter()
+                    .map(|entry| entry.file.path.clone())
+                    .collect();
+                Task::none()
+            }
+            Message::ContextOpenTerminal => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Opening terminal...".to_string();
+                let cwd = self.cwd.clone();
+                Task::perform(async move { open_terminal(cwd) }, Message::TerminalOpened)
+            }
+            Message::ContextProperties => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                let path = self.cwd.clone();
+                self.properties_dialog = Some(PropertiesDialog {
+                    view: PropertiesView::Summary,
+                    state: PropertiesState::Loading(path.clone()),
+                });
+                Task::perform(
+                    async move { folder_properties(path) },
+                    Message::PropertiesLoaded,
+                )
+            }
+            Message::CreateFinished(kind, result) => match result {
+                Ok(path) => {
+                    let value = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    self.rename_state = Some(RenameState::new(path.clone(), value));
+                    self.status = match kind {
+                        NewEntryKind::File => "File created; enter a new name".to_string(),
+                        NewEntryKind::Folder => "Folder created; enter a new name".to_string(),
+                    };
+                    self.reload()
+                }
+                Err(error) => {
+                    self.status = error.to_string();
+                    Task::none()
+                }
+            },
+            Message::RenameEditorAction(action) => {
+                if matches!(action, text_editor::Action::Edit(text_editor::Edit::Enter)) {
+                    return self.submit_rename();
+                }
+
+                if let Some(rename) = &mut self.rename_state {
+                    rename.content.perform(action);
+                    rename.value = rename.content.text();
+                }
+                Task::none()
+            }
+            Message::RenameSubmit => self.submit_rename(),
+            Message::RenameFinished(result) => match result {
+                Ok(path) => {
+                    self.rename_state = None;
+                    self.selected_paths.clear();
+                    self.selected_paths.insert(path);
+                    self.status = "Renamed".to_string();
+                    self.reload()
+                }
+                Err(error) => {
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        self.status = "Name already exists; enter another name".to_string();
+                    } else {
+                        self.status = error.to_string();
+                    }
+                    self.prepare_rename_retry()
+                }
+            },
+            Message::PasteClipboardRead(contents) => {
+                let Some(contents) = contents else {
+                    self.status = "Clipboard does not contain local paths".to_string();
+                    return Task::none();
+                };
+
+                let ClipboardPaths { action, paths } = parse_clipboard_paths(&contents);
+
+                if paths.is_empty() {
+                    self.status = "Clipboard does not contain local paths".to_string();
+                    return Task::none();
+                }
+
+                let destination = self.cwd.clone();
+                self.status = "Pasting...".to_string();
+                Task::perform(
+                    async move { paste_paths(paths, destination, action) },
+                    Message::PasteFinished,
+                )
+            }
+            Message::PasteFinished(result) => match result {
+                Ok(paths) => {
+                    self.status = format!("Pasted {} item(s)", paths.len());
+                    self.reload()
+                }
+                Err(error) => {
+                    self.status = error.to_string();
+                    Task::none()
+                }
+            },
+            Message::TerminalOpened(result) => {
+                self.status = match result {
+                    Ok(name) => format!("Opened {name}"),
+                    Err(error) => error,
+                };
+                Task::none()
+            }
+            Message::PropertiesLoaded(result) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.state = match result {
+                        Ok(properties) => PropertiesState::Loaded(properties),
+                        Err(error) => PropertiesState::Error(error.to_string()),
+                    };
+                }
+                Task::none()
+            }
+            Message::CloseProperties => {
+                self.properties_dialog = None;
+                Task::none()
+            }
+            Message::SetPropertiesView(view) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.view = view;
+                }
+                Task::none()
+            }
             Message::ToggleHidden(show_hidden) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.close_menu();
                 self.show_hidden = show_hidden;
                 if self.search_query.is_some() {
@@ -613,6 +922,10 @@ impl FileManager {
                 }
             }
             Message::ToggleMenu => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.context_menu = None;
                 self.menu_open = !self.menu_open;
                 if !self.menu_open {
                     self.view_submenu_open = false;
@@ -620,17 +933,23 @@ impl FileManager {
                 Task::none()
             }
             Message::ToggleViewSubmenu => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.view_submenu_open = !self.view_submenu_open;
                 Task::none()
             }
             Message::SetViewMode(view_mode) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
                 self.view_mode = view_mode;
                 self.close_menu();
                 Task::none()
             }
             Message::DirectoryLoaded(request, result) => {
                 self.directory_loaded(request, result);
-                Task::none()
+                self.focus_rename_input(true)
             }
             Message::SearchFinished(request, result) => {
                 self.search_finished(request, result);
@@ -650,6 +969,10 @@ impl FileManager {
         }
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        window::resize_events().map(|(_id, size)| Message::WindowResized(size))
+    }
+
     fn view(&self) -> Element<'_, Message> {
         let shell = row![self.sidebar(), self.main_area()]
             .height(Fill)
@@ -660,7 +983,7 @@ impl FileManager {
             .width(Fill)
             .style(style::app_background);
 
-        stack([shell.into(), resize_layer()])
+        stack([shell.into(), resize_layer(), self.properties_overlay()])
             .height(Fill)
             .width(Fill)
             .into()
@@ -923,15 +1246,21 @@ impl FileManager {
         let content = mouse_area(content)
             .on_move(Message::BrowserPointerMoved)
             .on_press(Message::BrowserPressed)
-            .on_release(Message::BrowserReleased);
+            .on_release(Message::BrowserReleased)
+            .on_right_press(Message::BrowserRightPressed);
 
-        stack([content.into(), self.selection_overlay()])
-            .height(Fill)
-            .width(Fill)
-            .into()
+        stack([
+            content.into(),
+            self.selection_overlay(),
+            self.context_menu_overlay(),
+        ])
+        .height(Fill)
+        .width(Fill)
+        .into()
     }
 
     fn grid(&self) -> Element<'_, Message> {
+        let columns = self.icon_grid_columns();
         let mut rows = column![]
             .spacing(GRID_ROW_SPACING)
             .padding([GRID_PADDING_TOP as u16, GRID_PADDING_LEFT as u16]);
@@ -952,8 +1281,12 @@ impl FileManager {
                 .align_y(Vertical::Center),
             );
         } else {
-            for chunk in self.entries.chunks(GRID_COLUMNS) {
-                let mut row = row![].spacing(GRID_COLUMN_SPACING).height(TILE_HEIGHT);
+            for chunk in self.entries.chunks(columns) {
+                let row_height = chunk
+                    .iter()
+                    .map(|entry| self.tile_height(entry))
+                    .fold(TILE_HEIGHT, f32::max);
+                let mut row = row![].spacing(GRID_COLUMN_SPACING).height(row_height);
 
                 for entry in chunk {
                     row = row.push(self.tile(entry));
@@ -1068,23 +1401,36 @@ impl FileManager {
 
     fn list_row(&self, entry: &DisplayEntry) -> Element<'_, Message> {
         let selected = self.is_selected(entry);
-        let name = short_list_text(&self.entry_display_name(entry));
         let size = entry_size(&entry.file);
         let owner = entry_owner(&entry.file);
         let modified = format_modified(entry.file.modified);
+        let rename_state = self.rename_state_for(&entry.file.path);
+        let row_height = rename_state
+            .map(|rename| rename_editor_layout(&rename.value, LIST_RENAME_BASE_WIDTH).height)
+            .unwrap_or(LIST_ROW_HEIGHT)
+            .max(LIST_ROW_HEIGHT);
+        let name_cell = if let Some(rename) = rename_state {
+            list_rename_cell(rename, Length::FillPortion(5), row_height)
+        } else {
+            list_name_cell(
+                entry,
+                short_list_text(&self.entry_display_name(entry)),
+                Length::FillPortion(5),
+            )
+        };
 
         let content = row![
-            list_name_cell(entry, name, Length::FillPortion(5)),
+            name_cell,
             list_value_cell(size, Length::FillPortion(2), false),
             list_value_cell(owner, Length::FillPortion(2), false),
             list_value_cell(modified, Length::FillPortion(3), false),
         ]
         .spacing(12)
         .align_y(iced::Center)
-        .height(LIST_ROW_HEIGHT);
+        .height(row_height);
 
         let row = container(content)
-            .height(LIST_ROW_HEIGHT)
+            .height(row_height)
             .width(Fill)
             .padding([0, 14])
             .style(move |_| style::list_row_container(selected));
@@ -1098,26 +1444,40 @@ impl FileManager {
 
     fn tile(&self, entry: &DisplayEntry) -> Element<'_, Message> {
         let selected = self.is_selected(entry);
-        let name = text(short_name(&entry.file.name))
-            .size(15)
-            .width(TILE_WIDTH)
-            .align_x(Horizontal::Center)
-            .style(style::primary_text);
+        let rename_state = self.rename_state_for(&entry.file.path);
+        let rename_layout =
+            rename_state.map(|rename| rename_editor_layout(&rename.value, TILE_WIDTH));
+        let tile_width = rename_layout
+            .map(|layout| layout.width)
+            .unwrap_or(TILE_WIDTH);
+        let tile_height = self.tile_height(entry);
+
+        let name: Element<'_, Message> =
+            if let (Some(rename), Some(layout)) = (rename_state, rename_layout) {
+                rename_editor(rename, layout.width, layout.height)
+            } else {
+                text(short_name(&entry.file.name))
+                    .size(15)
+                    .width(tile_width)
+                    .align_x(Horizontal::Center)
+                    .style(style::primary_text)
+                    .into()
+            };
 
         let meta = text(self.entry_subtitle(entry))
             .size(12)
-            .width(TILE_WIDTH)
+            .width(tile_width)
             .align_x(Horizontal::Center)
             .style(style::muted_text);
 
         let content = column![entry_icon(&entry.icon, 78.0), name, meta]
             .spacing(8)
             .align_x(iced::Center)
-            .width(TILE_WIDTH);
+            .width(tile_width);
 
         let tile = container(content)
-            .height(TILE_HEIGHT)
-            .width(TILE_WIDTH)
+            .height(tile_height)
+            .width(tile_width)
             .padding(8)
             .style(move |_| style::tile_container(selected));
 
@@ -1422,6 +1782,10 @@ impl FileManager {
         self.browser_scroll_y = 0.0;
     }
 
+    fn icon_grid_columns(&self) -> usize {
+        icon_grid_columns(self.browser_width)
+    }
+
     fn select_entries_in_drag_rect(&mut self) {
         let Some(selection) = self.selection_content_rect() else {
             return;
@@ -1465,8 +1829,9 @@ impl FileManager {
     fn entry_content_rect(&self, index: usize) -> Option<Rectangle> {
         match self.view_mode {
             ViewMode::Icons => {
-                let row = index / GRID_COLUMNS;
-                let column = index % GRID_COLUMNS;
+                let columns = self.icon_grid_columns();
+                let row = index / columns;
+                let column = index % columns;
                 Some(Rectangle::new(
                     Point::new(
                         GRID_PADDING_LEFT + column as f32 * (TILE_WIDTH + GRID_COLUMN_SPACING),
@@ -1516,9 +1881,394 @@ impl FileManager {
         .into()
     }
 
+    fn context_menu_overlay(&self) -> Element<'_, Message> {
+        let Some(position) = self.context_menu else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let menu = container(
+            column![
+                context_menu_item("新建文件", Message::ContextNewFile),
+                context_menu_item("新建文件夹", Message::ContextNewFolder),
+                context_menu_separator(),
+                context_menu_item("粘贴", Message::ContextPaste),
+                context_menu_item("全选", Message::ContextSelectAll),
+                context_menu_separator(),
+                context_menu_item("在终端打开", Message::ContextOpenTerminal),
+                context_menu_separator(),
+                context_menu_item("属性", Message::ContextProperties),
+            ]
+            .spacing(2)
+            .padding(6),
+        )
+        .width(CONTEXT_MENU_WIDTH)
+        .style(style::context_menu);
+
+        container(
+            column![
+                space().height(Length::Fixed(position.y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(position.x.max(0.0))),
+                    menu,
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .height(Fill)
+        .width(Fill)
+        .into()
+    }
+
+    fn properties_overlay(&self) -> Element<'_, Message> {
+        let Some(dialog) = &self.properties_dialog else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let title = match dialog.view {
+            PropertiesView::Summary => "属性",
+            PropertiesView::Permissions => "设置自定义权限",
+            PropertiesView::Contents => "更改内容文件的权限",
+        };
+
+        let back = if dialog.view == PropertiesView::Summary {
+            button(text("").size(16))
+                .height(30)
+                .width(30)
+                .style(style::toolbar_button)
+        } else {
+            button(text("‹").size(26).style(style::primary_text))
+                .height(30)
+                .width(30)
+                .padding(0)
+                .style(style::toolbar_button)
+                .on_press(Message::SetPropertiesView(PropertiesView::Summary))
+        };
+
+        let header = row![
+            back,
+            text(title).size(16).style(style::muted_text),
+            space().width(Fill),
+            button(text("×").size(18).style(style::primary_text))
+                .height(30)
+                .width(30)
+                .padding(0)
+                .style(style::toolbar_button)
+                .on_press(Message::CloseProperties),
+        ]
+        .align_y(iced::Center);
+
+        let body = match (&dialog.state, dialog.view) {
+            (PropertiesState::Loading(path), _) => self.properties_loading(path),
+            (PropertiesState::Error(error), _) => self.properties_error(error),
+            (PropertiesState::Loaded(properties), PropertiesView::Summary) => {
+                self.properties_summary(properties)
+            }
+            (PropertiesState::Loaded(properties), PropertiesView::Permissions) => {
+                self.properties_permissions(properties)
+            }
+            (PropertiesState::Loaded(properties), PropertiesView::Contents) => {
+                self.properties_contents_permissions(properties)
+            }
+        };
+
+        let dialog = container(column![header, body].spacing(16).padding(14))
+            .width(PROPERTIES_DIALOG_WIDTH)
+            .style(style::properties_dialog);
+
+        container(dialog)
+            .width(Fill)
+            .height(Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .style(style::modal_overlay)
+            .into()
+    }
+
+    fn properties_loading(&self, path: &PathBuf) -> Element<'_, Message> {
+        container(
+            column![
+                text(path.display().to_string())
+                    .size(14)
+                    .style(style::muted_text),
+                text("正在统计文件夹属性...")
+                    .size(16)
+                    .style(style::primary_text),
+            ]
+            .spacing(10)
+            .align_x(iced::Center),
+        )
+        .height(220)
+        .width(Fill)
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .into()
+    }
+
+    fn properties_error<'a>(&self, error: &'a str) -> Element<'a, Message> {
+        container(text(error).size(14).style(style::primary_text))
+            .height(220)
+            .width(Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .into()
+    }
+
+    fn properties_summary(&self, properties: &FolderProperties) -> Element<'_, Message> {
+        let parent = properties
+            .parent
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let free = properties
+            .free_space
+            .map(|size| format!("{} 剩余", format_size(size)))
+            .unwrap_or_else(|| "剩余空间未知".to_string());
+
+        column![
+            column![
+                entry_icon(
+                    &EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg")),
+                    82.0
+                ),
+                text(properties.name.clone())
+                    .size(22)
+                    .style(style::primary_text)
+                    .align_x(Horizontal::Center),
+                text(format!(
+                    "{} 项，共 {}",
+                    properties.item_count,
+                    format_size(properties.total_size)
+                ))
+                .size(14)
+                .style(style::primary_text),
+                text(free).size(13).style(style::muted_text),
+            ]
+            .spacing(8)
+            .align_x(iced::Center)
+            .width(Fill),
+            container(
+                row![
+                    column![
+                        text("上级文件夹(F)").size(12).style(style::muted_text),
+                        text(parent).size(15).style(style::primary_text),
+                    ]
+                    .spacing(4),
+                    space().width(Fill),
+                    text("...").size(18).style(style::primary_text),
+                ]
+                .align_y(iced::Center)
+            )
+            .padding(14)
+            .width(Fill)
+            .style(style::property_group),
+            container(
+                column![
+                    property_row("修改时间", format_modified(properties.modified)),
+                    property_row("创建时间", format_modified(properties.created)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            button(
+                row![
+                    text("权限(P)").size(15).style(style::primary_text),
+                    space().width(Fill),
+                    text(permission_summary(properties.mode))
+                        .size(14)
+                        .style(style::muted_text),
+                    text("›").size(22).style(style::primary_text),
+                ]
+                .align_y(iced::Center)
+            )
+            .height(54)
+            .width(Fill)
+            .padding([0, 14])
+            .style(style::property_button)
+            .on_press(Message::SetPropertiesView(PropertiesView::Permissions)),
+        ]
+        .spacing(16)
+        .into()
+    }
+
+    fn properties_permissions(&self, properties: &FolderProperties) -> Element<'_, Message> {
+        let mode = properties.mode.unwrap_or(0);
+
+        column![
+            container(
+                column![
+                    property_row("所有者(U)", owner_label(properties.owner)),
+                    property_row("访问", directory_permission(mode, 6)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            container(
+                column![
+                    property_row("用户组(G)", group_label(properties.group)),
+                    property_row("访问", directory_permission(mode, 3)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            text("其他用户").size(15).style(style::primary_text),
+            container(property_row("访问", directory_permission(mode, 0)))
+                .width(Fill)
+                .style(style::property_group),
+            button(
+                text("更改内容文件的权限(E)...")
+                    .size(15)
+                    .style(style::primary_text)
+            )
+            .height(44)
+            .width(Fill)
+            .padding([0, 14])
+            .style(style::property_button)
+            .on_press(Message::SetPropertiesView(PropertiesView::Contents)),
+        ]
+        .spacing(16)
+        .into()
+    }
+
+    fn properties_contents_permissions(
+        &self,
+        properties: &FolderProperties,
+    ) -> Element<'_, Message> {
+        let mode = properties.mode.unwrap_or(0);
+
+        column![
+            row![
+                button(text("取消(C)").size(14).style(style::primary_text))
+                    .height(36)
+                    .padding([0, 14])
+                    .style(style::toolbar_button)
+                    .on_press(Message::SetPropertiesView(PropertiesView::Permissions)),
+                space().width(Fill),
+                button(text("更改(H)").size(14).style(style::primary_text))
+                    .height(36)
+                    .padding([0, 14])
+                    .style(style::disabled_button),
+            ]
+            .align_y(iced::Center),
+            text("所有者").size(15).style(style::primary_text),
+            container(
+                column![
+                    property_row("文件(F)", file_permission(mode, 6)),
+                    property_row("文件夹(O)", directory_permission(mode, 6)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            text("组").size(15).style(style::primary_text),
+            container(
+                column![
+                    property_row("文件(L)", file_permission(mode, 3)),
+                    property_row("文件夹(D)", directory_permission(mode, 3)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            text("其它").size(15).style(style::primary_text),
+            container(
+                column![
+                    property_row("文件(E)", file_permission(mode, 0)),
+                    property_row("文件夹(R)", directory_permission(mode, 0)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+        ]
+        .spacing(14)
+        .into()
+    }
+
+    fn rename_state_for(&self, path: &PathBuf) -> Option<&RenameState> {
+        self.rename_state
+            .as_ref()
+            .filter(|rename| rename.path == *path)
+    }
+
+    fn tile_height(&self, entry: &DisplayEntry) -> f32 {
+        self.rename_state_for(&entry.file.path)
+            .map(|rename| {
+                let layout = rename_editor_layout(&rename.value, TILE_WIDTH);
+                RENAME_TILE_NON_EDITOR_HEIGHT + layout.height
+            })
+            .unwrap_or(TILE_HEIGHT)
+    }
+
+    fn submit_rename(&mut self) -> Task<Message> {
+        if let Some(rename) = &mut self.rename_state {
+            rename.value = rename.content.text();
+        }
+
+        let Some(rename) = self.rename_state.clone() else {
+            return Task::none();
+        };
+
+        let new_name = rename.content.text().trim().to_string();
+        if new_name.is_empty() {
+            self.status = "File name cannot be empty".to_string();
+            return self.focus_rename_input(false);
+        }
+
+        let current_name = rename
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+
+        if new_name == current_name {
+            self.rename_state = None;
+            self.status = "Name unchanged".to_string();
+            return Task::none();
+        }
+
+        self.status = "Renaming...".to_string();
+        Task::perform(
+            async move { rename_entry(rename.path, new_name) },
+            Message::RenameFinished,
+        )
+    }
+
+    fn prepare_rename_retry(&mut self) -> Task<Message> {
+        if let Some(rename) = &mut self.rename_state {
+            rename.content.perform(text_editor::Action::SelectAll);
+            rename.value = rename.content.text();
+        }
+
+        self.focus_rename_input(false)
+    }
+
+    fn focus_rename_input(&self, select_all: bool) -> Task<Message> {
+        if self.rename_state.is_none() {
+            return Task::none();
+        }
+
+        let _ = select_all;
+        operation::focus(rename_input_id())
+    }
+
+    fn pointer_over_entry(&self, position: Point) -> bool {
+        let content_position = Point::new(position.x, position.y + self.browser_scroll_y);
+
+        self.entries.iter().enumerate().any(|(index, _)| {
+            self.entry_content_rect(index)
+                .is_some_and(|rect| rect_contains(rect, content_position))
+        })
+    }
+
     fn close_menu(&mut self) {
         self.menu_open = false;
         self.view_submenu_open = false;
+        self.context_menu = None;
     }
 }
 
@@ -1706,6 +2456,143 @@ fn list_name_cell<'a>(entry: &DisplayEntry, value: String, width: Length) -> Ele
         .into()
 }
 
+fn list_rename_cell<'a>(
+    rename: &'a RenameState,
+    width: Length,
+    row_height: f32,
+) -> Element<'a, Message> {
+    let layout = rename_editor_layout(&rename.value, LIST_RENAME_BASE_WIDTH);
+
+    container(rename_editor(rename, layout.width, layout.height))
+        .width(width)
+        .height(row_height)
+        .align_y(Vertical::Center)
+        .into()
+}
+
+fn rename_editor<'a>(rename: &'a RenameState, width: f32, height: f32) -> Element<'a, Message> {
+    text_editor(&rename.content)
+        .id(rename_input_id())
+        .on_action(Message::RenameEditorAction)
+        .key_binding(rename_editor_key_binding)
+        .size(RENAME_TEXT_SIZE)
+        .line_height(RENAME_LINE_HEIGHT)
+        .padding(rename_editor_padding())
+        .wrapping(iced::advanced::text::Wrapping::WordOrGlyph)
+        .width(width)
+        .height(Length::Fixed(height))
+        .style(style::rename_editor)
+        .into()
+}
+
+fn rename_input_id() -> iced::widget::Id {
+    iced::widget::Id::new(RENAME_INPUT_ID)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RenameEditorLayout {
+    width: f32,
+    height: f32,
+}
+
+fn rename_editor_layout(value: &str, base_width: f32) -> RenameEditorLayout {
+    let character_count = value.chars().count().max(1);
+    let max_width = base_width * RENAME_MAX_WIDTH_MULTIPLIER;
+    let desired_width = (character_count as f32 * RENAME_AVERAGE_CHAR_WIDTH
+        + RENAME_HORIZONTAL_PADDING * 2.0)
+        .clamp(base_width, max_width);
+    let usable_width =
+        (desired_width - RENAME_HORIZONTAL_PADDING * 2.0).max(RENAME_AVERAGE_CHAR_WIDTH);
+    let characters_per_line = (usable_width / RENAME_AVERAGE_CHAR_WIDTH).floor().max(1.0) as usize;
+
+    let visual_lines = if value.is_empty() {
+        1
+    } else {
+        value
+            .split('\n')
+            .map(|line| {
+                let line_chars = line.chars().count().max(1);
+                line_chars.div_ceil(characters_per_line)
+            })
+            .sum::<usize>()
+            .max(1)
+    };
+
+    let line_height = RENAME_TEXT_SIZE * RENAME_LINE_HEIGHT;
+    let height =
+        (visual_lines as f32 * line_height + RENAME_VERTICAL_PADDING * 2.0).max(RENAME_MIN_HEIGHT);
+
+    RenameEditorLayout {
+        width: desired_width,
+        height,
+    }
+}
+
+fn rename_editor_padding() -> Padding {
+    Padding::default()
+        .top(RENAME_VERTICAL_PADDING)
+        .bottom(RENAME_VERTICAL_PADDING)
+        .left(RENAME_HORIZONTAL_PADDING)
+        .right(RENAME_HORIZONTAL_PADDING)
+}
+
+fn rename_editor_key_binding(
+    event: text_editor::KeyPress,
+) -> Option<text_editor::Binding<Message>> {
+    if matches!(
+        event.modified_key.as_ref(),
+        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
+    ) {
+        Some(text_editor::Binding::Custom(Message::RenameSubmit))
+    } else {
+        text_editor::Binding::from_key_press(event)
+    }
+}
+
+fn context_menu_item<'a>(label: &'static str, message: Message) -> Element<'a, Message> {
+    button(text(label).size(14).style(style::primary_text))
+        .height(32)
+        .width(Fill)
+        .padding([0, 10])
+        .style(move |theme, status| style::menu_button(theme, status, false))
+        .on_press(message)
+        .into()
+}
+
+fn context_menu_separator<'a>() -> Element<'a, Message> {
+    container(space())
+        .height(1)
+        .width(Fill)
+        .style(|_| container_style::Style::default().background(style::BORDER))
+        .into()
+}
+
+fn property_row<'a>(label: &'static str, value: String) -> Element<'a, Message> {
+    container(
+        row![
+            text(label).size(14).style(style::primary_text),
+            space().width(Fill),
+            text(value).size(14).style(style::primary_text),
+        ]
+        .align_y(iced::Center),
+    )
+    .height(52)
+    .width(Fill)
+    .padding([0, 14])
+    .into()
+}
+
+fn browser_width_from_window(window_width: f32) -> f32 {
+    (window_width - SIDEBAR_WIDTH).max(TILE_WIDTH + GRID_PADDING_LEFT * 2.0)
+}
+
+fn icon_grid_columns(browser_width: f32) -> usize {
+    let content_width = (browser_width - GRID_PADDING_LEFT * 2.0).max(TILE_WIDTH);
+    ((content_width + GRID_COLUMN_SPACING) / (TILE_WIDTH + GRID_COLUMN_SPACING))
+        .floor()
+        .max(1.0) as usize
+}
+
 fn rect_from_points(start: Point, end: Point) -> Rectangle {
     let x = start.x.min(end.x);
     let y = start.y.min(end.y);
@@ -1713,6 +2600,13 @@ fn rect_from_points(start: Point, end: Point) -> Rectangle {
     let height = (start.y - end.y).abs();
 
     Rectangle::new(Point::new(x, y), Size::new(width, height))
+}
+
+fn rect_contains(rect: Rectangle, point: Point) -> bool {
+    point.x >= rect.x
+        && point.x <= rect.x + rect.width
+        && point.y >= rect.y
+        && point.y <= rect.y + rect.height
 }
 
 fn list_value_cell<'a>(value: String, width: Length, primary: bool) -> Element<'a, Message> {
@@ -1809,6 +2703,97 @@ fn format_modified(modified: Option<SystemTime>) -> String {
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}")
 }
 
+fn create_entry_task(parent: PathBuf, kind: NewEntryKind) -> Task<Message> {
+    Task::perform(
+        async move {
+            match kind {
+                NewEntryKind::File => create_file(parent, "新建文件"),
+                NewEntryKind::Folder => create_folder(parent, "新建文件夹"),
+            }
+        },
+        move |result| Message::CreateFinished(kind, result),
+    )
+}
+
+fn open_terminal(cwd: PathBuf) -> Result<String, String> {
+    for terminal in ["terminator", "mate-terminal", "gnome-terminal"] {
+        let Some(executable) = find_executable_in_path(terminal) else {
+            continue;
+        };
+
+        Command::new(&executable)
+            .arg("--working-directory")
+            .arg(&cwd)
+            .spawn()
+            .map_err(|error| format!("Failed to open {terminal}: {error}"))?;
+
+        return Ok(terminal.to_string());
+    }
+
+    Err("No supported terminal found in PATH".to_string())
+}
+
+fn find_executable_in_path(name: &str) -> Option<PathBuf> {
+    let paths = env::var_os("PATH")?;
+
+    env::split_paths(&paths)
+        .map(|path| path.join(name))
+        .find(|path| {
+            fs::metadata(path)
+                .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        })
+}
+
+fn owner_label(owner: Option<u32>) -> String {
+    owner
+        .map(|owner| format!("UID {owner}"))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn group_label(group: Option<u32>) -> String {
+    group
+        .map(|group| format!("GID {group}"))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn permission_summary(mode: Option<u32>) -> String {
+    mode.map(|mode| format!("{:04o}", mode & 0o7777))
+        .unwrap_or_else(|| "未知".to_string())
+}
+
+fn file_permission(mode: u32, shift: u8) -> String {
+    let bits = (mode >> shift) & 0o7;
+    let read = bits & 0o4 != 0;
+    let write = bits & 0o2 != 0;
+
+    match (read, write) {
+        (true, true) => "读取和写入".to_string(),
+        (true, false) => "只能读取".to_string(),
+        (false, true) => "只能写入".to_string(),
+        (false, false) => "无".to_string(),
+    }
+}
+
+fn directory_permission(mode: u32, shift: u8) -> String {
+    let bits = (mode >> shift) & 0o7;
+    let read = bits & 0o4 != 0;
+    let write = bits & 0o2 != 0;
+    let execute = bits & 0o1 != 0;
+
+    if write && execute {
+        "新建和删除文件".to_string()
+    } else if read && execute {
+        "访问文件".to_string()
+    } else if execute {
+        "只能访问".to_string()
+    } else if read {
+        "只能列出文件".to_string()
+    } else {
+        "无".to_string()
+    }
+}
+
 fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
     let z = days_since_unix_epoch + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -1824,6 +2809,36 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
     (year as i32, month as u32, day as u32)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icon_grid_columns_keeps_at_least_one_column() {
+        assert_eq!(icon_grid_columns(1.0), 1);
+        assert_eq!(icon_grid_columns(TILE_WIDTH + GRID_PADDING_LEFT * 2.0), 1);
+    }
+
+    #[test]
+    fn icon_grid_columns_grows_with_available_width() {
+        let one_column = TILE_WIDTH + GRID_PADDING_LEFT * 2.0;
+        let two_columns = TILE_WIDTH * 2.0 + GRID_COLUMN_SPACING + GRID_PADDING_LEFT * 2.0;
+        let three_columns = TILE_WIDTH * 3.0 + GRID_COLUMN_SPACING * 2.0 + GRID_PADDING_LEFT * 2.0;
+
+        assert_eq!(icon_grid_columns(one_column), 1);
+        assert_eq!(icon_grid_columns(two_columns), 2);
+        assert_eq!(icon_grid_columns(three_columns), 3);
+    }
+
+    #[test]
+    fn browser_width_uses_window_width_minus_sidebar() {
+        assert_eq!(
+            browser_width_from_window(WINDOW_MIN_WIDTH),
+            WINDOW_MIN_WIDTH - SIDEBAR_WIDTH
+        );
+    }
+}
+
 fn latest_window_task(
     action: impl Fn(window::Id) -> Task<Message> + Send + 'static,
 ) -> Task<Message> {
@@ -1836,6 +2851,7 @@ fn latest_window_task(
 mod style {
     use super::*;
     use iced::widget::checkbox as checkbox_widget;
+    use iced::widget::text_editor as text_editor_widget;
     use iced::widget::text_input as text_input_widget;
 
     pub const CONTENT: Color = Color::from_rgb(0.10, 0.10, 0.12);
@@ -1903,6 +2919,19 @@ mod style {
         }
     }
 
+    pub fn rename_editor(
+        _theme: &Theme,
+        _status: text_editor_widget::Status,
+    ) -> text_editor_widget::Style {
+        text_editor_widget::Style {
+            background: Background::Color(SURFACE),
+            border: Border::default().rounded(6).color(BORDER).width(1),
+            placeholder: MUTED,
+            value: TEXT,
+            selection: Color::from_rgb(0.30, 0.44, 0.65),
+        }
+    }
+
     pub fn tile_container(selected: bool) -> container_style::Style {
         let border = if selected {
             Border::default().rounded(8).color(SELECTION).width(1)
@@ -1961,6 +2990,33 @@ mod style {
             })
     }
 
+    pub fn context_menu(theme: &Theme) -> container_style::Style {
+        menu_panel(theme)
+    }
+
+    pub fn modal_overlay(_theme: &Theme) -> container_style::Style {
+        container_style::Style::default().background(Color::from_rgba(0.0, 0.0, 0.0, 0.18))
+    }
+
+    pub fn properties_dialog(_theme: &Theme) -> container_style::Style {
+        container_style::Style::default()
+            .background(CONTENT)
+            .color(TEXT)
+            .border(Border::default().rounded(8).color(BORDER).width(1))
+            .shadow(Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.36),
+                offset: iced::Vector::new(0.0, 8.0),
+                blur_radius: 18.0,
+            })
+    }
+
+    pub fn property_group(_theme: &Theme) -> container_style::Style {
+        container_style::Style::default()
+            .background(SURFACE)
+            .color(TEXT)
+            .border(Border::default().rounded(8).color(BORDER).width(1))
+    }
+
     pub fn menu_button(
         _theme: &Theme,
         status: button_style::Status,
@@ -1981,6 +3037,35 @@ mod style {
             background: Some(Background::Color(background)),
             text_color: TEXT,
             border: Border::default().rounded(5),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+
+    pub fn property_button(_theme: &Theme, status: button_style::Status) -> button_style::Style {
+        let background = if matches!(
+            status,
+            button_style::Status::Hovered | button_style::Status::Pressed
+        ) {
+            SURFACE_HOVER
+        } else {
+            SURFACE
+        };
+
+        button_style::Style {
+            background: Some(Background::Color(background)),
+            text_color: TEXT,
+            border: Border::default().rounded(8).color(BORDER).width(1),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+
+    pub fn disabled_button(_theme: &Theme, _status: button_style::Status) -> button_style::Style {
+        button_style::Style {
+            background: Some(Background::Color(Color::from_rgb(0.56, 0.16, 0.22))),
+            text_color: Color::from_rgb(0.84, 0.76, 0.78),
+            border: Border::default().rounded(8),
             shadow: Shadow::default(),
             snap: true,
         }
