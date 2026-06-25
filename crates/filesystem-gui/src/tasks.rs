@@ -1,7 +1,8 @@
 use crate::icons::decorate_entries;
 use crate::model::{DisplayListing, DisplaySearchResults, HomeShortcut, Message, NewEntryKind};
 use filesystem_core::{
-    DirectoryListing, FsError, ScanOptions, create_file, create_folder, scan_dir, search_file_names,
+    DirectoryListing, FsError, ScanOptions, create_file, create_folder, delete_entry, scan_dir,
+    search_file_names,
 };
 use iced::{Task, window};
 use std::env;
@@ -105,6 +106,16 @@ pub(crate) fn create_entry_task(parent: PathBuf, kind: NewEntryKind) -> Task<Mes
             }
         },
         move |result| Message::CreateFinished(kind, result),
+    )
+}
+
+pub(crate) fn delete_entry_task(path: PathBuf) -> Task<Message> {
+    Task::perform(
+        async move {
+            delete_entry(&path)?;
+            Ok(path)
+        },
+        Message::DeleteFinished,
     )
 }
 

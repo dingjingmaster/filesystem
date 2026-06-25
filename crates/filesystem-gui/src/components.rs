@@ -181,10 +181,15 @@ pub(crate) fn list_name_cell<'a>(
     entry: &DisplayEntry,
     value: String,
     width: Length,
+    dimmed: bool,
 ) -> Element<'a, Message> {
     let content = row![
         entry_icon(&entry.icon, 24.0),
-        text(value).size(14).style(style::primary_text),
+        text(value).size(14).style(if dimmed {
+            style::disabled_text
+        } else {
+            style::primary_text
+        }),
     ]
     .spacing(10)
     .align_y(iced::Center);
@@ -394,8 +399,11 @@ pub(crate) fn list_value_cell<'a>(
     value: String,
     width: Length,
     primary: bool,
+    dimmed: bool,
 ) -> Element<'a, Message> {
-    let text = if primary {
+    let text = if dimmed {
+        text(value).size(13).style(style::disabled_text)
+    } else if primary {
         text(value).size(14).style(style::primary_text)
     } else {
         text(value).size(13).style(style::muted_text)

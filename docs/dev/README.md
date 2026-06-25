@@ -29,3 +29,6 @@
 | 4 | 2026-06-25 | L4 | summary | [4-summary-gui-module-refactor.md](4-summary-gui-module-refactor.md) | 已完成 | 总结 GUI crate 拆分为 app/model/tasks/icons/components/utils/config/style 模块、验证结果和残余人工 GUI 验证风险。 |
 | 5 | 2026-06-25 | L1 | summary | [5-summary-properties-vertical-alignment.md](5-summary-properties-vertical-alignment.md) | 已完成 | 调整属性弹窗标题栏、概要区、属性行、权限行和底部按钮内容的垂直居中布局。 |
 | 6 | 2026-06-25 | L1 | summary | [6-summary-properties-back-icon.md](6-summary-properties-back-icon.md) | 已完成 | 将设置自定义权限页返回按钮从文本箭头改为 `icons/left.svg`，并使用居中图标按钮布局。 |
+| 7 | 2026-06-25 | L4 | research | [7-research-selected-folder-context-menu.md](7-research-selected-folder-context-menu.md) | 已完成 | 调研单个选中文件夹右键菜单、内部复制/剪切、递归删除确认、终端打开和属性目标切换方案。 |
+| 7 | 2026-06-25 | L4 | plan | [7-plan-selected-folder-context-menu.md](7-plan-selected-folder-context-menu.md) | 已完成 | 规划 core 删除 API、GUI 文件夹菜单、内部剪贴板、剪切变淡、删除确认弹窗和验证步骤。 |
+| 7 | 2026-06-25 | L4 | summary | [7-summary-selected-folder-context-menu.md](7-summary-selected-folder-context-menu.md) | 已完成 | 总结选中文件夹右键菜单、内部复制/剪切、剪切变淡、删除确认、后台递归删除和验证结果。 |

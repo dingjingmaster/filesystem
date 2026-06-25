@@ -5,8 +5,9 @@ use crate::style;
 use crate::tasks::*;
 use crate::utils::*;
 use filesystem_core::{
-    ClipboardPaths, EntryKind, FolderProperties, FsError, ScanOptions, child_path_limits,
-    folder_properties, parse_clipboard_paths, paste_paths, rename_entry, set_permissions,
+    ClipboardPaths, EntryKind, FolderProperties, FsError, PasteAction, ScanOptions,
+    child_path_limits, folder_properties, parse_clipboard_paths, paste_paths, rename_entry,
+    set_permissions,
 };
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
@@ -30,7 +31,9 @@ pub(crate) struct FileManager {
     view_mode: ViewMode,
     menu_open: bool,
     view_submenu_open: bool,
-    context_menu: Option<Point>,
+    context_menu: Option<ContextMenuState>,
+    clipboard: Option<ClipboardState>,
+    delete_confirm: Option<DeleteConfirm>,
     rename_state: Option<RenameState>,
     properties_dialog: Option<PropertiesDialog>,
     properties_drag: Option<PropertiesDrag>,
@@ -70,6 +73,8 @@ impl FileManager {
             menu_open: false,
             view_submenu_open: false,
             context_menu: None,
+            clipboard: None,
+            delete_confirm: None,
             rename_state: None,
             properties_dialog: None,
             properties_drag: None,
@@ -184,11 +189,15 @@ impl FileManager {
                 self.selection_drag = None;
 
                 self.context_menu = self.browser_pointer.and_then(|position| {
-                    should_show_blank_context_menu(
-                        !self.selected_paths.is_empty(),
-                        self.pointer_over_entry(position),
-                    )
-                    .then_some(position)
+                    if let Some(path) = self.folder_menu_path_at(position) {
+                        Some(ContextMenuState::Folder { position, path })
+                    } else {
+                        should_show_blank_context_menu(
+                            !self.selected_paths.is_empty(),
+                            self.pointer_over_entry(position),
+                        )
+                        .then_some(ContextMenuState::Blank(position))
+                    }
                 });
 
                 Task::none()
@@ -230,6 +239,9 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if let Some(clipboard) = self.clipboard.clone() {
+                    return self.paste_paths(clipboard.paths, clipboard.action);
+                }
                 self.status = "Reading clipboard...".to_string();
                 iced::clipboard::read().map(Message::PasteClipboardRead)
             }
@@ -259,19 +271,98 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
-                let path = self.cwd.clone();
-                self.properties_dialog = Some(PropertiesDialog {
-                    view: PropertiesView::Summary,
-                    state: PropertiesState::Loading(path.clone()),
-                    position: self.default_properties_position(),
-                    permissions_mode: None,
-                    saving_permissions: false,
-                    permission_error: None,
+                self.open_properties(self.cwd.clone())
+            }
+            Message::FolderOpen(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_path(path, EntryKind::Directory)
+            }
+            Message::FolderCopy(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.clipboard = Some(ClipboardState {
+                    action: PasteAction::Copy,
+                    paths: vec![path.clone()],
                 });
-                Task::perform(
-                    async move { folder_properties(path) },
-                    Message::PropertiesLoaded,
-                )
+                self.status = format!("Copied {}", display_name_for_path(&path));
+                Task::none()
+            }
+            Message::FolderCut(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.clipboard = Some(ClipboardState {
+                    action: PasteAction::Cut,
+                    paths: vec![path.clone()],
+                });
+                self.status = format!("Cut {}", display_name_for_path(&path));
+                Task::none()
+            }
+            Message::FolderRename(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.start_rename(path)
+            }
+            Message::FolderDelete(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.delete_confirm = Some(DeleteConfirm {
+                    name: display_name_for_path(&path),
+                    path,
+                });
+                Task::none()
+            }
+            Message::FolderOpenTerminal(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Opening terminal...".to_string();
+                Task::perform(async move { open_terminal(path) }, Message::TerminalOpened)
+            }
+            Message::FolderProperties(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_properties(path)
+            }
+            Message::CancelDelete => {
+                self.delete_confirm = None;
+                Task::none()
+            }
+            Message::ConfirmDelete(path) => {
+                self.delete_confirm = None;
+                self.status = format!("Deleting {}...", display_name_for_path(&path));
+                delete_entry_task(path)
+            }
+            Message::DeleteFinished(result) => {
+                match result {
+                    Ok(path) => {
+                        self.selected_paths.remove(&path);
+                        if self.clipboard.as_ref().is_some_and(|clipboard| {
+                            clipboard.paths.iter().any(|item| item == &path)
+                        }) {
+                            self.clipboard = None;
+                        }
+                        self.status = format!("Deleted {}", display_name_for_path(&path));
+                        self.reload()
+                    }
+                    Err(error) => {
+                        self.status = error.to_string();
+                        Task::none()
+                    }
+                }
             }
             Message::CreateFinished(kind, result) => match result {
                 Ok(path) => {
@@ -320,6 +411,13 @@ impl FileManager {
             Message::RenameSubmit => self.submit_rename(),
             Message::RenameFinished(result) => match result {
                 Ok(path) => {
+                    if let Some(rename) = &self.rename_state {
+                        if self.clipboard.as_ref().is_some_and(|clipboard| {
+                            clipboard.paths.iter().any(|item| item == &rename.path)
+                        }) {
+                            self.clipboard = None;
+                        }
+                    }
                     self.rename_state = None;
                     self.selected_paths.clear();
                     self.selected_paths.insert(path);
@@ -363,15 +461,17 @@ impl FileManager {
                     return Task::none();
                 }
 
-                let destination = self.cwd.clone();
-                self.status = "Pasting...".to_string();
-                Task::perform(
-                    async move { paste_paths(paths, destination, action) },
-                    Message::PasteFinished,
-                )
+                self.paste_paths(paths, action)
             }
             Message::PasteFinished(result) => match result {
                 Ok(paths) => {
+                    if self
+                        .clipboard
+                        .as_ref()
+                        .is_some_and(|clipboard| clipboard.action == PasteAction::Cut)
+                    {
+                        self.clipboard = None;
+                    }
                     self.status = format!("Pasted {} item(s)", paths.len());
                     self.reload()
                 }
@@ -542,10 +642,15 @@ impl FileManager {
             .width(Fill)
             .style(style::app_background);
 
-        stack([shell.into(), resize_layer(), self.properties_overlay()])
-            .height(Fill)
-            .width(Fill)
-            .into()
+        stack([
+            shell.into(),
+            resize_layer(),
+            self.properties_overlay(),
+            self.delete_confirm_overlay(),
+        ])
+        .height(Fill)
+        .width(Fill)
+        .into()
     }
 
     fn sidebar(&self) -> Element<'_, Message> {
@@ -957,6 +1062,7 @@ impl FileManager {
 
     fn list_row(&self, entry: &DisplayEntry) -> Element<'_, Message> {
         let selected = self.is_selected(entry);
+        let cut = self.is_cut_path(&entry.file.path);
         let size = entry_size(&entry.file);
         let owner = entry_owner(&entry.file);
         let modified = format_modified(entry.file.modified);
@@ -964,13 +1070,14 @@ impl FileManager {
             entry,
             short_list_text(&self.entry_display_name(entry)),
             Length::FillPortion(5),
+            cut,
         );
 
         let content = row![
             name_cell,
-            list_value_cell(size, Length::FillPortion(2), false),
-            list_value_cell(owner, Length::FillPortion(2), false),
-            list_value_cell(modified, Length::FillPortion(3), false),
+            list_value_cell(size, Length::FillPortion(2), false, cut),
+            list_value_cell(owner, Length::FillPortion(2), false, cut),
+            list_value_cell(modified, Length::FillPortion(3), false, cut),
         ]
         .spacing(12)
         .align_y(iced::Center)
@@ -980,7 +1087,7 @@ impl FileManager {
             .height(LIST_ROW_HEIGHT)
             .width(Fill)
             .padding([0, 14])
-            .style(move |_| style::list_row_container(selected));
+            .style(move |_| style::list_row_container(selected, cut));
 
         mouse_area(row)
             .interaction(mouse::Interaction::Pointer)
@@ -991,18 +1098,27 @@ impl FileManager {
 
     fn tile(&self, entry: &DisplayEntry) -> Element<'_, Message> {
         let selected = self.is_selected(entry);
+        let cut = self.is_cut_path(&entry.file.path);
         let name: Element<'_, Message> = text(short_name(&entry.file.name))
             .size(15)
             .width(TILE_WIDTH)
             .align_x(Horizontal::Center)
-            .style(style::primary_text)
+            .style(if cut {
+                style::disabled_text
+            } else {
+                style::primary_text
+            })
             .into();
 
         let meta = text(self.entry_subtitle(entry))
             .size(12)
             .width(TILE_WIDTH)
             .align_x(Horizontal::Center)
-            .style(style::muted_text);
+            .style(if cut {
+                style::disabled_text
+            } else {
+                style::muted_text
+            });
 
         let content = column![entry_icon(&entry.icon, 78.0), name, meta]
             .spacing(8)
@@ -1013,7 +1129,7 @@ impl FileManager {
             .height(TILE_HEIGHT)
             .width(TILE_WIDTH)
             .padding(8)
-            .style(move |_| style::tile_container(selected));
+            .style(move |_| style::tile_container(selected, cut));
 
         mouse_area(tile)
             .interaction(mouse::Interaction::Pointer)
@@ -1501,29 +1617,20 @@ impl FileManager {
     }
 
     fn context_menu_overlay(&self) -> Element<'_, Message> {
-        let Some(position) = self.context_menu else {
+        let Some(menu_state) = &self.context_menu else {
             return container(space()).height(Fill).width(Fill).into();
         };
-        let position = self.context_menu_position(position);
 
-        let menu = container(
-            column![
-                context_menu_item("新建文件", Message::ContextNewFile),
-                context_menu_item("新建文件夹", Message::ContextNewFolder),
-                context_menu_separator(),
-                context_menu_item("粘贴", Message::ContextPaste),
-                context_menu_item("全选", Message::ContextSelectAll),
-                context_menu_separator(),
-                context_menu_item("在终端打开", Message::ContextOpenTerminal),
-                context_menu_separator(),
-                context_menu_item("属性", Message::ContextProperties),
-            ]
-            .spacing(2)
-            .align_x(iced::Alignment::Start)
-            .padding(6),
-        )
-        .width(CONTEXT_MENU_WIDTH)
-        .style(style::context_menu);
+        let (position, menu): (Point, Element<'_, Message>) = match menu_state {
+            ContextMenuState::Blank(position) => (
+                self.context_menu_position(*position),
+                self.blank_context_menu(),
+            ),
+            ContextMenuState::Folder { position, path } => (
+                self.context_menu_position(*position),
+                self.folder_context_menu(path.clone()),
+            ),
+        };
 
         container(
             column![
@@ -1540,6 +1647,110 @@ impl FileManager {
         .height(Fill)
         .width(Fill)
         .into()
+    }
+
+    fn blank_context_menu(&self) -> Element<'_, Message> {
+        container(
+            column![
+                context_menu_item("新建文件", Message::ContextNewFile),
+                context_menu_item("新建文件夹", Message::ContextNewFolder),
+                context_menu_separator(),
+                context_menu_item("粘贴", Message::ContextPaste),
+                context_menu_item("全选", Message::ContextSelectAll),
+                context_menu_separator(),
+                context_menu_item("在终端打开", Message::ContextOpenTerminal),
+                context_menu_separator(),
+                context_menu_item("属性", Message::ContextProperties),
+            ]
+            .spacing(2)
+            .align_x(iced::Alignment::Start)
+            .padding(6),
+        )
+        .width(CONTEXT_MENU_WIDTH)
+        .style(style::context_menu)
+        .into()
+    }
+
+    fn folder_context_menu(&self, path: PathBuf) -> Element<'_, Message> {
+        container(
+            column![
+                context_menu_item("打开", Message::FolderOpen(path.clone())),
+                context_menu_separator(),
+                context_menu_item("复制", Message::FolderCopy(path.clone())),
+                context_menu_item("剪切", Message::FolderCut(path.clone())),
+                context_menu_separator(),
+                context_menu_item("重命名", Message::FolderRename(path.clone())),
+                context_menu_item("删除", Message::FolderDelete(path.clone())),
+                context_menu_separator(),
+                context_menu_item("在终端打开", Message::FolderOpenTerminal(path.clone())),
+                context_menu_separator(),
+                context_menu_item("属性", Message::FolderProperties(path)),
+            ]
+            .spacing(2)
+            .align_x(iced::Alignment::Start)
+            .padding(6),
+        )
+        .width(CONTEXT_MENU_WIDTH)
+        .style(style::context_menu)
+        .into()
+    }
+
+    fn delete_confirm_overlay(&self) -> Element<'_, Message> {
+        let Some(confirm) = &self.delete_confirm else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let dialog = container(
+            column![
+                text("删除文件夹").size(16).style(style::primary_text),
+                text(format!("确定删除 {} 文件夹吗？", confirm.name))
+                    .size(14)
+                    .style(style::primary_text),
+                row![
+                    button(
+                        container(text("取消").size(14).style(style::primary_text))
+                            .height(Fill)
+                            .align_x(Horizontal::Center)
+                            .align_y(Vertical::Center),
+                    )
+                    .height(36)
+                    .padding([0, 16])
+                    .style(style::toolbar_button)
+                    .on_press(Message::CancelDelete),
+                    space().width(Fill),
+                    button(
+                        container(text("确定").size(14).style(style::primary_text))
+                            .height(Fill)
+                            .align_x(Horizontal::Center)
+                            .align_y(Vertical::Center),
+                    )
+                    .height(36)
+                    .padding([0, 16])
+                    .style(style::danger_button)
+                    .on_press(Message::ConfirmDelete(confirm.path.clone())),
+                ]
+                .align_y(iced::Center),
+            ]
+            .spacing(18)
+            .padding(18),
+        )
+        .width(360)
+        .style(style::properties_dialog);
+
+        let overlay = container(dialog)
+            .width(Fill)
+            .height(Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .style(style::modal_overlay);
+
+        mouse_area(overlay)
+            .on_press(Message::PropertiesEventSink)
+            .on_release(Message::PropertiesEventSink)
+            .on_right_press(Message::PropertiesEventSink)
+            .on_middle_press(Message::PropertiesEventSink)
+            .on_scroll(|_| Message::PropertiesEventSink)
+            .into()
     }
 
     fn properties_overlay(&self) -> Element<'_, Message> {
@@ -1923,6 +2134,52 @@ impl FileManager {
         )
     }
 
+    fn open_properties(&mut self, path: PathBuf) -> Task<Message> {
+        self.properties_dialog = Some(PropertiesDialog {
+            view: PropertiesView::Summary,
+            state: PropertiesState::Loading(path.clone()),
+            position: self.default_properties_position(),
+            permissions_mode: None,
+            saving_permissions: false,
+            permission_error: None,
+        });
+
+        Task::perform(
+            async move { folder_properties(path) },
+            Message::PropertiesLoaded,
+        )
+    }
+
+    fn start_rename(&mut self, path: PathBuf) -> Task<Message> {
+        let Some(value) = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+        else {
+            self.status = "Cannot rename this folder".to_string();
+            return Task::none();
+        };
+
+        let limits = path
+            .parent()
+            .and_then(|parent| child_path_limits(parent).ok())
+            .unwrap_or_default();
+
+        self.rename_state = Some(RenameState::new(path.clone(), value, limits));
+        self.selected_paths.clear();
+        self.selected_paths.insert(path);
+        self.status = "Enter a new name".to_string();
+        self.focus_rename_input(true)
+    }
+
+    fn paste_paths(&mut self, paths: Vec<PathBuf>, action: PasteAction) -> Task<Message> {
+        let destination = self.cwd.clone();
+        self.status = "Pasting...".to_string();
+        Task::perform(
+            async move { paste_paths(paths, destination, action) },
+            Message::PasteFinished,
+        )
+    }
+
     fn submit_rename(&mut self) -> Task<Message> {
         if let Some(rename) = &mut self.rename_state {
             rename.value = rename.content.text();
@@ -1981,11 +2238,35 @@ impl FileManager {
     }
 
     fn pointer_over_entry(&self, position: Point) -> bool {
+        self.entry_at_position(position).is_some()
+    }
+
+    fn folder_menu_path_at(&self, position: Point) -> Option<PathBuf> {
+        let entry = self.entry_at_position(position)?;
+
+        if self.selected_paths.len() == 1
+            && self.selected_paths.contains(&entry.file.path)
+            && matches!(entry.file.kind, EntryKind::Directory)
+        {
+            Some(entry.file.path.clone())
+        } else {
+            None
+        }
+    }
+
+    fn entry_at_position(&self, position: Point) -> Option<&DisplayEntry> {
         let content_position = Point::new(position.x, position.y + self.browser_scroll_y);
 
-        self.entries.iter().enumerate().any(|(index, _)| {
+        self.entries.iter().enumerate().find_map(|(index, entry)| {
             self.entry_content_rect(index)
                 .is_some_and(|rect| rect_contains(rect, content_position))
+                .then_some(entry)
+        })
+    }
+
+    fn is_cut_path(&self, path: &PathBuf) -> bool {
+        self.clipboard.as_ref().is_some_and(|clipboard| {
+            clipboard.action == PasteAction::Cut && clipboard.paths.iter().any(|item| item == path)
         })
     }
 

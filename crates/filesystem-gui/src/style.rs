@@ -85,9 +85,11 @@ pub(crate) fn rename_editor(
     }
 }
 
-pub(crate) fn tile_container(selected: bool) -> container_style::Style {
+pub(crate) fn tile_container(selected: bool, dimmed: bool) -> container_style::Style {
     let border = if selected {
         Border::default().rounded(8).color(SELECTION).width(1)
+    } else if dimmed {
+        Border::default().rounded(8).color(BORDER).width(1)
     } else {
         Border::default().rounded(8)
     };
@@ -96,6 +98,8 @@ pub(crate) fn tile_container(selected: bool) -> container_style::Style {
 
     if selected {
         style.background(SURFACE)
+    } else if dimmed {
+        style.background(Color::from_rgba(0.18, 0.18, 0.21, 0.35))
     } else {
         style
     }
@@ -107,9 +111,11 @@ pub(crate) fn list_header(_theme: &Theme) -> container_style::Style {
         .border(Border::default().color(BORDER).width(1).rounded(6))
 }
 
-pub(crate) fn list_row_container(selected: bool) -> container_style::Style {
+pub(crate) fn list_row_container(selected: bool, dimmed: bool) -> container_style::Style {
     let background = if selected {
         SURFACE_HOVER
+    } else if dimmed {
+        Color::from_rgba(0.18, 0.18, 0.21, 0.35)
     } else {
         Color::TRANSPARENT
     };
@@ -227,6 +233,23 @@ pub(crate) fn disabled_button(
     }
 }
 
+pub(crate) fn danger_button(_theme: &Theme, status: button_style::Status) -> button_style::Style {
+    let background = match status {
+        button_style::Status::Hovered | button_style::Status::Pressed => {
+            Color::from_rgb(0.68, 0.18, 0.22)
+        }
+        _ => Color::from_rgb(0.56, 0.16, 0.22),
+    };
+
+    button_style::Style {
+        background: Some(Background::Color(background)),
+        text_color: TEXT,
+        border: Border::default().rounded(8),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub(crate) fn toolbar_button(_theme: &Theme, status: button_style::Status) -> button_style::Style {
     let color = match status {
         button_style::Status::Hovered | button_style::Status::Pressed => SURFACE_HOVER,
@@ -332,6 +355,12 @@ pub(crate) fn primary_text(_theme: &Theme) -> iced::widget::text::Style {
 
 pub(crate) fn muted_text(_theme: &Theme) -> iced::widget::text::Style {
     iced::widget::text::Style { color: Some(MUTED) }
+}
+
+pub(crate) fn disabled_text(_theme: &Theme) -> iced::widget::text::Style {
+    iced::widget::text::Style {
+        color: Some(DISABLED),
+    }
 }
 
 pub(crate) fn divider<'a>() -> Element<'a, Message> {

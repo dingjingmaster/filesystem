@@ -71,6 +71,12 @@ pub(crate) fn rect_contains(rect: Rectangle, point: Point) -> bool {
         && point.y <= rect.y + rect.height
 }
 
+pub(crate) fn display_name_for_path(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 pub(crate) fn short_name(name: &str) -> String {
     const MAX_CHARS: usize = 18;
     if name.chars().count() <= MAX_CHARS {

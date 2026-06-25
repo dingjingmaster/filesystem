@@ -351,6 +351,17 @@ pub fn set_permissions(path: impl AsRef<Path>, mode: u32) -> Result<(), FsError>
         .map_err(|error| FsError::from_io(path, error))
 }
 
+pub fn delete_entry(path: impl AsRef<Path>) -> Result<(), FsError> {
+    let path = path.as_ref();
+    let metadata = fs::symlink_metadata(path).map_err(|error| FsError::from_io(path, error))?;
+
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path).map_err(|error| FsError::from_io(path, error))
+    } else {
+        fs::remove_file(path).map_err(|error| FsError::from_io(path, error))
+    }
+}
+
 impl FsError {
     fn from_io(path: &Path, error: io::Error) -> Self {
         Self {
@@ -958,6 +969,36 @@ mod tests {
         let error = set_permissions(&target, 0o10000).unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn delete_entry_removes_directories_recursively() {
+        let fixture = TempDir::new("delete-directory");
+        let target = fixture.path().join("target");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("a.txt"), b"a").unwrap();
+        fs::create_dir(target.join("nested")).unwrap();
+        fs::write(target.join("nested/b.txt"), b"b").unwrap();
+
+        delete_entry(&target).unwrap();
+
+        assert!(!target.exists());
+        assert!(fixture.path().exists());
+    }
+
+    #[test]
+    fn delete_entry_removes_symlink_without_deleting_target() {
+        let fixture = TempDir::new("delete-symlink");
+        let target = fixture.path().join("target");
+        let link = fixture.path().join("link");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("kept.txt"), b"kept").unwrap();
+        symlink(&target, &link).unwrap();
+
+        delete_entry(&link).unwrap();
+
+        assert!(!link.exists());
+        assert_eq!(fs::read_to_string(target.join("kept.txt")).unwrap(), "kept");
     }
 
     fn names(listing: &DirectoryListing) -> Vec<&str> {

@@ -1,4 +1,6 @@
-use filesystem_core::{ChildPathLimits, EntryKind, FileEntry, FolderProperties, FsError};
+use filesystem_core::{
+    ChildPathLimits, EntryKind, FileEntry, FolderProperties, FsError, PasteAction,
+};
 use iced::widget::text_editor;
 use iced::{Point, Size, window};
 use std::path::PathBuf;
@@ -24,6 +26,16 @@ pub(crate) enum Message {
     ContextSelectAll,
     ContextOpenTerminal,
     ContextProperties,
+    FolderOpen(PathBuf),
+    FolderCopy(PathBuf),
+    FolderCut(PathBuf),
+    FolderRename(PathBuf),
+    FolderDelete(PathBuf),
+    FolderOpenTerminal(PathBuf),
+    FolderProperties(PathBuf),
+    CancelDelete,
+    ConfirmDelete(PathBuf),
+    DeleteFinished(Result<PathBuf, FsError>),
     CreateFinished(NewEntryKind, Result<PathBuf, FsError>),
     RenameEditorAction(text_editor::Action),
     RenameSubmit,
@@ -142,6 +154,24 @@ pub(crate) struct PropertiesDialog {
 pub(crate) struct PropertiesDrag {
     pub(crate) pointer_origin: Point,
     pub(crate) dialog_origin: Point,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClipboardState {
+    pub(crate) action: PasteAction,
+    pub(crate) paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ContextMenuState {
+    Blank(Point),
+    Folder { position: Point, path: PathBuf },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DeleteConfirm {
+    pub(crate) path: PathBuf,
+    pub(crate) name: String,
 }
 
 impl ViewMode {
