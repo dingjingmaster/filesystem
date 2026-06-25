@@ -3,7 +3,7 @@
 > 文档元数据
 > - 文档版本：v1.0.0
 > - 最后更新：2026-06-25
-> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md
+> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/4-summary-gui-module-refactor.md
 > - 关联产品文档：docs/overview-product.md
 
 ## 1. 技术栈
@@ -22,6 +22,15 @@
 - 模块划分：
   - `crates/filesystem-core`：本地文件系统模型、只读扫描/搜索 API、首批写操作 API、剪贴板文本路径解析、当前文件夹属性统计和权限修改 API，不依赖 GUI。
   - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、访问历史栈、侧边栏导航、可编辑地址栏、视图模式、菜单状态、右键菜单状态、内联重命名状态、属性弹窗状态、属性弹窗位置/拖拽/权限编辑状态、选中路径集合、框选拖拽状态、主文件区宽度、窗口尺寸、窗口控制/缩放消息和显示状态。
+  - `crates/filesystem-gui/src/main.rs`：只保留模块声明和 iced 应用入口。
+  - `crates/filesystem-gui/src/app.rs`：`FileManager` 状态机、导航历史、update/view 编排和主要交互控制流。
+  - `crates/filesystem-gui/src/model.rs`：GUI 消息、视图模式、显示条目、属性弹窗、重命名和选择拖拽等共享状态模型。
+  - `crates/filesystem-gui/src/tasks.rs`：目录加载、文件名搜索、新建、终端启动和窗口 task 等后台/系统适配函数；阻塞型 I/O 继续通过 `Task::perform` 发起。
+  - `crates/filesystem-gui/src/icons.rs`：主题图标解析和本地 SVG 回退策略，封装 `IconResolver`。
+  - `crates/filesystem-gui/src/components.rs`：toolbar、窗口按钮、侧栏图标、列表单元格、重命名编辑器、右键菜单和属性页行组件等 iced widget 工厂。
+  - `crates/filesystem-gui/src/utils.rs`：布局计算、几何命中、格式化、权限显示和相关单元测试等纯函数。
+  - `crates/filesystem-gui/src/config.rs`：应用名、窗口尺寸、布局常量和窗口 icon 设置。
+  - `crates/filesystem-gui/src/style.rs`：主题颜色、按钮/容器/输入框/SVG 样式和分割线组件。
 - 进程/线程边界：当前只运行单 GUI 进程；目录扫描、文件名正则搜索、新建、重命名、粘贴复制/移动、当前文件夹属性统计、当前文件夹权限保存和终端探测/启动通过 iced `Task::perform` 交给 `thread-pool` executor 执行，UI 线程只处理状态更新和渲染；后续删除等可能阻塞 UI 的文件操作必须沿用后台任务模型。
 - 客户端/服务端/驱动边界：无服务端、无内核模块、无桌面服务客户端。
 - 数据流：GUI 状态发起后台 `scan_dir` 或 `search_file_names` 任务，core 返回 `DirectoryListing` 或 `SearchResults`，GUI 后台装饰步骤把条目转换为带 `EntryIcon` 的 `DisplayEntry` 后再发送完成消息；GUI 收到完成消息后渲染条目或错误状态；每个后台请求带自增 ID，过期结果会被丢弃。
@@ -130,6 +139,7 @@
   - docs/dev/1-plan-local-linux-file-manager.md
   - docs/dev/1-summary-local-linux-file-manager.md
   - docs/dev/2-summary-context-menu-file-ops-properties.md
+  - docs/dev/4-summary-gui-module-refactor.md
 
 ## 10. 变更记录
 
@@ -160,3 +170,4 @@
 | 2026-06-25 | 记录 `child_path_limits` 和重命名超长输入保护 | 更新 core/GUI 接口事实 | docs/dev/2-summary-context-menu-file-ops-properties.md |
 | 2026-06-25 | 记录右键菜单无选中项语义、固定宽度钳制和菜单项对齐 | 更新 GUI 交互与布局控制流 | docs/dev/2-summary-context-menu-file-ops-properties.md |
 | 2026-06-25 | 记录 `set_permissions`、属性弹窗事件隔离/拖拽和权限编辑后台保存控制流 | 更新 core/GUI 接口与交互控制流 | docs/dev/3-summary-properties-permission-edit.md |
+| 2026-06-25 | 记录 GUI crate 从单文件拆分为 app/model/tasks/icons/components/utils/config/style 模块 | 更新 GUI 长期架构事实 | docs/dev/4-summary-gui-module-refactor.md |

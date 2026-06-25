@@ -1,0 +1,1997 @@
+use crate::components::*;
+use crate::config::*;
+use crate::model::*;
+use crate::style;
+use crate::tasks::*;
+use crate::utils::*;
+use filesystem_core::{
+    ClipboardPaths, EntryKind, FolderProperties, FsError, ScanOptions, child_path_limits,
+    folder_properties, parse_clipboard_paths, paste_paths, rename_entry, set_permissions,
+};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{
+    button, checkbox, column, container, mouse_area, operation, row, scrollable, space, stack,
+    text, text_editor, text_input,
+};
+use iced::{
+    Element, Fill, Length, Padding, Point, Rectangle, Size, Subscription, Task, mouse, window,
+};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+pub(crate) struct FileManager {
+    cwd: PathBuf,
+    entries: Vec<DisplayEntry>,
+    show_hidden: bool,
+    status: String,
+    path_input: String,
+    search_query: Option<String>,
+    search_root: Option<PathBuf>,
+    view_mode: ViewMode,
+    menu_open: bool,
+    view_submenu_open: bool,
+    context_menu: Option<Point>,
+    rename_state: Option<RenameState>,
+    properties_dialog: Option<PropertiesDialog>,
+    properties_drag: Option<PropertiesDrag>,
+    properties_pointer: Option<Point>,
+    selected_paths: BTreeSet<PathBuf>,
+    selection_drag: Option<SelectionDrag>,
+    browser_pointer: Option<Point>,
+    browser_scroll_y: f32,
+    browser_width: f32,
+    window_size: Size,
+    next_request_id: u64,
+    active_request_id: Option<u64>,
+    back_history: Vec<PathBuf>,
+    forward_history: Vec<PathBuf>,
+    home: Option<PathBuf>,
+    home_shortcuts: Vec<HomeShortcut>,
+}
+
+impl FileManager {
+    pub(crate) fn title(&self) -> String {
+        format!("{APP_NAME_EN} - {}", self.cwd.display())
+    }
+
+    pub(crate) fn new() -> (Self, Task<Message>) {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let shortcuts_task = load_home_shortcuts(home.clone());
+        let mut manager = Self {
+            cwd,
+            entries: Vec::new(),
+            show_hidden: false,
+            status: String::new(),
+            path_input: String::new(),
+            search_query: None,
+            search_root: None,
+            view_mode: ViewMode::Icons,
+            menu_open: false,
+            view_submenu_open: false,
+            context_menu: None,
+            rename_state: None,
+            properties_dialog: None,
+            properties_drag: None,
+            properties_pointer: None,
+            selected_paths: BTreeSet::new(),
+            selection_drag: None,
+            browser_pointer: None,
+            browser_scroll_y: 0.0,
+            browser_width: browser_width_from_window(WINDOW_INITIAL_WIDTH),
+            window_size: Size::new(WINDOW_INITIAL_WIDTH, WINDOW_INITIAL_HEIGHT),
+            next_request_id: 0,
+            active_request_id: None,
+            back_history: Vec::new(),
+            forward_history: Vec::new(),
+            home,
+            home_shortcuts: Vec::new(),
+        };
+        let task = manager.reload();
+        (manager, Task::batch([task, shortcuts_task]))
+    }
+
+    pub(crate) fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Open(path, kind) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_path(path, kind)
+            }
+            Message::Go(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.visit_path(path)
+            }
+            Message::Back => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.go_back()
+            }
+            Message::Forward => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.go_forward()
+            }
+            Message::PathChanged(path) => {
+                self.path_input = path;
+                Task::none()
+            }
+            Message::PathSubmit => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_path_input()
+            }
+            Message::SelectEntry(path) => {
+                if self
+                    .rename_state
+                    .as_ref()
+                    .is_some_and(|rename| rename.path != path)
+                {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.selection_drag = None;
+                self.selected_paths.clear();
+                self.selected_paths.insert(path);
+                Task::none()
+            }
+            Message::BrowserPointerMoved(position) => {
+                self.browser_pointer = Some(position);
+                if let Some(drag) = &mut self.selection_drag {
+                    drag.current = position;
+                    self.select_entries_in_drag_rect();
+                }
+                Task::none()
+            }
+            Message::BrowserPressed => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                if let Some(position) = self.browser_pointer {
+                    self.selection_drag = Some(SelectionDrag {
+                        origin: position,
+                        current: position,
+                    });
+                    self.selected_paths.clear();
+                }
+                Task::none()
+            }
+            Message::BrowserReleased => {
+                if self.selection_drag.is_some() {
+                    self.select_entries_in_drag_rect();
+                    self.selection_drag = None;
+                }
+                Task::none()
+            }
+            Message::BrowserRightPressed => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.menu_open = false;
+                self.view_submenu_open = false;
+                self.selection_drag = None;
+
+                self.context_menu = self.browser_pointer.and_then(|position| {
+                    should_show_blank_context_menu(
+                        !self.selected_paths.is_empty(),
+                        self.pointer_over_entry(position),
+                    )
+                    .then_some(position)
+                });
+
+                Task::none()
+            }
+            Message::BrowserScrolled(offset_y) => {
+                self.browser_scroll_y = offset_y;
+                if self.selection_drag.is_some() {
+                    self.select_entries_in_drag_rect();
+                }
+                Task::none()
+            }
+            Message::WindowResized(size) => {
+                self.window_size = size;
+                self.browser_width = browser_width_from_window(size.width);
+                self.clamp_properties_position();
+                if self.selection_drag.is_some() {
+                    self.select_entries_in_drag_rect();
+                }
+                Task::none()
+            }
+            Message::ContextNewFile => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Creating file...".to_string();
+                create_entry_task(self.cwd.clone(), NewEntryKind::File)
+            }
+            Message::ContextNewFolder => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Creating folder...".to_string();
+                create_entry_task(self.cwd.clone(), NewEntryKind::Folder)
+            }
+            Message::ContextPaste => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Reading clipboard...".to_string();
+                iced::clipboard::read().map(Message::PasteClipboardRead)
+            }
+            Message::ContextSelectAll => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.selected_paths = self
+                    .entries
+                    .iter()
+                    .map(|entry| entry.file.path.clone())
+                    .collect();
+                Task::none()
+            }
+            Message::ContextOpenTerminal => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.status = "Opening terminal...".to_string();
+                let cwd = self.cwd.clone();
+                Task::perform(async move { open_terminal(cwd) }, Message::TerminalOpened)
+            }
+            Message::ContextProperties => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                let path = self.cwd.clone();
+                self.properties_dialog = Some(PropertiesDialog {
+                    view: PropertiesView::Summary,
+                    state: PropertiesState::Loading(path.clone()),
+                    position: self.default_properties_position(),
+                    permissions_mode: None,
+                    saving_permissions: false,
+                    permission_error: None,
+                });
+                Task::perform(
+                    async move { folder_properties(path) },
+                    Message::PropertiesLoaded,
+                )
+            }
+            Message::CreateFinished(kind, result) => match result {
+                Ok(path) => {
+                    let value = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let limits = path
+                        .parent()
+                        .and_then(|parent| child_path_limits(parent).ok())
+                        .unwrap_or_default();
+                    self.rename_state = Some(RenameState::new(path.clone(), value, limits));
+                    self.status = match kind {
+                        NewEntryKind::File => "File created; enter a new name".to_string(),
+                        NewEntryKind::Folder => "Folder created; enter a new name".to_string(),
+                    };
+                    self.reload()
+                }
+                Err(error) => {
+                    self.status = error.to_string();
+                    Task::none()
+                }
+            },
+            Message::RenameEditorAction(action) => {
+                if matches!(action, text_editor::Action::Edit(text_editor::Edit::Enter)) {
+                    return self.submit_rename();
+                }
+
+                if let Some(rename) = &mut self.rename_state {
+                    let previous_content = rename.content.clone();
+                    let previous_value = rename.value.clone();
+                    rename.content.perform(action);
+                    let value = rename.content.text();
+
+                    if let Some(message) = rename_limit_error(rename, &value) {
+                        rename.content = previous_content;
+                        rename.value = previous_value;
+                        self.status = message;
+                        return self.focus_rename_input(false);
+                    }
+
+                    rename.value = value;
+                }
+                Task::none()
+            }
+            Message::RenameSubmit => self.submit_rename(),
+            Message::RenameFinished(result) => match result {
+                Ok(path) => {
+                    self.rename_state = None;
+                    self.selected_paths.clear();
+                    self.selected_paths.insert(path);
+                    self.status = "Renamed".to_string();
+                    self.reload()
+                }
+                Err(error) => {
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        self.status = "Name already exists; enter another name".to_string();
+                    } else if error.is_name_too_long()
+                        && self.rename_state.as_ref().is_some_and(|rename| {
+                            rename.limits.name_bytes.is_none() || rename.limits.path_bytes.is_none()
+                        })
+                    {
+                        let Some(rename) = self.rename_state.take() else {
+                            return Task::none();
+                        };
+                        self.selected_paths.clear();
+                        self.selected_paths.insert(rename.path);
+                        self.status = format!(
+                            "Name is too long; kept default name {}",
+                            rename.fallback_name
+                        );
+                        return Task::none();
+                    } else {
+                        self.status = error.to_string();
+                    }
+                    self.prepare_rename_retry()
+                }
+            },
+            Message::PasteClipboardRead(contents) => {
+                let Some(contents) = contents else {
+                    self.status = "Clipboard does not contain local paths".to_string();
+                    return Task::none();
+                };
+
+                let ClipboardPaths { action, paths } = parse_clipboard_paths(&contents);
+
+                if paths.is_empty() {
+                    self.status = "Clipboard does not contain local paths".to_string();
+                    return Task::none();
+                }
+
+                let destination = self.cwd.clone();
+                self.status = "Pasting...".to_string();
+                Task::perform(
+                    async move { paste_paths(paths, destination, action) },
+                    Message::PasteFinished,
+                )
+            }
+            Message::PasteFinished(result) => match result {
+                Ok(paths) => {
+                    self.status = format!("Pasted {} item(s)", paths.len());
+                    self.reload()
+                }
+                Err(error) => {
+                    self.status = error.to_string();
+                    Task::none()
+                }
+            },
+            Message::TerminalOpened(result) => {
+                self.status = match result {
+                    Ok(name) => format!("Opened {name}"),
+                    Err(error) => error,
+                };
+                Task::none()
+            }
+            Message::PropertiesLoaded(result) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.state = match result {
+                        Ok(properties) => {
+                            dialog.permissions_mode = properties.mode;
+                            dialog.permission_error = None;
+                            PropertiesState::Loaded(properties)
+                        }
+                        Err(error) => PropertiesState::Error(error.to_string()),
+                    };
+                }
+                Task::none()
+            }
+            Message::PropertiesPermissionsSaved(result) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.saving_permissions = false;
+                    match result {
+                        Ok(properties) => {
+                            dialog.permissions_mode = properties.mode;
+                            dialog.permission_error = None;
+                            dialog.state = PropertiesState::Loaded(properties);
+                            self.status = "Permissions changed".to_string();
+                        }
+                        Err(error) => {
+                            dialog.permission_error = Some(error.to_string());
+                            self.status = "Failed to change permissions".to_string();
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::CloseProperties => {
+                self.properties_dialog = None;
+                self.properties_drag = None;
+                Task::none()
+            }
+            Message::SetPropertiesView(view) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.view = view;
+                    if view == PropertiesView::Permissions {
+                        if let PropertiesState::Loaded(properties) = &dialog.state {
+                            dialog.permissions_mode = properties.mode;
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::PropertiesPointerMoved(position) => {
+                self.properties_pointer = Some(position);
+                if let Some(drag) = self.properties_drag {
+                    let x = drag.dialog_origin.x + position.x - drag.pointer_origin.x;
+                    let y = drag.dialog_origin.y + position.y - drag.pointer_origin.y;
+                    self.set_properties_position(Point::new(x, y));
+                }
+                Task::none()
+            }
+            Message::PropertiesDragStarted => {
+                if let (Some(pointer), Some(dialog)) =
+                    (self.properties_pointer, self.properties_dialog.as_ref())
+                {
+                    self.properties_drag = Some(PropertiesDrag {
+                        pointer_origin: pointer,
+                        dialog_origin: dialog.position,
+                    });
+                }
+                Task::none()
+            }
+            Message::PropertiesDragEnded => {
+                self.properties_drag = None;
+                Task::none()
+            }
+            Message::PropertiesEventSink => Task::none(),
+            Message::CyclePermission(class) => {
+                self.cycle_permission(class);
+                Task::none()
+            }
+            Message::CancelPermissions => {
+                self.cancel_permissions();
+                Task::none()
+            }
+            Message::ApplyPermissions => self.apply_permissions(),
+            Message::ToggleHidden(show_hidden) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.show_hidden = show_hidden;
+                if self.search_query.is_some() {
+                    self.rerun_search()
+                } else {
+                    self.reload()
+                }
+            }
+            Message::ToggleMenu => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.context_menu = None;
+                self.menu_open = !self.menu_open;
+                if !self.menu_open {
+                    self.view_submenu_open = false;
+                }
+                Task::none()
+            }
+            Message::ToggleViewSubmenu => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.view_submenu_open = !self.view_submenu_open;
+                Task::none()
+            }
+            Message::SetViewMode(view_mode) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.view_mode = view_mode;
+                self.close_menu();
+                Task::none()
+            }
+            Message::DirectoryLoaded(request, result) => {
+                self.directory_loaded(request, result);
+                self.focus_rename_input(true)
+            }
+            Message::SearchFinished(request, result) => {
+                self.search_finished(request, result);
+                Task::none()
+            }
+            Message::HomeShortcutsLoaded(shortcuts) => {
+                self.home_shortcuts = shortcuts;
+                Task::none()
+            }
+            Message::WindowDrag => latest_window_task(window::drag),
+            Message::WindowClose => latest_window_task(window::close),
+            Message::WindowMinimize => latest_window_task(|id| window::minimize(id, true)),
+            Message::WindowToggleMaximize => latest_window_task(window::toggle_maximize),
+            Message::WindowResize(direction) => {
+                latest_window_task(move |id| window::drag_resize(id, direction))
+            }
+        }
+    }
+
+    pub(crate) fn subscription(&self) -> Subscription<Message> {
+        window::resize_events().map(|(_id, size)| Message::WindowResized(size))
+    }
+
+    pub(crate) fn view(&self) -> Element<'_, Message> {
+        let shell = row![self.sidebar(), self.main_area()]
+            .height(Fill)
+            .width(Fill);
+
+        let shell = container(shell)
+            .height(Fill)
+            .width(Fill)
+            .style(style::app_background);
+
+        stack([shell.into(), resize_layer(), self.properties_overlay()])
+            .height(Fill)
+            .width(Fill)
+            .into()
+    }
+
+    fn sidebar(&self) -> Element<'_, Message> {
+        let top_drag = mouse_area(
+            container(text(APP_NAME_ZH).size(16).style(style::primary_text))
+                .height(TOOLBAR_HEIGHT)
+                .width(Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center)
+                .style(style::sidebar_drag_area),
+        )
+        .on_press(Message::WindowDrag)
+        .on_double_click(Message::WindowToggleMaximize);
+
+        let quick = column![
+            self.nav_item(
+                NavKind::Home,
+                include_bytes!("../../../icons/home.svg"),
+                "主文件夹"
+            ),
+            self.nav_item(
+                NavKind::Root,
+                include_bytes!("../../../icons/root.svg"),
+                "根目录"
+            ),
+        ]
+        .spacing(4);
+
+        let mut content = column![quick].spacing(8).padding([14, 10]);
+
+        if !self.home_shortcuts.is_empty() {
+            content = content.push(style::divider());
+
+            for shortcut in &self.home_shortcuts {
+                content = content.push(self.nav_path(
+                    shortcut.icon,
+                    shortcut.label,
+                    shortcut.path.clone(),
+                ));
+            }
+        }
+
+        let sidebar = column![top_drag, container(content).height(Fill).width(Fill)].spacing(0);
+
+        container(sidebar)
+            .width(SIDEBAR_WIDTH)
+            .height(Fill)
+            .style(style::sidebar)
+            .into()
+    }
+
+    fn main_area(&self) -> Element<'_, Message> {
+        let content = column![self.toolbar(), self.browser_view()]
+            .height(Fill)
+            .width(Fill)
+            .spacing(0);
+
+        let content = container(content)
+            .height(Fill)
+            .width(Fill)
+            .style(style::content_background)
+            .into();
+
+        if self.menu_open {
+            stack([content, self.toolbar_menu()])
+                .height(Fill)
+                .width(Fill)
+                .into()
+        } else {
+            content
+        }
+    }
+
+    fn toolbar(&self) -> Element<'_, Message> {
+        let can_go_back = !self.back_history.is_empty();
+        let back = button(toolbar_icon(
+            include_bytes!("../../../icons/left.svg"),
+            can_go_back,
+        ))
+        .height(36)
+        .width(36)
+        .padding(6)
+        .style(style::toolbar_button)
+        .on_press_maybe(can_go_back.then_some(Message::Back));
+
+        let can_go_forward = !self.forward_history.is_empty();
+        let forward = button(toolbar_icon(
+            include_bytes!("../../../icons/right.svg"),
+            can_go_forward,
+        ))
+        .height(36)
+        .width(36)
+        .padding(6)
+        .style(style::toolbar_button)
+        .on_press_maybe(can_go_forward.then_some(Message::Forward));
+
+        let path_bar = text_input("输入绝对路径或文件名正则", &self.path_input)
+            .on_input(Message::PathChanged)
+            .on_submit(Message::PathSubmit)
+            .size(15)
+            .width(Fill)
+            .padding([8, 12])
+            .style(style::path_input);
+
+        let path_bar = container(path_bar).height(38).width(Fill);
+
+        let menu = button(toolbar_icon(
+            include_bytes!("../../../icons/menu.svg"),
+            true,
+        ))
+        .height(36)
+        .width(36)
+        .padding(6)
+        .style(style::toolbar_button)
+        .on_press(Message::ToggleMenu);
+
+        let drag_region = mouse_area(
+            container(space())
+                .height(38)
+                .width(70)
+                .style(style::toolbar_drag_area),
+        )
+        .on_press(Message::WindowDrag)
+        .on_double_click(Message::WindowToggleMaximize);
+
+        let toolbar = row![
+            back,
+            forward,
+            path_bar,
+            drag_region,
+            menu,
+            space().width(8),
+            button(window_icon(include_bytes!("../../../icons/min.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::window_button)
+                .on_press(Message::WindowMinimize),
+            button(window_icon(include_bytes!("../../../icons/max.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::window_button)
+                .on_press(Message::WindowToggleMaximize),
+            button(window_icon(include_bytes!("../../../icons/close.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::close_button)
+                .on_press(Message::WindowClose),
+        ]
+        .align_y(iced::Center)
+        .spacing(10)
+        .padding([8, 12])
+        .height(TOOLBAR_HEIGHT);
+
+        container(toolbar)
+            .height(TOOLBAR_HEIGHT)
+            .width(Fill)
+            .style(style::toolbar)
+            .into()
+    }
+
+    fn toolbar_menu(&self) -> Element<'_, Message> {
+        let view_item = button(
+            row![
+                text("视图").size(14).style(style::primary_text),
+                space().width(Fill),
+                text("›").size(17).style(style::muted_text),
+            ]
+            .align_y(iced::Center)
+            .width(Fill),
+        )
+        .height(32)
+        .width(Fill)
+        .padding([0, 10])
+        .style(move |theme, status| style::menu_button(theme, status, self.view_submenu_open))
+        .on_press(Message::ToggleViewSubmenu);
+
+        let hidden_item = container(
+            checkbox(self.show_hidden)
+                .label("显示隐藏文件")
+                .on_toggle(Message::ToggleHidden)
+                .size(16)
+                .text_size(13)
+                .style(style::checkbox),
+        )
+        .height(32)
+        .width(Fill)
+        .padding([0, 10])
+        .align_y(Vertical::Center);
+
+        let mut menu = row![
+            container(column![view_item, hidden_item].spacing(4).padding(6))
+                .width(178)
+                .style(style::menu_panel)
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Start);
+
+        if self.view_submenu_open {
+            menu = menu.push(
+                container(
+                    column![
+                        self.view_option(ViewMode::Icons),
+                        self.view_option(ViewMode::List),
+                    ]
+                    .spacing(4)
+                    .padding(6),
+                )
+                .width(160)
+                .style(style::menu_panel),
+            );
+        }
+
+        container(row![space().width(Fill), menu])
+            .height(Fill)
+            .width(Fill)
+            .padding(
+                Padding::default()
+                    .top(TOOLBAR_HEIGHT)
+                    .right(168.0)
+                    .left(12.0),
+            )
+            .into()
+    }
+
+    fn view_option(&self, view_mode: ViewMode) -> Element<'_, Message> {
+        let active = self.view_mode == view_mode;
+        let marker = if active { "✓" } else { "" };
+
+        button(
+            row![
+                container(text(marker).size(13).style(style::primary_text))
+                    .width(20)
+                    .align_x(Horizontal::Center),
+                text(view_mode.label()).size(14).style(style::primary_text),
+            ]
+            .spacing(8)
+            .align_y(iced::Center)
+            .width(Fill),
+        )
+        .height(32)
+        .width(Fill)
+        .padding([0, 10])
+        .style(move |theme, status| style::menu_button(theme, status, active))
+        .on_press(Message::SetViewMode(view_mode))
+        .into()
+    }
+
+    fn browser_view(&self) -> Element<'_, Message> {
+        let content = match self.view_mode {
+            ViewMode::Icons => self.grid(),
+            ViewMode::List => self.list(),
+        };
+
+        let content = mouse_area(content)
+            .on_move(Message::BrowserPointerMoved)
+            .on_press(Message::BrowserPressed)
+            .on_release(Message::BrowserReleased)
+            .on_right_press(Message::BrowserRightPressed);
+
+        stack([
+            content.into(),
+            self.selection_overlay(),
+            self.rename_overlay(),
+            self.context_menu_overlay(),
+        ])
+        .height(Fill)
+        .width(Fill)
+        .into()
+    }
+
+    fn grid(&self) -> Element<'_, Message> {
+        let columns = self.icon_grid_columns();
+        let mut rows = column![]
+            .spacing(GRID_ROW_SPACING)
+            .padding([GRID_PADDING_TOP as u16, GRID_PADDING_LEFT as u16]);
+
+        if self.entries.is_empty() {
+            rows = rows.push(
+                container(
+                    column![
+                        text("没有可显示的项目").size(18).style(style::primary_text),
+                        text(&self.status).size(13).style(style::muted_text),
+                    ]
+                    .spacing(8)
+                    .align_x(iced::Center),
+                )
+                .width(Fill)
+                .height(220)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
+            );
+        } else {
+            for chunk in self.entries.chunks(columns) {
+                let mut row = row![].spacing(GRID_COLUMN_SPACING).height(TILE_HEIGHT);
+
+                for entry in chunk {
+                    row = row.push(self.tile(entry));
+                }
+
+                rows = rows.push(row);
+            }
+        }
+
+        let footer = row![
+            text(&self.status).size(13).style(style::muted_text),
+            space().width(Fill),
+            text(format!("{} 项", self.entries.len()))
+                .size(13)
+                .style(style::muted_text),
+        ]
+        .align_y(iced::Center);
+
+        let footer = container(footer).padding([0, 36]).height(34).width(Fill);
+
+        let view = column![
+            scrollable(rows)
+                .on_scroll(|viewport| Message::BrowserScrolled(viewport.absolute_offset().y))
+                .height(Fill)
+                .width(Fill),
+            footer
+        ]
+        .height(Fill)
+        .width(Fill);
+
+        container(view)
+            .height(Fill)
+            .width(Fill)
+            .style(style::content_background)
+            .into()
+    }
+
+    fn list(&self) -> Element<'_, Message> {
+        let mut rows = column![self.list_header()].spacing(0).padding(
+            Padding::default()
+                .top(LIST_PADDING_TOP)
+                .right(LIST_PADDING_LEFT)
+                .left(LIST_PADDING_LEFT),
+        );
+
+        if self.entries.is_empty() {
+            rows = rows.push(
+                container(
+                    column![
+                        text("没有可显示的项目").size(18).style(style::primary_text),
+                        text(&self.status).size(13).style(style::muted_text),
+                    ]
+                    .spacing(8)
+                    .align_x(iced::Center),
+                )
+                .width(Fill)
+                .height(220)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
+            );
+        } else {
+            for entry in &self.entries {
+                rows = rows.push(self.list_row(entry));
+            }
+        }
+
+        let footer = row![
+            text(&self.status).size(13).style(style::muted_text),
+            space().width(Fill),
+            text(format!("{} 项", self.entries.len()))
+                .size(13)
+                .style(style::muted_text),
+        ]
+        .align_y(iced::Center);
+
+        let footer = container(footer).padding([0, 36]).height(34).width(Fill);
+
+        let view = column![
+            scrollable(rows)
+                .on_scroll(|viewport| Message::BrowserScrolled(viewport.absolute_offset().y))
+                .height(Fill)
+                .width(Fill),
+            footer
+        ]
+        .height(Fill)
+        .width(Fill);
+
+        container(view)
+            .height(Fill)
+            .width(Fill)
+            .style(style::content_background)
+            .into()
+    }
+
+    fn list_header(&self) -> Element<'_, Message> {
+        container(
+            row![
+                list_header_cell("名称", Length::FillPortion(5)),
+                list_header_cell("大小", Length::FillPortion(2)),
+                list_header_cell("所有者", Length::FillPortion(2)),
+                list_header_cell("修改时间", Length::FillPortion(3)),
+            ]
+            .spacing(12)
+            .align_y(iced::Center)
+            .height(LIST_HEADER_HEIGHT),
+        )
+        .width(Fill)
+        .padding([0, 14])
+        .style(style::list_header)
+        .into()
+    }
+
+    fn list_row(&self, entry: &DisplayEntry) -> Element<'_, Message> {
+        let selected = self.is_selected(entry);
+        let size = entry_size(&entry.file);
+        let owner = entry_owner(&entry.file);
+        let modified = format_modified(entry.file.modified);
+        let name_cell = list_name_cell(
+            entry,
+            short_list_text(&self.entry_display_name(entry)),
+            Length::FillPortion(5),
+        );
+
+        let content = row![
+            name_cell,
+            list_value_cell(size, Length::FillPortion(2), false),
+            list_value_cell(owner, Length::FillPortion(2), false),
+            list_value_cell(modified, Length::FillPortion(3), false),
+        ]
+        .spacing(12)
+        .align_y(iced::Center)
+        .height(LIST_ROW_HEIGHT);
+
+        let row = container(content)
+            .height(LIST_ROW_HEIGHT)
+            .width(Fill)
+            .padding([0, 14])
+            .style(move |_| style::list_row_container(selected));
+
+        mouse_area(row)
+            .interaction(mouse::Interaction::Pointer)
+            .on_press(Message::SelectEntry(entry.file.path.clone()))
+            .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind))
+            .into()
+    }
+
+    fn tile(&self, entry: &DisplayEntry) -> Element<'_, Message> {
+        let selected = self.is_selected(entry);
+        let name: Element<'_, Message> = text(short_name(&entry.file.name))
+            .size(15)
+            .width(TILE_WIDTH)
+            .align_x(Horizontal::Center)
+            .style(style::primary_text)
+            .into();
+
+        let meta = text(self.entry_subtitle(entry))
+            .size(12)
+            .width(TILE_WIDTH)
+            .align_x(Horizontal::Center)
+            .style(style::muted_text);
+
+        let content = column![entry_icon(&entry.icon, 78.0), name, meta]
+            .spacing(8)
+            .align_x(iced::Center)
+            .width(TILE_WIDTH);
+
+        let tile = container(content)
+            .height(TILE_HEIGHT)
+            .width(TILE_WIDTH)
+            .padding(8)
+            .style(move |_| style::tile_container(selected));
+
+        mouse_area(tile)
+            .interaction(mouse::Interaction::Pointer)
+            .on_press(Message::SelectEntry(entry.file.path.clone()))
+            .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind))
+            .into()
+    }
+
+    fn nav_item(
+        &self,
+        kind: NavKind,
+        icon: &'static [u8],
+        label: &'static str,
+    ) -> Element<'_, Message> {
+        let path = match kind {
+            NavKind::Home => self.home_path(),
+            NavKind::Root => PathBuf::from("/"),
+        };
+
+        self.nav_path(icon, label, path)
+    }
+
+    fn nav_path(
+        &self,
+        icon: &'static [u8],
+        label: &'static str,
+        path: PathBuf,
+    ) -> Element<'_, Message> {
+        let active = path == self.cwd;
+        let content = row![
+            sidebar_icon(icon),
+            text(label).size(15).style(style::primary_text),
+        ]
+        .spacing(10)
+        .align_y(iced::Center)
+        .width(Fill);
+
+        let content = container(content)
+            .height(Fill)
+            .width(Fill)
+            .align_x(Horizontal::Left)
+            .align_y(Vertical::Center);
+
+        button(content)
+            .height(36)
+            .width(Fill)
+            .padding([0, 12])
+            .style(move |theme, status| style::sidebar_button(theme, status, active))
+            .on_press(Message::Go(path))
+            .into()
+    }
+
+    fn home_path(&self) -> PathBuf {
+        self.home.clone().unwrap_or_else(|| PathBuf::from("/"))
+    }
+
+    fn open_path(&mut self, path: PathBuf, kind: EntryKind) -> Task<Message> {
+        if matches!(kind, EntryKind::Directory) {
+            self.visit_path(path)
+        } else {
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("file");
+            self.status = format!("No opener configured for {name}");
+            Task::none()
+        }
+    }
+
+    fn open_path_input(&mut self) -> Task<Message> {
+        let input = self.path_input.trim().to_string();
+        if input.is_empty() {
+            self.status = "Path or search is empty".to_string();
+            return Task::none();
+        }
+
+        let path = PathBuf::from(&input);
+        if !path.is_absolute() {
+            return self.search_current_dir(input);
+        }
+
+        self.visit_path(path)
+    }
+
+    fn visit_path(&mut self, path: PathBuf) -> Task<Message> {
+        if path == self.cwd {
+            return self.reload();
+        }
+
+        let previous = self.cwd.clone();
+        self.load_path(path, DirectoryLoadMode::Visit, Some(previous))
+    }
+
+    fn go_back(&mut self) -> Task<Message> {
+        if let Some(path) = self.back_history.last().cloned() {
+            let previous = self.cwd.clone();
+            self.load_path(path, DirectoryLoadMode::Back, Some(previous))
+        } else {
+            Task::none()
+        }
+    }
+
+    fn go_forward(&mut self) -> Task<Message> {
+        if let Some(path) = self.forward_history.last().cloned() {
+            let previous = self.cwd.clone();
+            self.load_path(path, DirectoryLoadMode::Forward, Some(previous))
+        } else {
+            Task::none()
+        }
+    }
+
+    fn reload(&mut self) -> Task<Message> {
+        self.load_path(self.cwd.clone(), DirectoryLoadMode::Replace, None)
+    }
+
+    fn search_current_dir(&mut self, query: String) -> Task<Message> {
+        if query.trim().is_empty() {
+            self.status = "Search is empty".to_string();
+            return Task::none();
+        }
+
+        let id = self.next_request_id();
+        let root = self.cwd.clone();
+        let options = ScanOptions {
+            show_hidden: self.show_hidden,
+        };
+        let request = SearchRequest { id };
+
+        self.active_request_id = Some(id);
+        self.search_query = Some(query.clone());
+        self.search_root = Some(root.clone());
+        self.status = format!("Searching names for /{query}/...");
+
+        Task::perform(
+            async move { load_search(root, query, options) },
+            move |result| Message::SearchFinished(request.clone(), result),
+        )
+    }
+
+    fn rerun_search(&mut self) -> Task<Message> {
+        let Some(query) = self.search_query.clone() else {
+            return Task::none();
+        };
+
+        self.search_current_dir(query)
+    }
+
+    fn load_path(
+        &mut self,
+        path: PathBuf,
+        mode: DirectoryLoadMode,
+        previous: Option<PathBuf>,
+    ) -> Task<Message> {
+        let id = self.next_request_id();
+        let options = ScanOptions {
+            show_hidden: self.show_hidden,
+        };
+        let request = DirectoryRequest {
+            id,
+            path: path.clone(),
+            mode,
+            previous,
+        };
+
+        self.active_request_id = Some(id);
+        self.status = format!("Loading {}...", path.display());
+
+        Task::perform(
+            async move { load_directory(path, options) },
+            move |result| Message::DirectoryLoaded(request.clone(), result),
+        )
+    }
+
+    fn directory_loaded(
+        &mut self,
+        request: DirectoryRequest,
+        result: Result<DisplayListing, FsError>,
+    ) {
+        if self.active_request_id != Some(request.id) {
+            return;
+        }
+
+        self.active_request_id = None;
+
+        match result {
+            Ok(DisplayListing { path, entries }) => {
+                let count = entries.len();
+
+                match request.mode {
+                    DirectoryLoadMode::Replace => {}
+                    DirectoryLoadMode::Visit => {
+                        if let Some(previous) = request.previous {
+                            self.back_history.push(previous);
+                            self.forward_history.clear();
+                        }
+                    }
+                    DirectoryLoadMode::Back => {
+                        if self.back_history.last() == Some(&request.path) {
+                            self.back_history.pop();
+                        }
+                        if let Some(previous) = request.previous {
+                            self.forward_history.push(previous);
+                        }
+                    }
+                    DirectoryLoadMode::Forward => {
+                        if self.forward_history.last() == Some(&request.path) {
+                            self.forward_history.pop();
+                        }
+                        if let Some(previous) = request.previous {
+                            self.back_history.push(previous);
+                        }
+                    }
+                }
+
+                self.cwd = path;
+                self.entries = entries;
+                self.path_input = self.cwd.display().to_string();
+                self.search_query = None;
+                self.search_root = None;
+                self.clear_selection_state();
+                self.status = format!("{count} entries");
+            }
+            Err(error) => {
+                self.clear_selection_state();
+                self.set_scan_error(error);
+            }
+        }
+    }
+
+    fn search_finished(
+        &mut self,
+        request: SearchRequest,
+        result: Result<DisplaySearchResults, FsError>,
+    ) {
+        if self.active_request_id != Some(request.id) {
+            return;
+        }
+
+        self.active_request_id = None;
+
+        match result {
+            Ok(results) => {
+                let count = results.entries.len();
+                self.entries = results.entries;
+                self.search_query = Some(results.query);
+                self.search_root = Some(results.root);
+                self.clear_selection_state();
+                self.status = format!("{count} name matches");
+            }
+            Err(error) => {
+                self.clear_selection_state();
+                self.set_scan_error(error);
+            }
+        }
+    }
+
+    fn set_scan_error(&mut self, error: FsError) {
+        self.status = error.to_string();
+    }
+
+    fn next_request_id(&mut self) -> u64 {
+        self.next_request_id += 1;
+        self.next_request_id
+    }
+
+    fn entry_subtitle(&self, entry: &DisplayEntry) -> String {
+        let Some(root) = &self.search_root else {
+            return entry_meta(&entry.file);
+        };
+
+        entry
+            .file
+            .path
+            .strip_prefix(root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| entry.file.path.display().to_string())
+    }
+
+    fn entry_display_name(&self, entry: &DisplayEntry) -> String {
+        let Some(root) = &self.search_root else {
+            return entry.file.name.clone();
+        };
+
+        entry
+            .file
+            .path
+            .strip_prefix(root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| entry.file.name.clone())
+    }
+
+    fn is_selected(&self, entry: &DisplayEntry) -> bool {
+        self.selected_paths.contains(&entry.file.path)
+    }
+
+    fn clear_selection_state(&mut self) {
+        self.selected_paths.clear();
+        self.selection_drag = None;
+        self.browser_pointer = None;
+        self.browser_scroll_y = 0.0;
+    }
+
+    fn icon_grid_columns(&self) -> usize {
+        icon_grid_columns(self.browser_width)
+    }
+
+    fn select_entries_in_drag_rect(&mut self) {
+        let Some(selection) = self.selection_content_rect() else {
+            return;
+        };
+
+        self.selected_paths = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                self.entry_content_rect(*index)
+                    .is_some_and(|rect| rect.intersects(&selection))
+            })
+            .map(|(_, entry)| entry.file.path.clone())
+            .collect();
+    }
+
+    fn selection_content_rect(&self) -> Option<Rectangle> {
+        let drag = self.selection_drag?;
+        let mut rect = rect_from_points(drag.origin, drag.current);
+
+        if rect.width < SELECTION_DRAG_THRESHOLD && rect.height < SELECTION_DRAG_THRESHOLD {
+            return Some(Rectangle::new(rect.position(), Size::new(0.0, 0.0)));
+        }
+
+        rect.y += self.browser_scroll_y;
+        Some(rect)
+    }
+
+    fn selection_view_rect(&self) -> Option<Rectangle> {
+        let drag = self.selection_drag?;
+        let rect = rect_from_points(drag.origin, drag.current);
+
+        if rect.width < SELECTION_DRAG_THRESHOLD && rect.height < SELECTION_DRAG_THRESHOLD {
+            None
+        } else {
+            Some(rect)
+        }
+    }
+
+    fn entry_content_rect(&self, index: usize) -> Option<Rectangle> {
+        match self.view_mode {
+            ViewMode::Icons => {
+                let columns = self.icon_grid_columns();
+                let row = index / columns;
+                let column = index % columns;
+                Some(Rectangle::new(
+                    Point::new(
+                        GRID_PADDING_LEFT + column as f32 * (TILE_WIDTH + GRID_COLUMN_SPACING),
+                        GRID_PADDING_TOP + row as f32 * (TILE_HEIGHT + GRID_ROW_SPACING),
+                    ),
+                    Size::new(TILE_WIDTH, TILE_HEIGHT),
+                ))
+            }
+            ViewMode::List => {
+                if index >= self.entries.len() {
+                    return None;
+                }
+
+                Some(Rectangle::new(
+                    Point::new(
+                        LIST_PADDING_LEFT,
+                        LIST_PADDING_TOP + LIST_HEADER_HEIGHT + index as f32 * LIST_ROW_HEIGHT,
+                    ),
+                    Size::new(10_000.0, LIST_ROW_HEIGHT),
+                ))
+            }
+        }
+    }
+
+    fn selection_overlay(&self) -> Element<'_, Message> {
+        let Some(rect) = self.selection_view_rect() else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        container(
+            column![
+                space().height(Length::Fixed(rect.y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(rect.x.max(0.0))),
+                    container(space())
+                        .height(Length::Fixed(rect.height))
+                        .width(Length::Fixed(rect.width))
+                        .style(style::selection_rectangle),
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .height(Fill)
+        .width(Fill)
+        .into()
+    }
+
+    fn rename_overlay(&self) -> Element<'_, Message> {
+        let Some(rename) = &self.rename_state else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let Some((index, _entry)) = self
+            .entries
+            .iter()
+            .enumerate()
+            .find(|(_, entry)| entry.file.path == rename.path)
+        else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let Some(rect) = self.entry_content_rect(index) else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let layout = match self.view_mode {
+            ViewMode::Icons => rename_editor_layout(&rename.value, TILE_WIDTH),
+            ViewMode::List => rename_editor_layout(&rename.value, LIST_RENAME_BASE_WIDTH),
+        };
+        let (x, y) = match self.view_mode {
+            ViewMode::Icons => (
+                self.clamped_overlay_x(rect.x + (TILE_WIDTH - layout.width) / 2.0, layout.width),
+                rect.y + GRID_RENAME_Y_OFFSET - self.browser_scroll_y,
+            ),
+            ViewMode::List => (
+                self.clamped_overlay_x(rect.x + LIST_RENAME_X_OFFSET, layout.width),
+                rect.y + (LIST_ROW_HEIGHT - layout.height) / 2.0 - self.browser_scroll_y,
+            ),
+        };
+
+        container(
+            column![
+                space().height(Length::Fixed(y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(x)),
+                    rename_editor(rename, layout.width, layout.height),
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .height(Fill)
+        .width(Fill)
+        .into()
+    }
+
+    fn clamped_overlay_x(&self, x: f32, width: f32) -> f32 {
+        clamped_overlay_x_for_width(self.browser_width, x, width)
+    }
+
+    fn context_menu_position(&self, position: Point) -> Point {
+        Point::new(
+            self.clamped_overlay_x(position.x, CONTEXT_MENU_WIDTH),
+            position.y.max(0.0),
+        )
+    }
+
+    fn default_properties_position(&self) -> Point {
+        clamp_properties_position(
+            self.window_size,
+            Point::new(
+                (self.window_size.width - PROPERTIES_DIALOG_WIDTH) / 2.0,
+                (self.window_size.height - PROPERTIES_DIALOG_HEIGHT) / 2.0,
+            ),
+        )
+    }
+
+    fn clamp_properties_position(&mut self) {
+        let window_size = self.window_size;
+        if let Some(dialog) = &mut self.properties_dialog {
+            dialog.position = clamp_properties_position(window_size, dialog.position);
+        }
+    }
+
+    fn set_properties_position(&mut self, position: Point) {
+        let window_size = self.window_size;
+        if let Some(dialog) = &mut self.properties_dialog {
+            dialog.position = clamp_properties_position(window_size, position);
+        }
+    }
+
+    fn context_menu_overlay(&self) -> Element<'_, Message> {
+        let Some(position) = self.context_menu else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+        let position = self.context_menu_position(position);
+
+        let menu = container(
+            column![
+                context_menu_item("新建文件", Message::ContextNewFile),
+                context_menu_item("新建文件夹", Message::ContextNewFolder),
+                context_menu_separator(),
+                context_menu_item("粘贴", Message::ContextPaste),
+                context_menu_item("全选", Message::ContextSelectAll),
+                context_menu_separator(),
+                context_menu_item("在终端打开", Message::ContextOpenTerminal),
+                context_menu_separator(),
+                context_menu_item("属性", Message::ContextProperties),
+            ]
+            .spacing(2)
+            .align_x(iced::Alignment::Start)
+            .padding(6),
+        )
+        .width(CONTEXT_MENU_WIDTH)
+        .style(style::context_menu);
+
+        container(
+            column![
+                space().height(Length::Fixed(position.y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(position.x.max(0.0))),
+                    menu,
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .height(Fill)
+        .width(Fill)
+        .into()
+    }
+
+    fn properties_overlay(&self) -> Element<'_, Message> {
+        let Some(dialog) = &self.properties_dialog else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+        let position = dialog.position;
+
+        let title = match dialog.view {
+            PropertiesView::Summary => "属性",
+            PropertiesView::Permissions => "设置自定义权限",
+        };
+
+        let back = if dialog.view == PropertiesView::Summary {
+            button(
+                container(text("").size(16))
+                    .height(Fill)
+                    .width(Fill)
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center),
+            )
+            .height(36)
+            .width(36)
+            .style(style::toolbar_button)
+        } else {
+            button(toolbar_icon(
+                include_bytes!("../../../icons/left.svg"),
+                true,
+            ))
+            .height(36)
+            .width(36)
+            .padding(6)
+            .style(style::toolbar_button)
+            .on_press(Message::SetPropertiesView(PropertiesView::Summary))
+        };
+
+        let draggable_title = mouse_area(
+            container(text(title).size(16).style(style::muted_text))
+                .height(36)
+                .width(Fill)
+                .align_x(Horizontal::Left)
+                .align_y(Vertical::Center),
+        )
+        .on_press(Message::PropertiesDragStarted);
+
+        let header = row![
+            back,
+            draggable_title,
+            button(window_icon(include_bytes!("../../../icons/close.svg")))
+                .height(36)
+                .width(36)
+                .padding(6)
+                .style(style::close_button)
+                .on_press(Message::CloseProperties),
+        ]
+        .align_y(iced::Center);
+
+        let body = match (&dialog.state, dialog.view) {
+            (PropertiesState::Loading(path), _) => self.properties_loading(path),
+            (PropertiesState::Error(error), _) => self.properties_error(error),
+            (PropertiesState::Loaded(properties), PropertiesView::Summary) => {
+                self.properties_summary(properties)
+            }
+            (PropertiesState::Loaded(properties), PropertiesView::Permissions) => {
+                self.properties_permissions(properties)
+            }
+        };
+
+        let dialog = container(column![header, body].spacing(16).padding(14))
+            .width(PROPERTIES_DIALOG_WIDTH)
+            .style(style::properties_dialog);
+
+        let overlay = container(
+            column![
+                space().height(Length::Fixed(position.y.max(0.0))),
+                row![
+                    space().width(Length::Fixed(position.x.max(0.0))),
+                    dialog,
+                    space().width(Fill),
+                ],
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .width(Fill)
+        .height(Fill)
+        .style(style::modal_overlay);
+
+        mouse_area(overlay)
+            .on_move(Message::PropertiesPointerMoved)
+            .on_press(Message::PropertiesEventSink)
+            .on_release(Message::PropertiesDragEnded)
+            .on_right_press(Message::PropertiesEventSink)
+            .on_middle_press(Message::PropertiesEventSink)
+            .on_scroll(|_| Message::PropertiesEventSink)
+            .into()
+    }
+
+    fn properties_loading(&self, path: &PathBuf) -> Element<'_, Message> {
+        container(
+            column![
+                text(path.display().to_string())
+                    .size(14)
+                    .style(style::muted_text),
+                text("正在统计文件夹属性...")
+                    .size(16)
+                    .style(style::primary_text),
+            ]
+            .spacing(10)
+            .align_x(iced::Alignment::Start),
+        )
+        .height(220)
+        .width(Fill)
+        .padding(14)
+        .align_x(Horizontal::Left)
+        .align_y(Vertical::Center)
+        .into()
+    }
+
+    fn properties_error<'a>(&self, error: &'a str) -> Element<'a, Message> {
+        container(text(error).size(14).style(style::primary_text))
+            .height(220)
+            .width(Fill)
+            .padding(14)
+            .align_x(Horizontal::Left)
+            .align_y(Vertical::Center)
+            .into()
+    }
+
+    fn properties_summary(&self, properties: &FolderProperties) -> Element<'_, Message> {
+        let parent = properties
+            .parent
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let free = properties
+            .free_space
+            .map(|size| format!("{} 剩余", format_size(size)))
+            .unwrap_or_else(|| "剩余空间未知".to_string());
+
+        column![
+            container(
+                row![
+                    entry_icon(
+                        &EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg")),
+                        72.0
+                    ),
+                    column![
+                        text(properties.name.clone())
+                            .size(22)
+                            .style(style::primary_text),
+                        text(format!(
+                            "{} 项，共 {}",
+                            properties.item_count,
+                            format_size(properties.total_size)
+                        ))
+                        .size(14)
+                        .style(style::primary_text),
+                        text(free).size(13).style(style::muted_text),
+                    ]
+                    .spacing(6)
+                    .align_x(iced::Alignment::Start)
+                    .width(Fill),
+                ]
+                .spacing(14)
+                .align_y(iced::Center)
+                .width(Fill),
+            )
+            .height(112)
+            .width(Fill)
+            .align_y(Vertical::Center),
+            container(property_row("上级文件夹(F)", parent))
+                .width(Fill)
+                .style(style::property_group),
+            container(
+                column![
+                    property_row("修改时间", format_modified(properties.modified)),
+                    property_row("创建时间", format_modified(properties.created)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            button(
+                container(
+                    row![
+                        text("权限(P)")
+                            .size(15)
+                            .style(style::primary_text)
+                            .width(Length::Fixed(PROPERTIES_LABEL_WIDTH)),
+                        text(permission_summary(properties.mode))
+                            .size(14)
+                            .style(style::muted_text)
+                            .width(Fill),
+                        text("›").size(22).style(style::primary_text),
+                    ]
+                    .align_y(iced::Center)
+                )
+                .height(Fill)
+                .width(Fill)
+                .align_y(Vertical::Center)
+            )
+            .height(54)
+            .width(Fill)
+            .padding([0, 14])
+            .style(style::property_button)
+            .on_press(Message::SetPropertiesView(PropertiesView::Permissions)),
+        ]
+        .spacing(16)
+        .into()
+    }
+
+    fn properties_permissions(&self, properties: &FolderProperties) -> Element<'_, Message> {
+        let dialog = self.properties_dialog.as_ref();
+        let pending_mode = dialog
+            .and_then(|dialog| dialog.permissions_mode)
+            .or(properties.mode)
+            .unwrap_or(0);
+        let saving = dialog.is_some_and(|dialog| dialog.saving_permissions);
+        let changed = properties.mode != Some(pending_mode);
+        let can_apply = changed && !saving;
+        let permission_error = dialog.and_then(|dialog| dialog.permission_error.as_ref());
+
+        let apply = if can_apply {
+            button(
+                container(text("更改(H)").size(14).style(style::primary_text))
+                    .height(Fill)
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center),
+            )
+            .height(36)
+            .padding([0, 16])
+            .style(style::disabled_button)
+            .on_press(Message::ApplyPermissions)
+        } else {
+            button(
+                container(
+                    text(if saving { "更改中..." } else { "更改(H)" })
+                        .size(14)
+                        .style(style::muted_text),
+                )
+                .height(Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
+            )
+            .height(36)
+            .padding([0, 16])
+            .style(style::toolbar_button)
+        };
+
+        let error: Element<'_, Message> = if let Some(error) = permission_error {
+            container(text(error).size(13).style(style::muted_text))
+                .height(32)
+                .width(Fill)
+                .align_x(Horizontal::Left)
+                .align_y(Vertical::Center)
+                .into()
+        } else {
+            container(space()).height(0).width(Fill).into()
+        };
+
+        column![
+            container(
+                column![
+                    property_row("所有者(U)", owner_label(properties.owner)),
+                    permission_access_row("访问", pending_mode, PermissionClass::Owner, saving),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            container(
+                column![
+                    property_row("用户组(G)", group_label(properties.group)),
+                    permission_access_row("访问", pending_mode, PermissionClass::Group, saving),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            container(
+                column![
+                    property_label_row("其它用户"),
+                    permission_access_row("访问", pending_mode, PermissionClass::Other, saving),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            error,
+            row![
+                button(
+                    container(text("取消(C)").size(14).style(style::primary_text))
+                        .height(Fill)
+                        .align_x(Horizontal::Center)
+                        .align_y(Vertical::Center),
+                )
+                .height(36)
+                .padding([0, 16])
+                .style(style::toolbar_button)
+                .on_press(Message::CancelPermissions),
+                space().width(Fill),
+                apply,
+            ]
+            .align_y(iced::Center),
+        ]
+        .spacing(16)
+        .into()
+    }
+
+    fn cycle_permission(&mut self, class: PermissionClass) {
+        let Some(dialog) = &mut self.properties_dialog else {
+            return;
+        };
+
+        if dialog.saving_permissions {
+            return;
+        }
+
+        let current_mode = dialog.permissions_mode.or_else(|| match &dialog.state {
+            PropertiesState::Loaded(properties) => properties.mode,
+            _ => None,
+        });
+
+        if let Some(mode) = current_mode {
+            dialog.permissions_mode = Some(cycle_directory_access(mode, class));
+            dialog.permission_error = None;
+            self.status = "Permissions changed locally".to_string();
+        }
+    }
+
+    fn cancel_permissions(&mut self) {
+        let Some(dialog) = &mut self.properties_dialog else {
+            return;
+        };
+
+        if dialog.saving_permissions {
+            return;
+        }
+
+        if let PropertiesState::Loaded(properties) = &dialog.state {
+            dialog.permissions_mode = properties.mode;
+            dialog.permission_error = None;
+            self.status = "Permissions unchanged".to_string();
+        }
+    }
+
+    fn apply_permissions(&mut self) -> Task<Message> {
+        let Some(dialog) = &mut self.properties_dialog else {
+            return Task::none();
+        };
+
+        if dialog.saving_permissions {
+            return Task::none();
+        }
+
+        let PropertiesState::Loaded(properties) = &dialog.state else {
+            return Task::none();
+        };
+
+        let Some(mode) = dialog.permissions_mode else {
+            return Task::none();
+        };
+
+        if properties.mode == Some(mode) {
+            self.status = "Permissions unchanged".to_string();
+            return Task::none();
+        }
+
+        let path = properties.path.clone();
+        dialog.saving_permissions = true;
+        dialog.permission_error = None;
+        self.status = "Changing permissions...".to_string();
+
+        Task::perform(
+            async move {
+                set_permissions(&path, mode)?;
+                folder_properties(path)
+            },
+            Message::PropertiesPermissionsSaved,
+        )
+    }
+
+    fn submit_rename(&mut self) -> Task<Message> {
+        if let Some(rename) = &mut self.rename_state {
+            rename.value = rename.content.text();
+        }
+
+        let Some(rename) = self.rename_state.clone() else {
+            return Task::none();
+        };
+
+        let new_name = rename.content.text().trim().to_string();
+        if let Some(message) = rename_limit_error(&rename, &new_name) {
+            self.status = message;
+            return self.focus_rename_input(false);
+        }
+
+        if new_name.is_empty() {
+            self.status = "File name cannot be empty".to_string();
+            return self.focus_rename_input(false);
+        }
+
+        let current_name = rename
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+
+        if new_name == current_name {
+            self.rename_state = None;
+            self.status = "Name unchanged".to_string();
+            return Task::none();
+        }
+
+        self.status = "Renaming...".to_string();
+        Task::perform(
+            async move { rename_entry(rename.path, new_name) },
+            Message::RenameFinished,
+        )
+    }
+
+    fn prepare_rename_retry(&mut self) -> Task<Message> {
+        if let Some(rename) = &mut self.rename_state {
+            rename.content.perform(text_editor::Action::SelectAll);
+            rename.value = rename.content.text();
+        }
+
+        self.focus_rename_input(false)
+    }
+
+    fn focus_rename_input(&self, select_all: bool) -> Task<Message> {
+        if self.rename_state.is_none() {
+            return Task::none();
+        }
+
+        let _ = select_all;
+        operation::focus(rename_input_id())
+    }
+
+    fn pointer_over_entry(&self, position: Point) -> bool {
+        let content_position = Point::new(position.x, position.y + self.browser_scroll_y);
+
+        self.entries.iter().enumerate().any(|(index, _)| {
+            self.entry_content_rect(index)
+                .is_some_and(|rect| rect_contains(rect, content_position))
+        })
+    }
+
+    fn close_menu(&mut self) {
+        self.menu_open = false;
+        self.view_submenu_open = false;
+        self.context_menu = None;
+    }
+}

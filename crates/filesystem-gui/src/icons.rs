@@ -1,0 +1,206 @@
+use crate::model::{DisplayEntry, EntryIcon};
+use filesystem_core::{EntryKind, FileEntry};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
+
+pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
+    let resolver = IconResolver::new();
+
+    entries
+        .into_iter()
+        .map(|file| {
+            let icon = resolver.entry_icon(&file);
+            DisplayEntry { file, icon }
+        })
+        .collect()
+}
+
+struct IconResolver {
+    roots: Vec<PathBuf>,
+    themes: Vec<String>,
+}
+
+impl IconResolver {
+    fn new() -> Self {
+        let roots = icon_roots();
+        let themes = icon_theme_names(&roots);
+
+        Self { roots, themes }
+    }
+
+    fn entry_icon(&self, entry: &FileEntry) -> EntryIcon {
+        match entry.kind {
+            EntryKind::Directory => {
+                EntryIcon::Embedded(include_bytes!("../../../icons/folder.svg"))
+            }
+            EntryKind::File => self
+                .file_icon(entry)
+                .map(EntryIcon::Theme)
+                .unwrap_or_else(fallback_file_icon),
+            EntryKind::Symlink | EntryKind::Other => fallback_file_icon(),
+        }
+    }
+
+    fn file_icon(&self, entry: &FileEntry) -> Option<Vec<u8>> {
+        let extension = entry
+            .path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)?;
+        let names = icon_names_for_extension(&extension);
+
+        if names.is_empty() {
+            return None;
+        }
+
+        self.find_icon(names)
+    }
+
+    fn find_icon(&self, names: &[&str]) -> Option<Vec<u8>> {
+        for theme in &self.themes {
+            for root in &self.roots {
+                let theme_dir = root.join(theme);
+
+                for directory in ICON_THEME_SUBDIRS {
+                    let directory = theme_dir.join(directory);
+
+                    for name in names {
+                        for filename in icon_filenames(name) {
+                            let path = directory.join(filename);
+                            if path.is_file() {
+                                if let Ok(bytes) = fs::read(path) {
+                                    return Some(bytes);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+}
+
+fn fallback_file_icon() -> EntryIcon {
+    EntryIcon::Embedded(include_bytes!("../../../icons/file.svg"))
+}
+
+const ICON_THEME_SUBDIRS: &[&str] = &[
+    "scalable/mimetypes",
+    "symbolic/mimetypes",
+    "mimetypes/scalable",
+    "mimes/scalable",
+    "mimes/scalable-light",
+    "mimes/scalable-night",
+    "scalable/apps",
+    "apps/scalable",
+    "scalable/devices",
+    "symbolic/devices",
+    "devices/scalable",
+    "scalable/actions",
+    "symbolic/actions",
+    "actions/scalable",
+    "actions/scalable-light",
+    "actions/scalable-night",
+];
+
+fn icon_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        push_unique_path(&mut roots, home.join(".local/share/icons"));
+        push_unique_path(&mut roots, home.join(".icons"));
+    }
+
+    let data_dirs =
+        env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    for directory in env::split_paths(&data_dirs) {
+        push_unique_path(&mut roots, directory.join("icons"));
+    }
+
+    roots
+}
+
+fn icon_theme_names(roots: &[PathBuf]) -> Vec<String> {
+    let mut themes = Vec::new();
+
+    for variable in [
+        "FILE_ICON_THEME",
+        "XDG_ICON_THEME",
+        "GTK_ICON_THEME",
+        "ICON_THEME",
+    ] {
+        if let Ok(theme) = env::var(variable) {
+            push_unique_string(&mut themes, theme);
+        }
+    }
+
+    for theme in ["Adwaita", "hicolor", "HighContrast", "ContrastHigh"] {
+        push_unique_string(&mut themes, theme.to_string());
+    }
+
+    let mut discovered = Vec::new();
+    for root in roots {
+        let Ok(entries) = fs::read_dir(root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                if let Some(name) = entry.file_name().to_str() {
+                    discovered.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    discovered.sort();
+    for theme in discovered {
+        push_unique_string(&mut themes, theme);
+    }
+
+    themes
+}
+
+fn icon_filenames(name: &str) -> [String; 2] {
+    [format!("{name}.svg"), format!("{name}-symbolic.svg")]
+}
+
+fn icon_names_for_extension(extension: &str) -> &'static [&'static str] {
+    match extension {
+        "txt" | "md" | "markdown" | "log" | "ini" | "conf" | "toml" | "yaml" | "yml" | "json"
+        | "xml" | "html" | "css" | "scss" | "rs" | "c" | "h" | "cpp" | "hpp" | "js" | "jsx"
+        | "ts" | "tsx" | "py" | "go" | "java" | "sh" | "bash" | "zsh" => &["text-x-generic"],
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "svg" | "ico" => {
+            &["image-x-generic"]
+        }
+        "mp3" | "flac" | "wav" | "ogg" | "opus" | "m4a" | "aac" => &["audio-x-generic"],
+        "mp4" | "mkv" | "mov" | "webm" | "avi" | "flv" | "wmv" => &["video-x-generic"],
+        "pdf" => &["application-pdf", "gnome-mime-application-pdf"],
+        "zip" => &["application-zip", "package-x-generic", "media-zip"],
+        "tar" | "gz" | "tgz" | "xz" | "bz2" | "7z" | "rar" => &[
+            "package-x-generic",
+            "application-zip",
+            "application-x-gzip",
+            "media-zip",
+        ],
+        "ods" | "xls" | "xlsx" | "csv" => &["x-office-spreadsheet"],
+        "odp" | "ppt" | "pptx" => &["x-office-presentation"],
+        "odt" | "doc" | "docx" => &["x-office-document", "text-x-generic"],
+        _ => &[],
+    }
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if path.is_dir() && !paths.iter().any(|existing| existing == &path) {
+        paths.push(path);
+    }
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: String) {
+    if !value.is_empty() && !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}

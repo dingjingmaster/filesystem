@@ -24,3 +24,8 @@
 | 3 | 2026-06-25 | L4 | research | [3-research-properties-permission-edit.md](3-research-properties-permission-edit.md) | 已完成 | 调研属性弹窗事件隔离、拖拽、按钮统一、对齐和当前文件夹权限修改方案。 |
 | 3 | 2026-06-25 | L4 | plan | [3-plan-properties-permission-edit.md](3-plan-properties-permission-edit.md) | 已完成 | 规划 core 权限修改 API、GUI 属性弹窗交互修正、权限保存后台任务和验证步骤。 |
 | 3 | 2026-06-25 | L4 | summary | [3-summary-properties-permission-edit.md](3-summary-properties-permission-edit.md) | 已完成 | 总结属性弹窗事件隔离、拖拽、关闭按钮统一、对齐和当前文件夹权限修改实现。 |
+| 4 | 2026-06-25 | L4 | research | [4-research-gui-module-refactor.md](4-research-gui-module-refactor.md) | 已完成 | 调研 GUI 单文件实现的维护问题，确定按 app/model/tasks/icons/components/utils/style 等职责拆分且不改变行为。 |
+| 4 | 2026-06-25 | L4 | plan | [4-plan-gui-module-refactor.md](4-plan-gui-module-refactor.md) | 已完成 | 规划 GUI 模块拆分、可见性调整、测试迁移、开发概览更新和完整验证。 |
+| 4 | 2026-06-25 | L4 | summary | [4-summary-gui-module-refactor.md](4-summary-gui-module-refactor.md) | 已完成 | 总结 GUI crate 拆分为 app/model/tasks/icons/components/utils/config/style 模块、验证结果和残余人工 GUI 验证风险。 |
+| 5 | 2026-06-25 | L1 | summary | [5-summary-properties-vertical-alignment.md](5-summary-properties-vertical-alignment.md) | 已完成 | 调整属性弹窗标题栏、概要区、属性行、权限行和底部按钮内容的垂直居中布局。 |
+| 6 | 2026-06-25 | L1 | summary | [6-summary-properties-back-icon.md](6-summary-properties-back-icon.md) | 已完成 | 将设置自定义权限页返回按钮从文本箭头改为 `icons/left.svg`，并使用居中图标按钮布局。 |
