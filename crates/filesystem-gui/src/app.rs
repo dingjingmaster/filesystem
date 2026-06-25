@@ -1,3 +1,4 @@
+use crate::apps::{apps_for_file, best_app_for_file, file_type_label, mime_for_path};
 use crate::components::*;
 use crate::config::*;
 use crate::model::*;
@@ -5,9 +6,9 @@ use crate::style;
 use crate::tasks::*;
 use crate::utils::*;
 use filesystem_core::{
-    ClipboardPaths, EntryKind, FolderProperties, FsError, PasteAction, ScanOptions,
-    child_path_limits, folder_properties, parse_clipboard_paths, paste_paths, rename_entry,
-    set_permissions,
+    ClipboardPaths, EntryKind, FileProperties, FolderProperties, FsError, PasteAction, ScanOptions,
+    child_path_limits, file_properties, folder_properties, parse_clipboard_paths, paste_paths,
+    rename_entry, set_permissions,
 };
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
@@ -50,6 +51,8 @@ pub(crate) struct FileManager {
     forward_history: Vec<PathBuf>,
     home: Option<PathBuf>,
     home_shortcuts: Vec<HomeShortcut>,
+    app_registry: AppRegistry,
+    open_with_dialog: Option<OpenWithDialog>,
 }
 
 impl FileManager {
@@ -61,6 +64,7 @@ impl FileManager {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let shortcuts_task = load_home_shortcuts(home.clone());
+        let app_registry_task = load_app_registry_task();
         let mut manager = Self {
             cwd,
             entries: Vec::new(),
@@ -91,9 +95,14 @@ impl FileManager {
             forward_history: Vec::new(),
             home,
             home_shortcuts: Vec::new(),
+            app_registry: AppRegistry::default(),
+            open_with_dialog: None,
         };
         let task = manager.reload();
-        (manager, Task::batch([task, shortcuts_task]))
+        (
+            manager,
+            Task::batch([task, shortcuts_task, app_registry_task]),
+        )
     }
 
     pub(crate) fn update(&mut self, message: Message) -> Task<Message> {
@@ -191,6 +200,8 @@ impl FileManager {
                 self.context_menu = self.browser_pointer.and_then(|position| {
                     if let Some(path) = self.folder_menu_path_at(position) {
                         Some(ContextMenuState::Folder { position, path })
+                    } else if let Some(path) = self.file_menu_path_at(position) {
+                        Some(ContextMenuState::File { position, path })
                     } else {
                         should_show_blank_context_menu(
                             !self.selected_paths.is_empty(),
@@ -318,6 +329,7 @@ impl FileManager {
                 self.close_menu();
                 self.delete_confirm = Some(DeleteConfirm {
                     name: display_name_for_path(&path),
+                    kind_label: "文件夹",
                     path,
                 });
                 Task::none()
@@ -336,6 +348,71 @@ impl FileManager {
                 }
                 self.close_menu();
                 self.open_properties(path)
+            }
+            Message::FileOpenDefault(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_file_with_default(path)
+            }
+            Message::FileOpenWith(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_with_dialog = Some(self.open_with_dialog_for(path));
+                Task::none()
+            }
+            Message::FileCopy(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.clipboard = Some(ClipboardState {
+                    action: PasteAction::Copy,
+                    paths: vec![path.clone()],
+                });
+                self.status = format!("Copied {}", display_name_for_path(&path));
+                Task::none()
+            }
+            Message::FileCut(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.clipboard = Some(ClipboardState {
+                    action: PasteAction::Cut,
+                    paths: vec![path.clone()],
+                });
+                self.status = format!("Cut {}", display_name_for_path(&path));
+                Task::none()
+            }
+            Message::FileRename(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.start_rename(path)
+            }
+            Message::FileDelete(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.delete_confirm = Some(DeleteConfirm {
+                    name: display_name_for_path(&path),
+                    kind_label: "文件",
+                    path,
+                });
+                Task::none()
+            }
+            Message::FileProperties(path) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                self.open_file_properties(path)
             }
             Message::CancelDelete => {
                 self.delete_confirm = None;
@@ -363,6 +440,43 @@ impl FileManager {
                         Task::none()
                     }
                 }
+            }
+            Message::ApplicationsLoaded(registry) => {
+                self.app_registry = registry;
+                Task::none()
+            }
+            Message::OpenWithSelect(app_id) => {
+                if let Some(dialog) = &mut self.open_with_dialog {
+                    dialog.selected_app_id = Some(app_id);
+                }
+                Task::none()
+            }
+            Message::OpenWithCancel => {
+                self.open_with_dialog = None;
+                Task::none()
+            }
+            Message::OpenWithOpen => {
+                let Some(dialog) = self.open_with_dialog.take() else {
+                    return Task::none();
+                };
+                let Some(app_id) = dialog.selected_app_id else {
+                    self.status = "No application selected".to_string();
+                    return Task::none();
+                };
+                let Some(app) = dialog.apps.into_iter().find(|app| app.id == app_id) else {
+                    self.status = "Selected application is not available".to_string();
+                    return Task::none();
+                };
+
+                self.status = format!("Opening with {}...", app.name);
+                open_file_with_app_task(dialog.path, app)
+            }
+            Message::OpenFileFinished(result) => {
+                self.status = match result {
+                    Ok(app_name) => format!("Opened with {app_name}"),
+                    Err(error) => error,
+                };
+                Task::none()
             }
             Message::CreateFinished(kind, result) => match result {
                 Ok(path) => {
@@ -494,6 +608,19 @@ impl FileManager {
                             dialog.permissions_mode = properties.mode;
                             dialog.permission_error = None;
                             PropertiesState::Loaded(properties)
+                        }
+                        Err(error) => PropertiesState::Error(error.to_string()),
+                    };
+                }
+                Task::none()
+            }
+            Message::FilePropertiesLoaded(result) => {
+                if let Some(dialog) = &mut self.properties_dialog {
+                    dialog.state = match result {
+                        Ok(properties) => {
+                            dialog.permissions_mode = properties.mode;
+                            dialog.permission_error = None;
+                            PropertiesState::FileLoaded(properties)
                         }
                         Err(error) => PropertiesState::Error(error.to_string()),
                     };
@@ -647,6 +774,7 @@ impl FileManager {
             resize_layer(),
             self.properties_overlay(),
             self.delete_confirm_overlay(),
+            self.open_with_overlay(),
         ])
         .height(Fill)
         .width(Fill)
@@ -1190,11 +1318,16 @@ impl FileManager {
         if matches!(kind, EntryKind::Directory) {
             self.visit_path(path)
         } else {
-            let name = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("file");
-            self.status = format!("No opener configured for {name}");
+            self.open_file_with_default(path)
+        }
+    }
+
+    fn open_file_with_default(&mut self, path: PathBuf) -> Task<Message> {
+        if let Some(app) = best_app_for_file(&self.app_registry, &path) {
+            self.status = format!("Opening with {}...", app.name);
+            open_file_with_app_task(path, app)
+        } else {
+            self.status = "No application found for this file".to_string();
             Task::none()
         }
     }
@@ -1630,6 +1763,10 @@ impl FileManager {
                 self.context_menu_position(*position),
                 self.folder_context_menu(path.clone()),
             ),
+            ContextMenuState::File { position, path } => (
+                self.context_menu_position(*position),
+                self.file_context_menu(path.clone()),
+            ),
         };
 
         container(
@@ -1695,6 +1832,34 @@ impl FileManager {
         .into()
     }
 
+    fn file_context_menu(&self, path: PathBuf) -> Element<'_, Message> {
+        let default_label = self
+            .default_app_for_path(&path)
+            .map(|app| format!("用 {} 打开", app.name))
+            .unwrap_or_else(|| "用默认应用打开".to_string());
+
+        container(
+            column![
+                context_menu_item_owned(default_label, Message::FileOpenDefault(path.clone())),
+                context_menu_item("打开方式", Message::FileOpenWith(path.clone())),
+                context_menu_separator(),
+                context_menu_item("复制", Message::FileCopy(path.clone())),
+                context_menu_item("剪切", Message::FileCut(path.clone())),
+                context_menu_separator(),
+                context_menu_item("重命名", Message::FileRename(path.clone())),
+                context_menu_item("删除", Message::FileDelete(path.clone())),
+                context_menu_separator(),
+                context_menu_item("属性", Message::FileProperties(path)),
+            ]
+            .spacing(2)
+            .align_x(iced::Alignment::Start)
+            .padding(6),
+        )
+        .width(CONTEXT_MENU_WIDTH)
+        .style(style::context_menu)
+        .into()
+    }
+
     fn delete_confirm_overlay(&self) -> Element<'_, Message> {
         let Some(confirm) = &self.delete_confirm else {
             return container(space()).height(Fill).width(Fill).into();
@@ -1702,10 +1867,15 @@ impl FileManager {
 
         let dialog = container(
             column![
-                text("删除文件夹").size(16).style(style::primary_text),
-                text(format!("确定删除 {} 文件夹吗？", confirm.name))
-                    .size(14)
+                text(format!("删除{}", confirm.kind_label))
+                    .size(16)
                     .style(style::primary_text),
+                text(format!(
+                    "确定删除 {} {}吗？",
+                    confirm.name, confirm.kind_label
+                ))
+                .size(14)
+                .style(style::primary_text),
                 row![
                     button(
                         container(text("取消").size(14).style(style::primary_text))
@@ -1751,6 +1921,130 @@ impl FileManager {
             .on_middle_press(Message::PropertiesEventSink)
             .on_scroll(|_| Message::PropertiesEventSink)
             .into()
+    }
+
+    fn open_with_overlay(&self) -> Element<'_, Message> {
+        let Some(dialog) = &self.open_with_dialog else {
+            return container(space()).height(Fill).width(Fill).into();
+        };
+
+        let apps: Element<'_, Message> = if dialog.apps.is_empty() {
+            container(text("没有可用应用").size(14).style(style::muted_text))
+                .height(220)
+                .width(Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center)
+                .into()
+        } else {
+            let mut rows = column![].spacing(4).padding(6);
+            for app in &dialog.apps {
+                rows = rows.push(self.open_with_app_row(app));
+            }
+
+            scrollable(rows).height(260).width(Fill).into()
+        };
+
+        let dialog_content = container(
+            column![
+                text(format!(
+                    "选择应用以打开 {}",
+                    display_name_for_path(&dialog.path)
+                ))
+                .size(16)
+                .style(style::primary_text),
+                apps,
+                container(
+                    column![
+                        text("文件类型").size(13).style(style::muted_text),
+                        text(dialog.mime.clone()).size(13).style(style::muted_text),
+                    ]
+                    .spacing(4)
+                    .align_x(iced::Alignment::Start),
+                )
+                .height(54)
+                .width(Fill)
+                .align_y(Vertical::Center),
+                row![
+                    button(
+                        container(text("取消(C)").size(14).style(style::primary_text))
+                            .height(Fill)
+                            .align_x(Horizontal::Center)
+                            .align_y(Vertical::Center),
+                    )
+                    .height(36)
+                    .padding([0, 16])
+                    .style(style::toolbar_button)
+                    .on_press(Message::OpenWithCancel),
+                    space().width(Fill),
+                    button(
+                        container(text("打开(O)").size(14).style(style::primary_text))
+                            .height(Fill)
+                            .align_x(Horizontal::Center)
+                            .align_y(Vertical::Center),
+                    )
+                    .height(36)
+                    .padding([0, 16])
+                    .style(style::danger_button)
+                    .on_press(Message::OpenWithOpen),
+                ]
+                .align_y(iced::Center),
+            ]
+            .spacing(14)
+            .padding(18),
+        )
+        .width(430)
+        .style(style::properties_dialog);
+
+        let overlay = container(dialog_content)
+            .width(Fill)
+            .height(Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .style(style::modal_overlay);
+
+        mouse_area(overlay)
+            .on_press(Message::PropertiesEventSink)
+            .on_release(Message::PropertiesEventSink)
+            .on_right_press(Message::PropertiesEventSink)
+            .on_middle_press(Message::PropertiesEventSink)
+            .on_scroll(|_| Message::PropertiesEventSink)
+            .into()
+    }
+
+    fn open_with_app_row(&self, app: &DesktopApp) -> Element<'_, Message> {
+        let active = self
+            .open_with_dialog
+            .as_ref()
+            .and_then(|dialog| dialog.selected_app_id.as_ref())
+            == Some(&app.id);
+        let marker = if active { "✓" } else { "" };
+
+        button(
+            container(
+                row![
+                    entry_icon(&app.icon, 24.0),
+                    text(app.name.clone()).size(14).style(style::primary_text),
+                    space().width(Fill),
+                    container(text(marker).size(13).style(style::primary_text))
+                        .width(24)
+                        .align_x(Horizontal::Center)
+                        .align_y(Vertical::Center),
+                ]
+                .spacing(10)
+                .align_y(iced::Center)
+                .width(Fill),
+            )
+            .height(Fill)
+            .width(Fill)
+            .align_x(Horizontal::Left)
+            .align_y(Vertical::Center),
+        )
+        .height(38)
+        .width(Fill)
+        .padding([0, 10])
+        .style(move |theme, status| style::menu_button(theme, status, active))
+        .on_press(Message::OpenWithSelect(app.id.clone()))
+        .into()
     }
 
     fn properties_overlay(&self) -> Element<'_, Message> {
@@ -1816,6 +2110,9 @@ impl FileManager {
             }
             (PropertiesState::Loaded(properties), PropertiesView::Permissions) => {
                 self.properties_permissions(properties)
+            }
+            (PropertiesState::FileLoaded(properties), _) => {
+                self.file_properties_summary(properties)
             }
         };
 
@@ -1958,6 +2255,76 @@ impl FileManager {
             .padding([0, 14])
             .style(style::property_button)
             .on_press(Message::SetPropertiesView(PropertiesView::Permissions)),
+        ]
+        .spacing(16)
+        .into()
+    }
+
+    fn file_properties_summary(&self, properties: &FileProperties) -> Element<'_, Message> {
+        let parent = properties
+            .parent
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let mime = mime_for_path(&properties.path);
+        let file_type = file_type_label(&properties.path, &mime);
+        let executable = properties
+            .mode
+            .map(|mode| mode & 0o111 != 0)
+            .unwrap_or(false);
+
+        column![
+            container(
+                row![
+                    entry_icon(
+                        &EntryIcon::Embedded(include_bytes!("../../../icons/file.svg")),
+                        72.0
+                    ),
+                    column![
+                        text(properties.name.clone())
+                            .size(22)
+                            .style(style::primary_text),
+                        text(file_type).size(14).style(style::primary_text),
+                        text(format_size(properties.size))
+                            .size(13)
+                            .style(style::muted_text),
+                    ]
+                    .spacing(6)
+                    .align_x(iced::Alignment::Start)
+                    .width(Fill),
+                ]
+                .spacing(14)
+                .align_y(iced::Center)
+                .width(Fill),
+            )
+            .height(132)
+            .width(Fill)
+            .align_y(Vertical::Center),
+            container(property_row("上级文件夹(F)", parent))
+                .width(Fill)
+                .style(style::property_group),
+            container(
+                column![
+                    property_row("访问时间", format_modified(properties.accessed)),
+                    property_row("修改时间", format_modified(properties.modified)),
+                    property_row("创建时间", format_modified(properties.created)),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
+            container(
+                column![
+                    property_row("权限(P)", permission_summary(properties.mode)),
+                    property_row(
+                        "作为程序执行(E)",
+                        if executable { "是" } else { "否" }.to_string()
+                    ),
+                ]
+                .spacing(0)
+            )
+            .width(Fill)
+            .style(style::property_group),
         ]
         .spacing(16)
         .into()
@@ -2150,6 +2517,42 @@ impl FileManager {
         )
     }
 
+    fn open_file_properties(&mut self, path: PathBuf) -> Task<Message> {
+        self.properties_dialog = Some(PropertiesDialog {
+            view: PropertiesView::Summary,
+            state: PropertiesState::Loading(path.clone()),
+            position: self.default_properties_position(),
+            permissions_mode: None,
+            saving_permissions: false,
+            permission_error: None,
+        });
+
+        Task::perform(
+            async move { file_properties(path) },
+            Message::FilePropertiesLoaded,
+        )
+    }
+
+    fn open_with_dialog_for(&self, path: PathBuf) -> OpenWithDialog {
+        let mime = mime_for_path(&path);
+        let apps = apps_for_file(&self.app_registry, &path);
+        let selected_app_id = best_app_for_file(&self.app_registry, &path)
+            .and_then(|best| apps.iter().find(|app| app.id == best.id).cloned())
+            .or_else(|| apps.first().cloned())
+            .map(|app| app.id);
+
+        OpenWithDialog {
+            path,
+            mime,
+            apps,
+            selected_app_id,
+        }
+    }
+
+    fn default_app_for_path(&self, path: &PathBuf) -> Option<DesktopApp> {
+        best_app_for_file(&self.app_registry, path)
+    }
+
     fn start_rename(&mut self, path: PathBuf) -> Task<Message> {
         let Some(value) = path
             .file_name()
@@ -2247,6 +2650,19 @@ impl FileManager {
         if self.selected_paths.len() == 1
             && self.selected_paths.contains(&entry.file.path)
             && matches!(entry.file.kind, EntryKind::Directory)
+        {
+            Some(entry.file.path.clone())
+        } else {
+            None
+        }
+    }
+
+    fn file_menu_path_at(&self, position: Point) -> Option<PathBuf> {
+        let entry = self.entry_at_position(position)?;
+
+        if self.selected_paths.len() == 1
+            && self.selected_paths.contains(&entry.file.path)
+            && !matches!(entry.file.kind, EntryKind::Directory)
         {
             Some(entry.file.path.clone())
         } else {

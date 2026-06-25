@@ -2,7 +2,7 @@ use crate::model::{DisplayEntry, EntryIcon};
 use filesystem_core::{EntryKind, FileEntry};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
     let resolver = IconResolver::new();
@@ -14,6 +14,10 @@ pub(crate) fn decorate_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
             DisplayEntry { file, icon }
         })
         .collect()
+}
+
+pub(crate) fn resolve_app_icon(icon_name: Option<&str>) -> EntryIcon {
+    IconResolver::new().app_icon(icon_name)
 }
 
 struct IconResolver {
@@ -40,6 +44,13 @@ impl IconResolver {
                 .unwrap_or_else(fallback_file_icon),
             EntryKind::Symlink | EntryKind::Other => fallback_file_icon(),
         }
+    }
+
+    fn app_icon(&self, icon_name: Option<&str>) -> EntryIcon {
+        icon_name
+            .and_then(|icon_name| self.find_app_icon(icon_name))
+            .map(EntryIcon::Theme)
+            .unwrap_or_else(fallback_app_icon)
     }
 
     fn file_icon(&self, entry: &FileEntry) -> Option<Vec<u8>> {
@@ -81,10 +92,59 @@ impl IconResolver {
 
         None
     }
+
+    fn find_app_icon(&self, icon_name: &str) -> Option<Vec<u8>> {
+        let icon_name = icon_name.trim();
+        if icon_name.is_empty() {
+            return None;
+        }
+
+        let path = PathBuf::from(icon_name);
+        if path.is_absolute() {
+            return read_svg_icon(&path);
+        }
+
+        if icon_name.contains('/') {
+            return None;
+        }
+
+        let icon_path = Path::new(icon_name);
+        let name = if is_image_extension(icon_path) {
+            icon_path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or(icon_name)
+        } else {
+            icon_name
+        };
+
+        self.find_icon(&[name])
+    }
 }
 
 fn fallback_file_icon() -> EntryIcon {
     EntryIcon::Embedded(include_bytes!("../../../icons/file.svg"))
+}
+
+fn fallback_app_icon() -> EntryIcon {
+    EntryIcon::Embedded(include_bytes!("../../../icons/app.svg"))
+}
+
+fn read_svg_icon(path: &Path) -> Option<Vec<u8>> {
+    (path.extension().and_then(|value| value.to_str()) == Some("svg"))
+        .then(|| fs::read(path).ok())
+        .flatten()
+}
+
+fn is_image_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "svg" | "png" | "xpm"
+            )
+        })
 }
 
 const ICON_THEME_SUBDIRS: &[&str] = &[
@@ -202,5 +262,26 @@ fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
 fn push_unique_string(values: &mut Vec<String>, value: String) {
     if !value.is_empty() && !values.iter().any(|existing| existing == &value) {
         values.push(value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_app_icon_falls_back_to_embedded_icon() {
+        let icon = resolve_app_icon(None);
+
+        match icon {
+            EntryIcon::Embedded(bytes) => assert!(!bytes.is_empty()),
+            EntryIcon::Theme(_) => panic!("expected fallback icon"),
+        }
+    }
+
+    #[test]
+    fn dotted_app_icon_names_are_not_treated_as_extensions() {
+        assert!(!is_image_extension(Path::new("org.example.App")));
+        assert!(is_image_extension(Path::new("example.svg")));
     }
 }

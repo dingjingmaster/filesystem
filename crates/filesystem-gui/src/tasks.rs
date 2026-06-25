@@ -1,5 +1,8 @@
+use crate::apps::{load_app_registry, open_file_with_app};
 use crate::icons::decorate_entries;
-use crate::model::{DisplayListing, DisplaySearchResults, HomeShortcut, Message, NewEntryKind};
+use crate::model::{
+    DesktopApp, DisplayListing, DisplaySearchResults, HomeShortcut, Message, NewEntryKind,
+};
 use filesystem_core::{
     DirectoryListing, FsError, ScanOptions, create_file, create_folder, delete_entry, scan_dir,
     search_file_names,
@@ -16,6 +19,10 @@ pub(crate) fn load_home_shortcuts(home: Option<PathBuf>) -> Task<Message> {
         async move { detect_home_shortcuts(home) },
         Message::HomeShortcutsLoaded,
     )
+}
+
+pub(crate) fn load_app_registry_task() -> Task<Message> {
+    Task::perform(async { load_app_registry() }, Message::ApplicationsLoaded)
 }
 
 fn detect_home_shortcuts(home: Option<PathBuf>) -> Vec<HomeShortcut> {
@@ -116,6 +123,13 @@ pub(crate) fn delete_entry_task(path: PathBuf) -> Task<Message> {
             Ok(path)
         },
         Message::DeleteFinished,
+    )
+}
+
+pub(crate) fn open_file_with_app_task(path: PathBuf, app: DesktopApp) -> Task<Message> {
+    Task::perform(
+        async move { open_file_with_app(path, app) },
+        Message::OpenFileFinished,
     )
 }
 

@@ -1,8 +1,9 @@
 use filesystem_core::{
-    ChildPathLimits, EntryKind, FileEntry, FolderProperties, FsError, PasteAction,
+    ChildPathLimits, EntryKind, FileEntry, FileProperties, FolderProperties, FsError, PasteAction,
 };
 use iced::widget::text_editor;
 use iced::{Point, Size, window};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -33,9 +34,21 @@ pub(crate) enum Message {
     FolderDelete(PathBuf),
     FolderOpenTerminal(PathBuf),
     FolderProperties(PathBuf),
+    FileOpenDefault(PathBuf),
+    FileOpenWith(PathBuf),
+    FileCopy(PathBuf),
+    FileCut(PathBuf),
+    FileRename(PathBuf),
+    FileDelete(PathBuf),
+    FileProperties(PathBuf),
     CancelDelete,
     ConfirmDelete(PathBuf),
     DeleteFinished(Result<PathBuf, FsError>),
+    ApplicationsLoaded(AppRegistry),
+    OpenWithSelect(String),
+    OpenWithCancel,
+    OpenWithOpen,
+    OpenFileFinished(Result<String, String>),
     CreateFinished(NewEntryKind, Result<PathBuf, FsError>),
     RenameEditorAction(text_editor::Action),
     RenameSubmit,
@@ -44,6 +57,7 @@ pub(crate) enum Message {
     PasteFinished(Result<Vec<PathBuf>, FsError>),
     TerminalOpened(Result<String, String>),
     PropertiesLoaded(Result<FolderProperties, FsError>),
+    FilePropertiesLoaded(Result<FileProperties, FsError>),
     PropertiesPermissionsSaved(Result<FolderProperties, FsError>),
     CloseProperties,
     SetPropertiesView(PropertiesView),
@@ -137,6 +151,7 @@ impl PermissionClass {
 pub(crate) enum PropertiesState {
     Loading(PathBuf),
     Loaded(FolderProperties),
+    FileLoaded(FileProperties),
     Error(String),
 }
 
@@ -166,12 +181,37 @@ pub(crate) struct ClipboardState {
 pub(crate) enum ContextMenuState {
     Blank(Point),
     Folder { position: Point, path: PathBuf },
+    File { position: Point, path: PathBuf },
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct DeleteConfirm {
     pub(crate) path: PathBuf,
     pub(crate) name: String,
+    pub(crate) kind_label: &'static str,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AppRegistry {
+    pub(crate) apps: Vec<DesktopApp>,
+    pub(crate) defaults: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DesktopApp {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) exec: String,
+    pub(crate) mime_types: Vec<String>,
+    pub(crate) icon: EntryIcon,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OpenWithDialog {
+    pub(crate) path: PathBuf,
+    pub(crate) mime: String,
+    pub(crate) apps: Vec<DesktopApp>,
+    pub(crate) selected_app_id: Option<String>,
 }
 
 impl ViewMode {

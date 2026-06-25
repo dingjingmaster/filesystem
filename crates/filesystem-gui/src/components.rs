@@ -311,6 +311,10 @@ fn rename_editor_key_binding(
 }
 
 pub(crate) fn context_menu_item<'a>(label: &'static str, message: Message) -> Element<'a, Message> {
+    context_menu_item_owned(label.to_string(), message)
+}
+
+pub(crate) fn context_menu_item_owned<'a>(label: String, message: Message) -> Element<'a, Message> {
     let content = container(text(label).size(14).style(style::primary_text))
         .height(Fill)
         .width(Fill)

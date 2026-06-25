@@ -74,6 +74,20 @@ pub struct FolderProperties {
     pub created: Option<SystemTime>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileProperties {
+    pub path: PathBuf,
+    pub name: String,
+    pub parent: Option<PathBuf>,
+    pub size: u64,
+    pub owner: Option<u32>,
+    pub group: Option<u32>,
+    pub mode: Option<u32>,
+    pub accessed: Option<SystemTime>,
+    pub modified: Option<SystemTime>,
+    pub created: Option<SystemTime>,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ChildPathLimits {
     pub name_bytes: Option<usize>,
@@ -331,6 +345,35 @@ pub fn folder_properties(path: impl AsRef<Path>) -> Result<FolderProperties, FsE
         owner: Some(metadata.uid()),
         group: Some(metadata.gid()),
         mode: Some(metadata.mode() & 0o7777),
+        modified: metadata.modified().ok(),
+        created: metadata.created().ok(),
+    })
+}
+
+pub fn file_properties(path: impl AsRef<Path>) -> Result<FileProperties, FsError> {
+    let path = path.as_ref();
+    let metadata = fs::symlink_metadata(path).map_err(|error| FsError::from_io(path, error))?;
+
+    if metadata.is_dir() {
+        return Err(FsError::from_message(
+            path,
+            io::ErrorKind::InvalidInput,
+            "path is a directory",
+        ));
+    }
+
+    Ok(FileProperties {
+        path: path.to_path_buf(),
+        name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string()),
+        parent: path.parent().map(Path::to_path_buf),
+        size: metadata.len(),
+        owner: Some(metadata.uid()),
+        group: Some(metadata.gid()),
+        mode: Some(metadata.mode() & 0o7777),
+        accessed: metadata.accessed().ok(),
         modified: metadata.modified().ok(),
         created: metadata.created().ok(),
     })
@@ -944,6 +987,32 @@ mod tests {
             Some(fs::metadata(fixture.path()).unwrap().uid())
         );
         assert!(properties.free_space.is_some());
+    }
+
+    #[test]
+    fn file_properties_reports_file_metadata() {
+        let fixture = TempDir::new("file-properties");
+        let target = fixture.path().join("a.log");
+        fs::write(&target, b"123456").unwrap();
+
+        let properties = file_properties(&target).unwrap();
+
+        assert_eq!(properties.path, target);
+        assert_eq!(properties.name, "a.log");
+        assert_eq!(properties.parent, Some(fixture.path().to_path_buf()));
+        assert_eq!(properties.size, 6);
+        assert_eq!(properties.owner, Some(fs::metadata(&target).unwrap().uid()));
+        assert!(properties.mode.is_some());
+        assert!(properties.modified.is_some());
+    }
+
+    #[test]
+    fn file_properties_rejects_directories() {
+        let fixture = TempDir::new("file-properties-directory");
+
+        let error = file_properties(fixture.path()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]

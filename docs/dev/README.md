@@ -32,3 +32,6 @@
 | 7 | 2026-06-25 | L4 | research | [7-research-selected-folder-context-menu.md](7-research-selected-folder-context-menu.md) | 已完成 | 调研单个选中文件夹右键菜单、内部复制/剪切、递归删除确认、终端打开和属性目标切换方案。 |
 | 7 | 2026-06-25 | L4 | plan | [7-plan-selected-folder-context-menu.md](7-plan-selected-folder-context-menu.md) | 已完成 | 规划 core 删除 API、GUI 文件夹菜单、内部剪贴板、剪切变淡、删除确认弹窗和验证步骤。 |
 | 7 | 2026-06-25 | L4 | summary | [7-summary-selected-folder-context-menu.md](7-summary-selected-folder-context-menu.md) | 已完成 | 总结选中文件夹右键菜单、内部复制/剪切、剪切变淡、删除确认、后台递归删除和验证结果。 |
+| 8 | 2026-06-25 | L4 | research | [8-research-selected-file-context-menu.md](8-research-selected-file-context-menu.md) | 已完成 | 调研单个选中文件右键菜单、默认应用/打开方式本地解析、文件属性和文件操作方案。 |
+| 8 | 2026-06-25 | L4 | plan | [8-plan-selected-file-context-menu.md](8-plan-selected-file-context-menu.md) | 已完成 | 规划 core 文件属性 API、GUI 应用注册表、文件菜单、打开方式弹窗、文件属性弹窗和验证步骤。 |
+| 8 | 2026-06-25 | L4 | summary | [8-summary-selected-file-context-menu.md](8-summary-selected-file-context-menu.md) | 已完成 | 总结选中非文件夹条目右键菜单、默认应用/打开方式本地解析、无默认应用时首选候选应用打开、常见无扩展名文本文件匹配、文件属性、文件操作和验证结果。 |

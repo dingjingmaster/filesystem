@@ -1,4 +1,5 @@
 mod app;
+mod apps;
 mod components;
 mod config;
 mod icons;
