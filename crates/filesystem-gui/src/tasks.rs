@@ -1,19 +1,22 @@
 use crate::apps::{load_app_registry, open_file_with_app};
 use crate::icons::{basic_entries, decorate_entry_batch};
 use crate::model::{
-    DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults, HomeShortcut, Message,
-    NewEntryKind,
+    DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults, FileOperationEvent,
+    HomeShortcut, Message, NewEntryKind,
 };
 use filesystem_core::{
-    DirectoryScanner, FileEntry, FsError, ScanOptions, create_file, create_folder, delete_entry,
-    search_file_names,
+    DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction, ScanOptions,
+    create_file, create_folder, delete_entry, paste_paths_with_progress, search_file_names,
 };
-use iced::{Task, futures::SinkExt, futures::channel::mpsc, stream, window};
+use iced::{Task, futures::SinkExt, futures::channel::mpsc as iced_mpsc, stream, window};
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc as std_mpsc;
+use std::thread;
+use std::time::Duration;
 
 const DIRECTORY_BATCH_SIZE: usize = 128;
 const DIRECTORY_STREAM_BUFFER: usize = 1024;
@@ -89,7 +92,7 @@ pub(crate) fn load_directory_stream(
 ) -> Task<Message> {
     Task::stream(stream::channel(
         DIRECTORY_STREAM_BUFFER,
-        move |mut output: mpsc::Sender<Message>| async move {
+        move |mut output: iced_mpsc::Sender<Message>| async move {
             let mut scanner = match DirectoryScanner::new(path, options, DIRECTORY_BATCH_SIZE) {
                 Ok(scanner) => scanner,
                 Err(error) => {
@@ -192,6 +195,59 @@ pub(crate) fn delete_entry_task(path: PathBuf) -> Task<Message> {
             Ok(path)
         },
         Message::DeleteFinished,
+    )
+}
+
+pub(crate) fn paste_paths_stream(
+    operation_id: u64,
+    sources: Vec<PathBuf>,
+    destination: PathBuf,
+    action: PasteAction,
+    cancel_token: FileOperationCancelToken,
+) -> Task<Message> {
+    Task::stream(stream::channel(
+        DIRECTORY_STREAM_BUFFER,
+        move |mut output: iced_mpsc::Sender<Message>| async move {
+            let (event_sender, event_receiver) = std_mpsc::channel::<FileOperationEvent>();
+            let worker_cancel_token = cancel_token.clone();
+            let output_cancel_token = cancel_token.clone();
+
+            thread::spawn(move || {
+                let progress_sender = event_sender.clone();
+                let result = paste_paths_with_progress(
+                    sources,
+                    destination,
+                    action,
+                    worker_cancel_token,
+                    |event| {
+                        let _ = progress_sender.send(FileOperationEvent::Progress(event));
+                    },
+                );
+
+                let _ = event_sender.send(FileOperationEvent::Finished(result));
+            });
+
+            while let Ok(event) = event_receiver.recv() {
+                if output
+                    .send(Message::FileOperationEvent(operation_id, event))
+                    .await
+                    .is_err()
+                {
+                    output_cancel_token.cancel();
+                    break;
+                }
+            }
+        },
+    ))
+}
+
+pub(crate) fn remove_completed_file_operation_task(operation_id: u64) -> Task<Message> {
+    Task::perform(
+        async move {
+            std::thread::sleep(Duration::from_secs(3));
+            operation_id
+        },
+        Message::RemoveCompletedFileOperation,
     )
 }
 

@@ -46,3 +46,6 @@
 | 13 | 2026-06-25 | L3 | research | [13-research-large-directory-performance.md](13-research-large-directory-performance.md) | 已完成 | 调研大目录打开卡顿根因，明确分批加载、基础条目先显示、后台装饰、图标缓存和视图虚拟化方案。 |
 | 13 | 2026-06-25 | L3 | plan | [13-plan-large-directory-performance.md](13-plan-large-directory-performance.md) | 已完成 | 规划 core 分批 scanner、GUI stream 事件、MIME/图标后台装饰、缓存、虚拟化和验证步骤。 |
 | 13 | 2026-06-25 | L3 | summary | [13-summary-large-directory-performance.md](13-summary-large-directory-performance.md) | 已完成 | 总结大目录分批显示、后台装饰、图标缓存、图标/列表视图虚拟化、验证结果和残余风险。 |
+| 14 | 2026-06-26 | L4 | research | [14-research-file-operation-progress.md](14-research-file-operation-progress.md) | 已完成 | 调研复制/剪切粘贴进度显示、跨文件系统剪切退化、取消和进度 UI 边界。 |
+| 14 | 2026-06-26 | L4 | plan | [14-plan-file-operation-progress.md](14-plan-file-operation-progress.md) | 已完成 | 规划 core 带进度粘贴 API、GUI 文件操作 stream、侧栏圆形总进度和详情条形进度。 |
+| 14 | 2026-06-26 | L4 | summary | [14-summary-file-operation-progress.md](14-summary-file-operation-progress.md) | 已完成 | 总结复制/剪切进度、跨文件系统剪切复制后删除、详情失焦隐藏、取消入口、最多 3 个复制线程和验证结果。 |

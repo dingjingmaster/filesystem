@@ -86,6 +86,51 @@ pub(crate) fn sidebar_icon<'a>(bytes: &'static [u8]) -> Element<'a, Message> {
     .into()
 }
 
+pub(crate) fn operation_progress_circle(
+    progress: f32,
+    complete: bool,
+) -> Element<'static, Message> {
+    let progress = progress.clamp(0.0, 1.0);
+    let marker = if complete { "✓" } else { "" };
+
+    stack([
+        container(
+            svg(svg::Handle::from_memory(progress_ring_svg(progress)))
+                .width(30)
+                .height(30),
+        )
+        .width(30)
+        .height(30)
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .into(),
+        container(text(marker).size(15).style(style::primary_text))
+            .width(30)
+            .height(30)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .into(),
+    ])
+    .width(30)
+    .height(30)
+    .into()
+}
+
+fn progress_ring_svg(progress: f32) -> Vec<u8> {
+    let radius = 13.0_f32;
+    let circumference = 2.0 * std::f32::consts::PI * radius;
+    let filled = circumference * progress;
+    let empty = circumference - filled;
+
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">
+<circle cx="15" cy="15" r="{radius}" fill="#2e2e36" stroke="#383840" stroke-width="3"/>
+<circle cx="15" cy="15" r="{radius}" fill="none" stroke="#6f9ee8" stroke-width="3" stroke-linecap="round" transform="rotate(-90 15 15)" stroke-dasharray="{filled:.3} {empty:.3}"/>
+</svg>"##
+    )
+    .into_bytes()
+}
+
 pub(crate) fn resize_layer<'a>() -> Element<'a, Message> {
     use mouse::Interaction;
     use window::Direction;

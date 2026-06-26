@@ -1,11 +1,13 @@
 use filesystem_core::{
-    ChildPathLimits, EntryKind, FileEntry, FileProperties, FolderProperties, FsError, PasteAction,
+    ChildPathLimits, EntryKind, FileEntry, FileOperationCancelToken, FileProperties,
+    FolderProperties, FsError, PasteAction, PasteProgress, PasteProgressEvent,
 };
 use filesystem_mime::MimeInfo;
 use iced::widget::text_editor;
 use iced::{Point, Size, window};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
@@ -55,7 +57,12 @@ pub(crate) enum Message {
     RenameSubmit,
     RenameFinished(Result<PathBuf, FsError>),
     PasteClipboardRead(Option<String>),
-    PasteFinished(Result<Vec<PathBuf>, FsError>),
+    FileOperationEvent(u64, FileOperationEvent),
+    ToggleFileOperations,
+    HideFileOperations,
+    FileOperationsEventSink,
+    CloseFileOperation(u64),
+    RemoveCompletedFileOperation(u64),
     TerminalOpened(Result<String, String>),
     PropertiesLoaded(Result<FolderProperties, FsError>),
     FilePropertiesLoaded(Result<FileProperties, FsError>),
@@ -178,6 +185,38 @@ pub(crate) struct PropertiesDrag {
 pub(crate) struct ClipboardState {
     pub(crate) action: PasteAction,
     pub(crate) paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum FileOperationEvent {
+    Progress(PasteProgressEvent),
+    Finished(Result<Vec<PathBuf>, FsError>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FileOperationStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FileOperationState {
+    pub(crate) id: u64,
+    pub(crate) action: PasteAction,
+    pub(crate) sources: Vec<PathBuf>,
+    pub(crate) destination: PathBuf,
+    pub(crate) cancel_token: FileOperationCancelToken,
+    pub(crate) progress: PasteProgress,
+    pub(crate) status: FileOperationStatus,
+    pub(crate) error: Option<String>,
+    pub(crate) started_at: Instant,
+    pub(crate) last_sample_at: Instant,
+    pub(crate) last_sample_bytes: u64,
+    pub(crate) speed_bytes_per_second: Option<u64>,
+    pub(crate) targets: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]

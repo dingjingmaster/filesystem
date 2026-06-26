@@ -6,15 +6,16 @@ use crate::style;
 use crate::tasks::*;
 use crate::utils::*;
 use filesystem_core::{
-    ClipboardPaths, EntryKind, FileProperties, FolderProperties, FsError, PasteAction, ScanOptions,
+    ClipboardPaths, EntryKind, FileOperationCancelToken, FileProperties, FolderProperties, FsError,
+    PasteAction, PasteProgress, PasteProgressEvent, PasteProgressPhase, ScanOptions,
     SymlinkTargetKind, child_path_limits, file_properties, folder_properties,
-    parse_clipboard_paths, paste_paths, rename_entry, set_permissions,
+    parse_clipboard_paths, rename_entry, set_permissions,
 };
 use filesystem_mime::{MimeInfo, detect_name};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
-    button, checkbox, column, container, mouse_area, operation, row, scrollable, space, stack,
-    text, text_editor, text_input,
+    button, checkbox, column, container, mouse_area, operation, progress_bar, row, scrollable,
+    space, stack, text, text_editor, text_input,
 };
 use iced::{
     Element, Fill, Length, Padding, Point, Rectangle, Size, Subscription, Task, mouse, window,
@@ -22,6 +23,7 @@ use iced::{
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::time::Instant;
 
 pub(crate) struct FileManager {
     cwd: PathBuf,
@@ -36,6 +38,11 @@ pub(crate) struct FileManager {
     view_submenu_open: bool,
     context_menu: Option<ContextMenuState>,
     clipboard: Option<ClipboardState>,
+    file_operations: BTreeMap<u64, FileOperationState>,
+    active_file_operation_ids: BTreeSet<u64>,
+    dismissed_file_operations: BTreeSet<u64>,
+    file_operations_expanded: bool,
+    next_file_operation_id: u64,
     delete_confirm: Option<DeleteConfirm>,
     alert_dialog: Option<AlertDialog>,
     rename_state: Option<RenameState>,
@@ -81,6 +88,11 @@ impl FileManager {
             view_submenu_open: false,
             context_menu: None,
             clipboard: None,
+            file_operations: BTreeMap::new(),
+            active_file_operation_ids: BTreeSet::new(),
+            dismissed_file_operations: BTreeSet::new(),
+            file_operations_expanded: false,
+            next_file_operation_id: 0,
             delete_confirm: None,
             alert_dialog: None,
             rename_state: None,
@@ -592,23 +604,32 @@ impl FileManager {
 
                 self.paste_paths(paths, action)
             }
-            Message::PasteFinished(result) => match result {
-                Ok(paths) => {
-                    if self
-                        .clipboard
-                        .as_ref()
-                        .is_some_and(|clipboard| clipboard.action == PasteAction::Cut)
-                    {
-                        self.clipboard = None;
-                    }
-                    self.status = format!("Pasted {} item(s)", paths.len());
-                    self.reload()
+            Message::FileOperationEvent(operation_id, event) => {
+                self.file_operation_event(operation_id, event)
+            }
+            Message::ToggleFileOperations => {
+                self.file_operations_expanded = !self.file_operations_expanded;
+                Task::none()
+            }
+            Message::HideFileOperations => {
+                self.file_operations_expanded = false;
+                Task::none()
+            }
+            Message::FileOperationsEventSink => Task::none(),
+            Message::CloseFileOperation(operation_id) => self.close_file_operation(operation_id),
+            Message::RemoveCompletedFileOperation(operation_id) => {
+                if self
+                    .file_operations
+                    .get(&operation_id)
+                    .is_some_and(|operation| operation.status == FileOperationStatus::Completed)
+                {
+                    self.file_operations.remove(&operation_id);
                 }
-                Err(error) => {
-                    self.status = error.to_string();
-                    Task::none()
+                if self.file_operations.is_empty() {
+                    self.file_operations_expanded = false;
                 }
-            },
+                Task::none()
+            }
             Message::TerminalOpened(result) => {
                 self.status = match result {
                     Ok(name) => format!("Opened {name}"),
@@ -789,6 +810,7 @@ impl FileManager {
         stack([
             shell.into(),
             resize_layer(),
+            self.file_operations_overlay(),
             self.properties_overlay(),
             self.delete_confirm_overlay(),
             self.open_with_overlay(),
@@ -800,17 +822,6 @@ impl FileManager {
     }
 
     fn sidebar(&self) -> Element<'_, Message> {
-        let top_drag = mouse_area(
-            container(text(APP_NAME_ZH).size(16).style(style::primary_text))
-                .height(TOOLBAR_HEIGHT)
-                .width(Fill)
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Center)
-                .style(style::sidebar_drag_area),
-        )
-        .on_press(Message::WindowDrag)
-        .on_double_click(Message::WindowToggleMaximize);
-
         let quick = column![
             self.nav_item(
                 NavKind::Home,
@@ -839,13 +850,207 @@ impl FileManager {
             }
         }
 
-        let sidebar = column![top_drag, container(content).height(Fill).width(Fill)].spacing(0);
+        let sidebar = column![
+            self.sidebar_header(),
+            container(content).height(Fill).width(Fill),
+        ]
+        .spacing(0)
+        .height(Fill)
+        .width(Fill);
 
         container(sidebar)
             .width(SIDEBAR_WIDTH)
             .height(Fill)
             .style(style::sidebar)
             .into()
+    }
+
+    fn sidebar_header(&self) -> Element<'_, Message> {
+        let title = || {
+            mouse_area(
+                container(text(APP_NAME_ZH).size(16).style(style::primary_text))
+                    .height(Fill)
+                    .width(Fill)
+                    .padding([0, 14])
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center),
+            )
+            .on_press(Message::WindowDrag)
+            .on_double_click(Message::WindowToggleMaximize)
+        };
+
+        let header = if let Some((progress, complete)) = self.overall_file_operation_progress() {
+            row![
+                space().width(46),
+                title(),
+                button(operation_progress_circle(progress, complete))
+                    .height(38)
+                    .width(38)
+                    .padding(4)
+                    .style(style::progress_circle_button)
+                    .on_press(Message::ToggleFileOperations),
+                space().width(8),
+            ]
+            .height(TOOLBAR_HEIGHT)
+            .align_y(iced::Center)
+        } else {
+            row![title()].height(TOOLBAR_HEIGHT).align_y(iced::Center)
+        };
+
+        container(header)
+            .height(TOOLBAR_HEIGHT)
+            .width(Fill)
+            .padding(Padding::default().right(8.0))
+            .style(style::sidebar_drag_area)
+            .into()
+    }
+
+    fn file_operations_overlay(&self) -> Element<'_, Message> {
+        if !self.file_operations_expanded || self.file_operations.is_empty() {
+            return container(space()).height(Fill).width(Fill).into();
+        }
+
+        let dismiss_layer = mouse_area(container(space()).height(Fill).width(Fill))
+            .on_press(Message::HideFileOperations);
+
+        let panel = mouse_area(self.file_operations_panel())
+            .on_press(Message::FileOperationsEventSink)
+            .on_scroll(|_| Message::FileOperationsEventSink);
+
+        let panel_layer = container(
+            column![
+                space().height(Length::Fixed(TOOLBAR_HEIGHT)),
+                row![panel, space().width(Fill)].spacing(0),
+                space().height(Fill),
+            ]
+            .spacing(0),
+        )
+        .height(Fill)
+        .width(Fill);
+
+        stack([dismiss_layer.into(), panel_layer.into()])
+            .height(Fill)
+            .width(Fill)
+            .into()
+    }
+
+    fn file_operations_panel(&self) -> Element<'_, Message> {
+        let operation_count = self.file_operations.len();
+        let mut rows = column![].spacing(8).padding([8, 10]);
+
+        for operation in self.file_operations.values() {
+            rows = rows.push(self.file_operation_row(operation));
+        }
+
+        let visible_rows = operation_count.min(5);
+        let height = (visible_rows as f32 * 106.0 + 16.0).max(1.0);
+        let width = Length::Fixed(FILE_OPERATION_POPUP_WIDTH);
+
+        let content: Element<'_, Message> = if operation_count > 5 {
+            scrollable(rows)
+                .height(Length::Fixed(height))
+                .width(width)
+                .into()
+        } else {
+            rows.width(width).into()
+        };
+
+        container(content)
+            .height(Length::Fixed(height))
+            .width(width)
+            .style(style::file_operation_panel)
+            .into()
+    }
+
+    fn file_operation_row(&self, operation: &FileOperationState) -> Element<'_, Message> {
+        let fraction = file_operation_fraction(operation);
+        let title = format!(
+            "{} {} 项",
+            paste_action_label(operation.action),
+            operation.sources.len()
+        );
+        let destination = format!(
+            "到 {}",
+            short_list_text(&operation.destination.display().to_string())
+        );
+        let current = file_operation_current_label(operation);
+        let speed = file_operation_speed_label(operation);
+        let percent = format!("{:.0}%", fraction * 100.0);
+
+        let close = button(
+            container(text("x").size(13).style(style::muted_text))
+                .height(Fill)
+                .width(Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
+        )
+        .height(24)
+        .width(24)
+        .padding(0)
+        .style(style::toolbar_button)
+        .on_press(Message::CloseFileOperation(operation.id));
+
+        container(
+            column![
+                row![
+                    column![
+                        text(title).size(13).style(style::primary_text),
+                        text(destination).size(11).style(style::muted_text),
+                    ]
+                    .spacing(2)
+                    .width(Fill),
+                    close,
+                ]
+                .align_y(iced::Center),
+                text(current).size(12).style(style::muted_text),
+                progress_bar(0.0..=1.0, fraction)
+                    .girth(Length::Fixed(6.0))
+                    .style(style::file_operation_progress),
+                row![
+                    text(speed).size(11).style(style::muted_text),
+                    space().width(Fill),
+                    text(percent).size(11).style(style::muted_text),
+                ]
+                .align_y(iced::Center),
+            ]
+            .spacing(7)
+            .padding(8),
+        )
+        .width(Fill)
+        .style(style::file_operation_row)
+        .into()
+    }
+
+    fn overall_file_operation_progress(&self) -> Option<(f32, bool)> {
+        if self.file_operations.is_empty() {
+            return None;
+        }
+
+        let mut total_bytes = 0;
+        let mut completed_bytes = 0;
+        let mut total_items = 0;
+        let mut completed_items = 0;
+        let mut all_completed = true;
+
+        for operation in self.file_operations.values() {
+            total_bytes += operation.progress.total_bytes;
+            completed_bytes += operation.progress.completed_bytes;
+            total_items += operation.progress.total_items;
+            completed_items += operation.progress.completed_items;
+            all_completed &= operation.status == FileOperationStatus::Completed;
+        }
+
+        let progress = if total_bytes > 0 {
+            completed_bytes as f32 / total_bytes as f32
+        } else if total_items > 0 {
+            completed_items as f32 / total_items as f32
+        } else if all_completed {
+            1.0
+        } else {
+            0.0
+        };
+
+        Some((progress.clamp(0.0, 1.0), all_completed))
     }
 
     fn main_area(&self) -> Element<'_, Message> {
@@ -2881,12 +3086,253 @@ impl FileManager {
     }
 
     fn paste_paths(&mut self, paths: Vec<PathBuf>, action: PasteAction) -> Task<Message> {
+        if paths.is_empty() {
+            self.status = "Clipboard does not contain local paths".to_string();
+            return Task::none();
+        }
+
+        let operation_id = self.next_file_operation_id();
         let destination = self.cwd.clone();
-        self.status = "Pasting...".to_string();
-        Task::perform(
-            async move { paste_paths(paths, destination, action) },
-            Message::PasteFinished,
-        )
+        let cancel_token = FileOperationCancelToken::new();
+        let now = Instant::now();
+        let mut progress = initial_paste_progress(action);
+        progress.total_items = paths.len() as u64;
+        let operation = FileOperationState {
+            id: operation_id,
+            action,
+            sources: paths.clone(),
+            destination: destination.clone(),
+            cancel_token: cancel_token.clone(),
+            progress,
+            status: FileOperationStatus::Queued,
+            error: None,
+            started_at: now,
+            last_sample_at: now,
+            last_sample_bytes: 0,
+            speed_bytes_per_second: None,
+            targets: Vec::new(),
+        };
+
+        self.file_operations.insert(operation_id, operation);
+        self.status = match action {
+            PasteAction::Copy => format!("Queued copy of {} item(s)", paths.len()),
+            PasteAction::Cut => format!("Queued move of {} item(s)", paths.len()),
+        };
+
+        self.start_queued_file_operations()
+    }
+
+    fn next_file_operation_id(&mut self) -> u64 {
+        self.next_file_operation_id += 1;
+        self.next_file_operation_id
+    }
+
+    fn start_queued_file_operations(&mut self) -> Task<Message> {
+        let available_slots =
+            MAX_RUNNING_FILE_OPERATIONS.saturating_sub(self.active_file_operation_ids.len());
+        if available_slots == 0 {
+            return Task::none();
+        }
+
+        let queued_ids = self
+            .file_operations
+            .iter()
+            .filter_map(|(id, operation)| {
+                (operation.status == FileOperationStatus::Queued).then_some(*id)
+            })
+            .take(available_slots)
+            .collect::<Vec<_>>();
+
+        let mut tasks = Vec::new();
+
+        for operation_id in queued_ids {
+            let Some(operation) = self.file_operations.get_mut(&operation_id) else {
+                continue;
+            };
+
+            operation.status = FileOperationStatus::Running;
+            operation.started_at = Instant::now();
+            operation.last_sample_at = operation.started_at;
+            operation.last_sample_bytes = 0;
+            operation.speed_bytes_per_second = None;
+            operation.error = None;
+
+            let sources = operation.sources.clone();
+            let destination = operation.destination.clone();
+            let action = operation.action;
+            let cancel_token = operation.cancel_token.clone();
+            self.active_file_operation_ids.insert(operation_id);
+            self.status = match action {
+                PasteAction::Copy => format!("Copying {} item(s)...", sources.len()),
+                PasteAction::Cut => format!("Moving {} item(s)...", sources.len()),
+            };
+            tasks.push(paste_paths_stream(
+                operation_id,
+                sources,
+                destination,
+                action,
+                cancel_token,
+            ));
+        }
+
+        Task::batch(tasks)
+    }
+
+    fn file_operation_event(
+        &mut self,
+        operation_id: u64,
+        event: FileOperationEvent,
+    ) -> Task<Message> {
+        match event {
+            FileOperationEvent::Progress(event) => {
+                self.apply_file_operation_progress(operation_id, event);
+                Task::none()
+            }
+            FileOperationEvent::Finished(result) => {
+                self.finish_file_operation(operation_id, result)
+            }
+        }
+    }
+
+    fn apply_file_operation_progress(&mut self, operation_id: u64, event: PasteProgressEvent) {
+        let Some(operation) = self.file_operations.get_mut(&operation_id) else {
+            return;
+        };
+
+        match event {
+            PasteProgressEvent::Started(progress) | PasteProgressEvent::Progress(progress) => {
+                update_file_operation_progress(operation, progress);
+            }
+            PasteProgressEvent::Finished { targets, progress } => {
+                update_file_operation_progress(operation, progress);
+                operation.targets = targets;
+                operation.status = FileOperationStatus::Completed;
+                operation.error = None;
+            }
+            PasteProgressEvent::Cancelled { targets, progress } => {
+                update_file_operation_progress(operation, progress);
+                operation.targets = targets;
+                operation.status = FileOperationStatus::Cancelled;
+                operation.error = Some("已取消".to_string());
+            }
+        }
+    }
+
+    fn finish_file_operation(
+        &mut self,
+        operation_id: u64,
+        result: Result<Vec<PathBuf>, FsError>,
+    ) -> Task<Message> {
+        self.active_file_operation_ids.remove(&operation_id);
+
+        if self.file_operations.get(&operation_id).is_none()
+            && self.dismissed_file_operations.remove(&operation_id)
+        {
+            return Task::batch(vec![self.reload(), self.start_queued_file_operations()]);
+        }
+
+        let mut clear_clipboard = None;
+        let mut refresh = false;
+        let mut remove_completed = false;
+
+        if let Some(operation) = self.file_operations.get_mut(&operation_id) {
+            clear_clipboard = Some((operation.action, operation.sources.clone()));
+            match result {
+                Ok(paths) => {
+                    operation.targets = paths.clone();
+                    operation.status = FileOperationStatus::Completed;
+                    operation.error = None;
+                    operation.progress.phase = PasteProgressPhase::Finished;
+                    operation.progress.completed_bytes = operation.progress.total_bytes;
+                    operation.progress.completed_items = operation.progress.total_items;
+                    operation.progress.current_source = None;
+                    operation.progress.current_target = None;
+                    operation.progress.current_bytes = 0;
+                    operation.progress.current_total_bytes = 0;
+                    self.status = format!("Pasted {} item(s)", paths.len());
+                    refresh = true;
+                    remove_completed = true;
+                }
+                Err(error) if error.is_cancelled() => {
+                    operation.status = FileOperationStatus::Cancelled;
+                    operation.error = Some("已取消".to_string());
+                    operation.progress.phase = PasteProgressPhase::Cancelled;
+                    self.status = "File operation cancelled".to_string();
+                    refresh = true;
+                }
+                Err(error) => {
+                    operation.status = FileOperationStatus::Failed;
+                    operation.error = Some(error.to_string());
+                    self.status = "File operation failed".to_string();
+                    refresh = true;
+                }
+            }
+        }
+
+        if let Some((action, sources)) = clear_clipboard {
+            self.clear_matching_clipboard(action, &sources);
+        }
+
+        let mut tasks = Vec::new();
+        if refresh {
+            tasks.push(self.reload());
+        }
+        if remove_completed {
+            tasks.push(remove_completed_file_operation_task(operation_id));
+        }
+        tasks.push(self.start_queued_file_operations());
+
+        Task::batch(tasks)
+    }
+
+    fn close_file_operation(&mut self, operation_id: u64) -> Task<Message> {
+        let Some(operation) = self.file_operations.get(&operation_id) else {
+            return Task::none();
+        };
+
+        if operation.status == FileOperationStatus::Running {
+            let action = operation.action;
+            let sources = operation.sources.clone();
+            let was_active = self.active_file_operation_ids.contains(&operation_id);
+            operation.cancel_token.cancel();
+            self.clear_matching_clipboard(action, &sources);
+            self.file_operations.remove(&operation_id);
+            if was_active {
+                self.dismissed_file_operations.insert(operation_id);
+            }
+            if self.file_operations.is_empty() {
+                self.file_operations_expanded = false;
+            }
+            if !was_active {
+                return self.start_queued_file_operations();
+            }
+        } else if operation.status == FileOperationStatus::Queued {
+            let action = operation.action;
+            let sources = operation.sources.clone();
+            operation.cancel_token.cancel();
+            self.clear_matching_clipboard(action, &sources);
+            self.file_operations.remove(&operation_id);
+            if self.file_operations.is_empty() {
+                self.file_operations_expanded = false;
+            }
+        } else {
+            self.file_operations.remove(&operation_id);
+            if self.file_operations.is_empty() {
+                self.file_operations_expanded = false;
+            }
+        }
+
+        Task::none()
+    }
+
+    fn clear_matching_clipboard(&mut self, action: PasteAction, sources: &[PathBuf]) {
+        if self
+            .clipboard
+            .as_ref()
+            .is_some_and(|clipboard| clipboard.action == action && clipboard.paths == sources)
+        {
+            self.clipboard = None;
+        }
     }
 
     fn submit_rename(&mut self) -> Task<Message> {
@@ -2999,6 +3445,122 @@ impl FileManager {
     }
 }
 
+fn initial_paste_progress(action: PasteAction) -> PasteProgress {
+    PasteProgress {
+        action,
+        phase: PasteProgressPhase::Preparing,
+        total_bytes: 0,
+        completed_bytes: 0,
+        total_items: 0,
+        completed_items: 0,
+        current_source: None,
+        current_target: None,
+        current_bytes: 0,
+        current_total_bytes: 0,
+    }
+}
+
+fn update_file_operation_progress(operation: &mut FileOperationState, progress: PasteProgress) {
+    let now = Instant::now();
+    let elapsed = now.duration_since(operation.last_sample_at).as_secs_f64();
+
+    if elapsed >= 0.2 && progress.completed_bytes >= operation.last_sample_bytes {
+        let delta = progress.completed_bytes - operation.last_sample_bytes;
+        operation.speed_bytes_per_second = (delta > 0).then_some((delta as f64 / elapsed) as u64);
+        operation.last_sample_at = now;
+        operation.last_sample_bytes = progress.completed_bytes;
+    }
+
+    operation.progress = progress;
+}
+
+fn file_operation_fraction(operation: &FileOperationState) -> f32 {
+    if operation.status == FileOperationStatus::Completed {
+        return 1.0;
+    }
+    if operation.status == FileOperationStatus::Queued {
+        return 0.0;
+    }
+
+    let progress = &operation.progress;
+    let fraction = if progress.total_bytes > 0 {
+        progress.completed_bytes as f32 / progress.total_bytes as f32
+    } else if progress.total_items > 0 {
+        progress.completed_items as f32 / progress.total_items as f32
+    } else {
+        0.0
+    };
+
+    fraction.clamp(0.0, 1.0)
+}
+
+fn paste_action_label(action: PasteAction) -> &'static str {
+    match action {
+        PasteAction::Copy => "复制",
+        PasteAction::Cut => "剪切",
+    }
+}
+
+fn file_operation_current_label(operation: &FileOperationState) -> String {
+    match operation.status {
+        FileOperationStatus::Queued => return "等待开始".to_string(),
+        FileOperationStatus::Completed => return "已完成".to_string(),
+        FileOperationStatus::Cancelled => return "已取消".to_string(),
+        FileOperationStatus::Failed => {
+            return operation
+                .error
+                .clone()
+                .unwrap_or_else(|| "操作失败".to_string());
+        }
+        FileOperationStatus::Running => {}
+    }
+
+    let name = operation
+        .progress
+        .current_source
+        .as_ref()
+        .map(|path| display_name_for_path(path))
+        .unwrap_or_else(|| "文件".to_string());
+
+    match operation.progress.phase {
+        PasteProgressPhase::Preparing => "正在准备...".to_string(),
+        PasteProgressPhase::Renaming => format!("正在移动 {name}"),
+        PasteProgressPhase::Copying => format!("正在复制 {name}"),
+        PasteProgressPhase::DeletingSource => format!("正在删除源文件 {name}"),
+        PasteProgressPhase::Finished => "已完成".to_string(),
+        PasteProgressPhase::Cancelled => "已取消".to_string(),
+    }
+}
+
+fn file_operation_speed_label(operation: &FileOperationState) -> String {
+    match operation.status {
+        FileOperationStatus::Queued => return "排队中".to_string(),
+        FileOperationStatus::Completed => return "完成".to_string(),
+        FileOperationStatus::Cancelled => return "已取消".to_string(),
+        FileOperationStatus::Failed => return "失败".to_string(),
+        FileOperationStatus::Running => {}
+    }
+
+    if matches!(
+        operation.progress.phase,
+        PasteProgressPhase::Renaming | PasteProgressPhase::DeletingSource
+    ) {
+        return "移动中".to_string();
+    }
+
+    let sampled_speed = operation.speed_bytes_per_second.or_else(|| {
+        let elapsed = Instant::now()
+            .duration_since(operation.started_at)
+            .as_secs_f64();
+        (elapsed > 0.2 && operation.progress.completed_bytes > 0)
+            .then_some((operation.progress.completed_bytes as f64 / elapsed) as u64)
+    });
+
+    sampled_speed
+        .map(|speed| format!("{}/s", format_size(speed)))
+        .unwrap_or_else(|| "计算速度...".to_string())
+}
+
 fn compare_display_entries(left: &DisplayEntry, right: &DisplayEntry) -> Ordering {
     display_entry_sort_group(left)
         .cmp(&display_entry_sort_group(right))
@@ -3023,5 +3585,157 @@ fn display_entry_sort_group(entry: &DisplayEntry) -> u8 {
             0
         }
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn operation_with_progress(
+        status: FileOperationStatus,
+        completed_bytes: u64,
+        total_bytes: u64,
+    ) -> FileOperationState {
+        let now = Instant::now();
+
+        FileOperationState {
+            id: 1,
+            action: PasteAction::Copy,
+            sources: vec![PathBuf::from("/tmp/source.txt")],
+            destination: PathBuf::from("/tmp/destination"),
+            cancel_token: FileOperationCancelToken::new(),
+            progress: PasteProgress {
+                action: PasteAction::Copy,
+                phase: PasteProgressPhase::Copying,
+                total_bytes,
+                completed_bytes,
+                total_items: 1,
+                completed_items: 0,
+                current_source: Some(PathBuf::from("/tmp/source.txt")),
+                current_target: Some(PathBuf::from("/tmp/destination/source.txt")),
+                current_bytes: completed_bytes,
+                current_total_bytes: total_bytes,
+            },
+            status,
+            error: None,
+            started_at: now,
+            last_sample_at: now,
+            last_sample_bytes: completed_bytes,
+            speed_bytes_per_second: Some(2048),
+            targets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn file_operation_fraction_uses_byte_progress() {
+        let operation = operation_with_progress(FileOperationStatus::Running, 25, 100);
+
+        assert_eq!(file_operation_fraction(&operation), 0.25);
+    }
+
+    #[test]
+    fn completed_file_operation_fraction_is_full() {
+        let operation = operation_with_progress(FileOperationStatus::Completed, 25, 100);
+
+        assert_eq!(file_operation_fraction(&operation), 1.0);
+        assert_eq!(file_operation_current_label(&operation), "已完成");
+        assert_eq!(file_operation_speed_label(&operation), "完成");
+    }
+
+    #[test]
+    fn running_file_operation_labels_current_file_and_speed() {
+        let operation = operation_with_progress(FileOperationStatus::Running, 25, 100);
+
+        assert_eq!(
+            file_operation_current_label(&operation),
+            "正在复制 source.txt"
+        );
+        assert_eq!(file_operation_speed_label(&operation), "2.0 KB/s");
+    }
+
+    #[test]
+    fn queued_file_operation_labels_waiting() {
+        let operation = operation_with_progress(FileOperationStatus::Queued, 25, 100);
+
+        assert_eq!(file_operation_fraction(&operation), 0.0);
+        assert_eq!(file_operation_current_label(&operation), "等待开始");
+        assert_eq!(file_operation_speed_label(&operation), "排队中");
+    }
+
+    #[test]
+    fn file_operations_start_at_most_three_workers() {
+        let (mut manager, _) = FileManager::new();
+
+        for index in 0..4 {
+            let _ = manager.paste_paths(
+                vec![PathBuf::from(format!("/tmp/source-{index}.txt"))],
+                PasteAction::Copy,
+            );
+        }
+
+        let running = manager
+            .file_operations
+            .values()
+            .filter(|operation| operation.status == FileOperationStatus::Running)
+            .count();
+        let queued = manager
+            .file_operations
+            .values()
+            .filter(|operation| operation.status == FileOperationStatus::Queued)
+            .count();
+
+        assert_eq!(manager.active_file_operation_ids.len(), 3);
+        assert_eq!(running, 3);
+        assert_eq!(queued, 1);
+    }
+
+    #[test]
+    fn finishing_file_operation_starts_next_queued_operation() {
+        let (mut manager, _) = FileManager::new();
+
+        for index in 0..4 {
+            let _ = manager.paste_paths(
+                vec![PathBuf::from(format!("/tmp/source-{index}.txt"))],
+                PasteAction::Copy,
+            );
+        }
+
+        let finished_id = *manager.active_file_operation_ids.iter().next().unwrap();
+        let queued_id = manager
+            .file_operations
+            .iter()
+            .find_map(|(id, operation)| {
+                (operation.status == FileOperationStatus::Queued).then_some(*id)
+            })
+            .unwrap();
+
+        let _ = manager.finish_file_operation(finished_id, Ok(Vec::new()));
+
+        assert_eq!(
+            manager.file_operations.get(&queued_id).unwrap().status,
+            FileOperationStatus::Running
+        );
+        assert_eq!(manager.active_file_operation_ids.len(), 3);
+    }
+
+    #[test]
+    fn closing_running_file_operation_removes_row_and_cancels_token() {
+        let (mut manager, _) = FileManager::new();
+        let mut operation = operation_with_progress(FileOperationStatus::Running, 25, 100);
+        let cancel_token = operation.cancel_token.clone();
+        operation.id = 42;
+
+        manager.file_operations.insert(operation.id, operation);
+        manager.active_file_operation_ids.insert(42);
+        manager.file_operations_expanded = true;
+
+        let _ = manager.close_file_operation(42);
+
+        assert!(cancel_token.is_cancelled());
+        assert!(!manager.file_operations.contains_key(&42));
+        assert!(manager.active_file_operation_ids.contains(&42));
+        assert!(manager.dismissed_file_operations.contains(&42));
+        assert!(!manager.file_operations_expanded);
     }
 }

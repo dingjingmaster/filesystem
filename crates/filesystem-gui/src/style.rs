@@ -1,5 +1,6 @@
 use crate::model::Message;
 use iced::widget::checkbox as checkbox_widget;
+use iced::widget::progress_bar as progress_bar_widget;
 use iced::widget::text_editor as text_editor_widget;
 use iced::widget::text_input as text_input_widget;
 use iced::widget::{
@@ -153,6 +154,28 @@ pub(crate) fn context_menu(theme: &Theme) -> container_style::Style {
     menu_panel(theme)
 }
 
+pub(crate) fn file_operation_panel(_theme: &Theme) -> container_style::Style {
+    container_style::Style::default()
+        .background(Color::from_rgb(0.12, 0.12, 0.14))
+        .color(TEXT)
+        .border(Border::default().color(BORDER).width(1))
+}
+
+pub(crate) fn file_operation_row(_theme: &Theme) -> container_style::Style {
+    container_style::Style::default()
+        .background(SURFACE)
+        .color(TEXT)
+        .border(Border::default().rounded(6).color(BORDER).width(1))
+}
+
+pub(crate) fn file_operation_progress(_theme: &Theme) -> progress_bar_widget::Style {
+    progress_bar_widget::Style {
+        background: Background::Color(Color::from_rgb(0.24, 0.24, 0.27)),
+        bar: Background::Color(Color::from_rgb(0.44, 0.62, 0.91)),
+        border: Border::default().rounded(3),
+    }
+}
+
 pub(crate) fn modal_overlay(_theme: &Theme) -> container_style::Style {
     container_style::Style::default().background(Color::from_rgba(0.0, 0.0, 0.0, 0.18))
 }
@@ -304,6 +327,24 @@ pub(crate) fn close_button(_theme: &Theme, status: button_style::Status) -> butt
             MUTED
         },
         border: Border::default().rounded(6),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub(crate) fn progress_circle_button(
+    _theme: &Theme,
+    status: button_style::Status,
+) -> button_style::Style {
+    let background = match status {
+        button_style::Status::Hovered | button_style::Status::Pressed => SURFACE_HOVER,
+        _ => Color::TRANSPARENT,
+    };
+
+    button_style::Style {
+        background: Some(Background::Color(background)),
+        text_color: TEXT,
+        border: Border::default().rounded(18),
         shadow: Shadow::default(),
         snap: true,
     }

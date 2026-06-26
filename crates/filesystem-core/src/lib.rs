@@ -1,14 +1,21 @@
 use regex::Regex;
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::ffi::CString;
 use std::fmt;
-use std::fs::{self, OpenOptions};
-use std::io;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering as AtomicOrdering},
+};
 use std::time::SystemTime;
+
+const COPY_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
@@ -72,6 +79,63 @@ pub enum PasteAction {
 pub struct ClipboardPaths {
     pub action: PasteAction,
     pub paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteProgressPhase {
+    Preparing,
+    Renaming,
+    Copying,
+    DeletingSource,
+    Finished,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasteProgress {
+    pub action: PasteAction,
+    pub phase: PasteProgressPhase,
+    pub total_bytes: u64,
+    pub completed_bytes: u64,
+    pub total_items: u64,
+    pub completed_items: u64,
+    pub current_source: Option<PathBuf>,
+    pub current_target: Option<PathBuf>,
+    pub current_bytes: u64,
+    pub current_total_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasteProgressEvent {
+    Started(PasteProgress),
+    Progress(PasteProgress),
+    Finished {
+        targets: Vec<PathBuf>,
+        progress: PasteProgress,
+    },
+    Cancelled {
+        targets: Vec<PathBuf>,
+        progress: PasteProgress,
+    },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FileOperationCancelToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl FileOperationCancelToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, AtomicOrdering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(AtomicOrdering::SeqCst)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +202,10 @@ impl FsError {
 
     pub fn is_name_too_long(&self) -> bool {
         self.raw_os_error == Some(libc::ENAMETOOLONG)
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.kind == io::ErrorKind::Interrupted
     }
 }
 
@@ -356,26 +424,73 @@ pub fn paste_paths(
     destination: impl AsRef<Path>,
     action: PasteAction,
 ) -> Result<Vec<PathBuf>, FsError> {
+    paste_paths_with_progress(
+        sources,
+        destination,
+        action,
+        FileOperationCancelToken::new(),
+        |_| {},
+    )
+}
+
+pub fn paste_paths_with_progress(
+    sources: impl IntoIterator<Item = PathBuf>,
+    destination: impl AsRef<Path>,
+    action: PasteAction,
+    cancel_token: FileOperationCancelToken,
+    mut on_event: impl FnMut(PasteProgressEvent),
+) -> Result<Vec<PathBuf>, FsError> {
     let destination = destination.as_ref();
     ensure_directory(destination)?;
 
+    let sources = sources.into_iter().collect::<Vec<_>>();
+    let mut progress = PasteProgress::new(action);
+    on_event(PasteProgressEvent::Started(progress.clone()));
+
+    let plans = match plan_paste(&sources, destination, &cancel_token) {
+        Ok(plans) => plans,
+        Err(error) => {
+            if error.is_cancelled() {
+                progress.phase = PasteProgressPhase::Cancelled;
+                on_event(PasteProgressEvent::Cancelled {
+                    targets: Vec::new(),
+                    progress,
+                });
+            }
+            return Err(error);
+        }
+    };
+    for plan in &plans {
+        progress.total_bytes += plan.stats.bytes;
+        progress.total_items += plan.stats.items;
+    }
+    progress.phase = PasteProgressPhase::Preparing;
+    on_event(PasteProgressEvent::Progress(progress.clone()));
+
     let mut pasted = Vec::new();
 
-    for source in sources {
-        let name = source.file_name().ok_or_else(|| {
-            FsError::from_message(&source, io::ErrorKind::InvalidInput, "missing file name")
-        })?;
-        let target = unique_child_path(destination, &name.to_string_lossy())?;
-
+    for plan in plans {
         match action {
-            PasteAction::Copy => copy_entry(&source, &target)?,
+            PasteAction::Copy => {
+                copy_planned_entry(&plan, &mut progress, &cancel_token, &mut on_event)?;
+            }
             PasteAction::Cut => {
-                fs::rename(&source, &target).map_err(|error| FsError::from_io(&source, error))?;
+                move_planned_entry(&plan, &mut progress, &cancel_token, &mut on_event)?;
             }
         }
 
-        pasted.push(target);
+        pasted.push(plan.target);
     }
+
+    progress.phase = PasteProgressPhase::Finished;
+    progress.current_source = None;
+    progress.current_target = None;
+    progress.current_bytes = 0;
+    progress.current_total_bytes = 0;
+    on_event(PasteProgressEvent::Finished {
+        targets: pasted.clone(),
+        progress,
+    });
 
     Ok(pasted)
 }
@@ -518,6 +633,303 @@ impl FsError {
     }
 }
 
+impl PasteProgress {
+    fn new(action: PasteAction) -> Self {
+        Self {
+            action,
+            phase: PasteProgressPhase::Preparing,
+            total_bytes: 0,
+            completed_bytes: 0,
+            total_items: 0,
+            completed_items: 0,
+            current_source: None,
+            current_target: None,
+            current_bytes: 0,
+            current_total_bytes: 0,
+        }
+    }
+
+    fn begin_item(&mut self, phase: PasteProgressPhase, source: &Path, target: &Path, bytes: u64) {
+        self.phase = phase;
+        self.current_source = Some(source.to_path_buf());
+        self.current_target = Some(target.to_path_buf());
+        self.current_bytes = 0;
+        self.current_total_bytes = bytes;
+    }
+
+    fn finish_item(&mut self) {
+        self.completed_items += 1;
+        self.current_bytes = self.current_total_bytes;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct EntryStats {
+    bytes: u64,
+    items: u64,
+}
+
+#[derive(Debug, Clone)]
+struct PastePlan {
+    source: PathBuf,
+    target: PathBuf,
+    stats: EntryStats,
+}
+
+fn plan_paste(
+    sources: &[PathBuf],
+    destination: &Path,
+    cancel_token: &FileOperationCancelToken,
+) -> Result<Vec<PastePlan>, FsError> {
+    let mut reserved = BTreeSet::new();
+    let mut plans = Vec::with_capacity(sources.len());
+
+    for source in sources {
+        check_cancelled(cancel_token, source)?;
+        let name = source.file_name().ok_or_else(|| {
+            FsError::from_message(source, io::ErrorKind::InvalidInput, "missing file name")
+        })?;
+        let target = unique_child_path_avoiding(destination, &name.to_string_lossy(), &reserved)?;
+
+        if target_is_inside_source(source, &target) {
+            return Err(FsError::from_message(
+                &target,
+                io::ErrorKind::InvalidInput,
+                "cannot copy or move a directory into itself",
+            ));
+        }
+
+        let stats = entry_stats(source, cancel_token)?;
+        reserved.insert(target.clone());
+        plans.push(PastePlan {
+            source: source.clone(),
+            target,
+            stats,
+        });
+    }
+
+    Ok(plans)
+}
+
+fn copy_planned_entry(
+    plan: &PastePlan,
+    progress: &mut PasteProgress,
+    cancel_token: &FileOperationCancelToken,
+    on_event: &mut impl FnMut(PasteProgressEvent),
+) -> Result<(), FsError> {
+    match copy_entry_with_progress(&plan.source, &plan.target, progress, cancel_token, on_event) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            cleanup_partial_target(&plan.target);
+            if error.is_cancelled() {
+                progress.phase = PasteProgressPhase::Cancelled;
+                on_event(PasteProgressEvent::Cancelled {
+                    targets: Vec::new(),
+                    progress: progress.clone(),
+                });
+            }
+            Err(error)
+        }
+    }
+}
+
+fn move_planned_entry(
+    plan: &PastePlan,
+    progress: &mut PasteProgress,
+    cancel_token: &FileOperationCancelToken,
+    on_event: &mut impl FnMut(PasteProgressEvent),
+) -> Result<(), FsError> {
+    check_cancelled(cancel_token, &plan.source)?;
+
+    progress.begin_item(
+        PasteProgressPhase::Renaming,
+        &plan.source,
+        &plan.target,
+        plan.stats.bytes,
+    );
+    on_event(PasteProgressEvent::Progress(progress.clone()));
+
+    match fs::rename(&plan.source, &plan.target) {
+        Ok(()) => {
+            progress.completed_bytes += plan.stats.bytes;
+            progress.completed_items += plan.stats.items;
+            progress.current_bytes = progress.current_total_bytes;
+            on_event(PasteProgressEvent::Progress(progress.clone()));
+            Ok(())
+        }
+        Err(error) if is_cross_device_error(&error) => {
+            copy_planned_entry(plan, progress, cancel_token, on_event)?;
+
+            check_cancelled(cancel_token, &plan.source)?;
+            progress.begin_item(
+                PasteProgressPhase::DeletingSource,
+                &plan.source,
+                &plan.target,
+                0,
+            );
+            on_event(PasteProgressEvent::Progress(progress.clone()));
+            delete_entry(&plan.source)?;
+            on_event(PasteProgressEvent::Progress(progress.clone()));
+            Ok(())
+        }
+        Err(error) => Err(FsError::from_io(&plan.source, error)),
+    }
+}
+
+fn entry_stats(
+    path: &Path,
+    cancel_token: &FileOperationCancelToken,
+) -> Result<EntryStats, FsError> {
+    check_cancelled(cancel_token, path)?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| FsError::from_io(path, error))?;
+    let file_type = metadata.file_type();
+    let mut stats = EntryStats { bytes: 0, items: 1 };
+
+    if file_type.is_dir() {
+        for child in fs::read_dir(path).map_err(|error| FsError::from_io(path, error))? {
+            check_cancelled(cancel_token, path)?;
+            let child = child.map_err(|error| FsError::from_io(path, error))?;
+            let child_stats = entry_stats(&child.path(), cancel_token)?;
+            stats.bytes += child_stats.bytes;
+            stats.items += child_stats.items;
+        }
+    } else if file_type.is_file() {
+        stats.bytes = metadata.len();
+    } else if !file_type.is_symlink() {
+        return Err(FsError::from_message(
+            path,
+            io::ErrorKind::Unsupported,
+            "unsupported file type",
+        ));
+    }
+
+    Ok(stats)
+}
+
+fn copy_entry_with_progress(
+    source: &Path,
+    target: &Path,
+    progress: &mut PasteProgress,
+    cancel_token: &FileOperationCancelToken,
+    on_event: &mut impl FnMut(PasteProgressEvent),
+) -> Result<(), FsError> {
+    check_cancelled(cancel_token, source)?;
+
+    let metadata = fs::symlink_metadata(source).map_err(|error| FsError::from_io(source, error))?;
+    let file_type = metadata.file_type();
+    let bytes = if file_type.is_file() {
+        metadata.len()
+    } else {
+        0
+    };
+
+    progress.begin_item(PasteProgressPhase::Copying, source, target, bytes);
+    on_event(PasteProgressEvent::Progress(progress.clone()));
+
+    if file_type.is_dir() {
+        fs::create_dir(target).map_err(|error| FsError::from_io(target, error))?;
+        progress.finish_item();
+        on_event(PasteProgressEvent::Progress(progress.clone()));
+
+        for child in fs::read_dir(source).map_err(|error| FsError::from_io(source, error))? {
+            let child = child.map_err(|error| FsError::from_io(source, error))?;
+            copy_entry_with_progress(
+                &child.path(),
+                &target.join(child.file_name()),
+                progress,
+                cancel_token,
+                on_event,
+            )?;
+        }
+    } else if file_type.is_file() {
+        copy_file_with_progress(source, target, &metadata, progress, cancel_token, on_event)?;
+    } else if file_type.is_symlink() {
+        let link_target = fs::read_link(source).map_err(|error| FsError::from_io(source, error))?;
+        std::os::unix::fs::symlink(link_target, target)
+            .map_err(|error| FsError::from_io(target, error))?;
+        progress.finish_item();
+        on_event(PasteProgressEvent::Progress(progress.clone()));
+    } else {
+        return Err(FsError::from_message(
+            source,
+            io::ErrorKind::Unsupported,
+            "unsupported file type",
+        ));
+    }
+
+    Ok(())
+}
+
+fn copy_file_with_progress(
+    source: &Path,
+    target: &Path,
+    metadata: &fs::Metadata,
+    progress: &mut PasteProgress,
+    cancel_token: &FileOperationCancelToken,
+    on_event: &mut impl FnMut(PasteProgressEvent),
+) -> Result<(), FsError> {
+    let mut reader = File::open(source).map_err(|error| FsError::from_io(source, error))?;
+    let mut writer = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|error| FsError::from_io(target, error))?;
+    let mut buffer = vec![0; COPY_BUFFER_SIZE];
+
+    loop {
+        check_cancelled(cancel_token, source)?;
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| FsError::from_io(source, error))?;
+
+        if read == 0 {
+            break;
+        }
+
+        writer
+            .write_all(&buffer[..read])
+            .map_err(|error| FsError::from_io(target, error))?;
+        progress.completed_bytes += read as u64;
+        progress.current_bytes += read as u64;
+        on_event(PasteProgressEvent::Progress(progress.clone()));
+    }
+
+    fs::set_permissions(target, metadata.permissions())
+        .map_err(|error| FsError::from_io(target, error))?;
+    progress.finish_item();
+    on_event(PasteProgressEvent::Progress(progress.clone()));
+
+    Ok(())
+}
+
+fn check_cancelled(cancel_token: &FileOperationCancelToken, path: &Path) -> Result<(), FsError> {
+    if cancel_token.is_cancelled() {
+        Err(FsError::from_message(
+            path,
+            io::ErrorKind::Interrupted,
+            "file operation cancelled",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn cleanup_partial_target(target: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(target) else {
+        return;
+    };
+
+    let _ = if metadata.file_type().is_dir() {
+        fs::remove_dir_all(target)
+    } else {
+        fs::remove_file(target)
+    };
+}
+
+fn is_cross_device_error(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EXDEV)
+}
+
 fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
     let entry_path = item.path();
     let name = item.file_name().to_string_lossy().into_owned();
@@ -636,6 +1048,14 @@ fn ensure_directory(path: &Path) -> Result<(), FsError> {
 }
 
 fn unique_child_path(parent: &Path, preferred_name: &str) -> Result<PathBuf, FsError> {
+    unique_child_path_avoiding(parent, preferred_name, &BTreeSet::new())
+}
+
+fn unique_child_path_avoiding(
+    parent: &Path,
+    preferred_name: &str,
+    reserved: &BTreeSet<PathBuf>,
+) -> Result<PathBuf, FsError> {
     let preferred_name = validated_child_name(preferred_name)?;
     let preferred_path = Path::new(preferred_name);
     let stem = preferred_path
@@ -646,7 +1066,7 @@ fn unique_child_path(parent: &Path, preferred_name: &str) -> Result<PathBuf, FsE
     let extension = preferred_path.extension().and_then(|value| value.to_str());
     let initial = parent.join(preferred_name);
 
-    if !initial.exists() {
+    if !initial.exists() && !reserved.contains(&initial) {
         return Ok(initial);
     }
 
@@ -658,7 +1078,7 @@ fn unique_child_path(parent: &Path, preferred_name: &str) -> Result<PathBuf, FsE
         };
         let candidate = parent.join(name);
 
-        if !candidate.exists() {
+        if !candidate.exists() && !reserved.contains(&candidate) {
             return Ok(candidate);
         }
     }
@@ -682,43 +1102,6 @@ fn validated_child_name(name: &str) -> Result<&str, FsError> {
     } else {
         Ok(name)
     }
-}
-
-fn copy_entry(source: &Path, target: &Path) -> Result<(), FsError> {
-    let metadata = fs::symlink_metadata(source).map_err(|error| FsError::from_io(source, error))?;
-    let file_type = metadata.file_type();
-
-    if file_type.is_dir() {
-        if target_is_inside_source(source, target) {
-            return Err(FsError::from_message(
-                target,
-                io::ErrorKind::InvalidInput,
-                "cannot copy a directory into itself",
-            ));
-        }
-
-        fs::create_dir(target).map_err(|error| FsError::from_io(target, error))?;
-
-        for child in fs::read_dir(source).map_err(|error| FsError::from_io(source, error))? {
-            let child = child.map_err(|error| FsError::from_io(source, error))?;
-            let child_target = target.join(child.file_name());
-            copy_entry(&child.path(), &child_target)?;
-        }
-    } else if file_type.is_file() {
-        fs::copy(source, target).map_err(|error| FsError::from_io(source, error))?;
-    } else if file_type.is_symlink() {
-        let link_target = fs::read_link(source).map_err(|error| FsError::from_io(source, error))?;
-        std::os::unix::fs::symlink(link_target, target)
-            .map_err(|error| FsError::from_io(target, error))?;
-    } else {
-        return Err(FsError::from_message(
-            source,
-            io::ErrorKind::Unsupported,
-            "unsupported file type",
-        ));
-    }
-
-    Ok(())
 }
 
 fn target_is_inside_source(source: &Path, target: &Path) -> bool {
@@ -1176,6 +1559,111 @@ mod tests {
         assert_eq!(pasted, vec![destination.join("a.txt")]);
         assert!(!source.exists());
         assert_eq!(fs::read_to_string(destination.join("a.txt")).unwrap(), "a");
+    }
+
+    #[test]
+    fn paste_paths_reports_copy_progress() {
+        let fixture = TempDir::new("paste-progress");
+        let source = fixture.path().join("source.txt");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&destination).unwrap();
+        fs::write(&source, b"abc").unwrap();
+        let mut events = Vec::new();
+
+        let pasted = paste_paths_with_progress(
+            vec![source.clone()],
+            &destination,
+            PasteAction::Copy,
+            FileOperationCancelToken::new(),
+            |event| events.push(event),
+        )
+        .unwrap();
+
+        assert_eq!(pasted, vec![destination.join("source.txt")]);
+        assert_eq!(fs::read_to_string(&pasted[0]).unwrap(), "abc");
+        assert!(matches!(
+            events.first(),
+            Some(PasteProgressEvent::Started(_))
+        ));
+        assert!(matches!(
+            events.last(),
+            Some(PasteProgressEvent::Finished { progress, .. })
+                if progress.completed_bytes == 3 && progress.total_bytes == 3
+        ));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            PasteProgressEvent::Progress(progress)
+                if progress.current_source.as_ref() == Some(&source)
+                    && progress.phase == PasteProgressPhase::Copying
+        )));
+    }
+
+    #[test]
+    fn paste_paths_cancel_removes_partial_current_target() {
+        let fixture = TempDir::new("paste-cancel");
+        let source = fixture.path().join("big.bin");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&destination).unwrap();
+        fs::write(&source, vec![7; COPY_BUFFER_SIZE * 2 + 17]).unwrap();
+        let cancel = FileOperationCancelToken::new();
+        let cancel_from_callback = cancel.clone();
+
+        let error = paste_paths_with_progress(
+            vec![source.clone()],
+            &destination,
+            PasteAction::Copy,
+            cancel,
+            |event| {
+                if let PasteProgressEvent::Progress(progress) = event {
+                    if progress.completed_bytes > 0 {
+                        cancel_from_callback.cancel();
+                    }
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.is_cancelled());
+        assert!(source.exists());
+        assert!(!destination.join("big.bin").exists());
+    }
+
+    #[test]
+    fn paste_paths_reserves_unique_targets_before_copying() {
+        let fixture = TempDir::new("paste-reserved-targets");
+        let left = fixture.path().join("left");
+        let right = fixture.path().join("right");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&left).unwrap();
+        fs::create_dir(&right).unwrap();
+        fs::create_dir(&destination).unwrap();
+        let left_file = left.join("same.txt");
+        let right_file = right.join("same.txt");
+        fs::write(&left_file, b"left").unwrap();
+        fs::write(&right_file, b"right").unwrap();
+
+        let pasted =
+            paste_paths(vec![left_file, right_file], &destination, PasteAction::Copy).unwrap();
+
+        assert_eq!(
+            pasted,
+            vec![destination.join("same.txt"), destination.join("same 1.txt")]
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("same.txt")).unwrap(),
+            "left"
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("same 1.txt")).unwrap(),
+            "right"
+        );
+    }
+
+    #[test]
+    fn recognizes_cross_device_rename_errors() {
+        let error = io::Error::from_raw_os_error(libc::EXDEV);
+
+        assert!(is_cross_device_error(&error));
     }
 
     #[test]
