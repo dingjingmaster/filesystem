@@ -3,7 +3,7 @@
 > 文档元数据
 > - 文档版本：v1.0.0
 > - 最后更新：2026-06-26
-> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md
+> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md
 
 ## 1. 产品定位
 
@@ -31,7 +31,7 @@
 | 复制/剪切粘贴进度 | 了解文件操作整体进度并管理单次粘贴 | 用户发起复制或剪切粘贴后，侧栏标题“文件”居中显示，标题右侧显示右对齐圆形总进度，按顺时针填充；总进度完成后中心显示对钩并延时 3 秒消失；点击圆形区域在其下方展开或隐藏详情，详情作为上层 popup 可覆盖到右侧内容上方且不改变侧栏或主区域布局，点击 popup 外部区域会自动隐藏详情；每次粘贴显示独立条形进度、当前文件、速度和 `x` 按钮，不超过 5 条详情时不显示滚动条 | `x` 对运行中的粘贴表示取消该次操作并立即移除对应详情条；对失败、取消或已结束条目表示关闭详情；同一时间最多 3 个文件操作复制线程，更多操作显示为排队并在前序操作结束后启动；跨文件系统剪切会复制成功后删除源路径 |
 | 切换隐藏文件 | 查看或隐藏点号开头文件 | 在地址栏右侧菜单中切换后刷新列表 | 不读取桌面配置服务 |
 | 软链接浏览与打开 | 识别文件/文件夹软链接并处理断链 | 有效文件夹软链接显示文件夹图标加 `icons/symbol.svg` 角标，双击进入目标文件夹；有效文件软链接显示文件图标加 `icons/symbol.svg` 角标，双击打开目标文件；断链显示 `icons/symbol-disconnect.svg` 角标，双击或打开时弹窗提示“软连接 xxx 损坏” | 复制、剪切、重命名、删除仍作用于软链接路径本身；搜索不递归跟随目录软链接 |
-| 打开文件 | 用本地应用处理普通文件 | 双击普通文件或选择“用 xxx 打开”时，优先使用本地配置解析到的默认应用启动；没有默认应用但打开方式列表有候选时，自动选择最匹配的候选应用；文件类型优先来自后台缓存的内容签名、内置名称/扩展名和系统 shared-mime-info fallback；`Makefile`、`Dockerfile`、`README`、`LICENSE`、`.gitignore`、`.desktop`、`.c`、`.cpp`、`.md` 等文本类文件可退到文本编辑器打开；“打开方式”弹窗列出可处理该文件类型的应用并默认选中首选应用，应用行左侧显示 APP 图标和名称，右侧显示选中对钩 | 不使用 `file` 命令、`xdg-open`、DBus、GVFS、portal 或桌面 MIME 服务；不持久化默认应用；APP 无图标或图标找不到时使用 `icons/app.svg`；当前不把需要终端的应用作为打开候选 |
+| 打开文件 | 用本地应用处理普通文件 | 双击普通文件或选择“用 xxx 打开”时，优先使用本地配置解析到的默认应用启动；没有默认应用但打开方式列表有候选时，自动选择最匹配的候选应用；启动外部应用前会按 `.desktop` `Exec` 字段码展开参数，并丢弃未知或废弃字段码；文件类型优先来自后台缓存的内容签名、内置名称/扩展名和系统 shared-mime-info fallback；`Makefile`、`Dockerfile`、`README`、`LICENSE`、`.gitignore`、`.desktop`、`.c`、`.cpp`、`.md` 等文本类文件可退到文本编辑器打开；“打开方式”弹窗列出可处理该文件类型的应用并默认选中首选应用，应用行左侧显示 APP 图标和名称，右侧显示选中对钩 | 不使用 `file` 命令、`xdg-open`、DBus、GVFS、portal 或桌面 MIME 服务；不持久化默认应用；APP 无图标或图标找不到时使用 `icons/app.svg`；当前不把需要终端的应用作为打开候选 |
 
 ## 4. 核心流程
 
@@ -79,6 +79,7 @@
   - docs/dev/12-summary-symlink-badge-open.md：软链接角标和打开行为实现总结。
   - docs/dev/13-summary-large-directory-performance.md：大目录分批显示、后台装饰、图标缓存和视图虚拟化实现总结。
   - docs/dev/14-summary-file-operation-progress.md：复制/剪切粘贴进度、取消和跨文件系统剪切语义实现总结。
+  - docs/dev/17-fix-desktop-exec-field-codes.md：Desktop Exec 字段码展开兼容修复记录。
 
 ## 8. 变更记录
 
@@ -115,3 +116,4 @@
 | 2026-06-25 | 记录软链接角标、断链角标、有效软链接目标打开和断链弹窗提示 | 更新软链接浏览与打开行为 | docs/dev/12-summary-symlink-badge-open.md |
 | 2026-06-25 | 记录大目录分批显示、MIME/图标后台装饰和视图虚拟化 | 更新目录浏览性能行为 | docs/dev/13-summary-large-directory-performance.md |
 | 2026-06-26 | 记录复制/剪切粘贴总进度圆形入口、每次粘贴详情进度、详情失焦隐藏、取消入口、最多 3 个复制线程和跨文件系统剪切退化语义 | 更新文件操作用户可见行为 | docs/dev/14-summary-file-operation-progress.md |
+| 2026-06-26 | 记录打开文件前按 `.desktop` `Exec` 字段码展开参数，并丢弃未知或废弃字段码 | 更新打开文件兼容行为 | docs/dev/17-fix-desktop-exec-field-codes.md |

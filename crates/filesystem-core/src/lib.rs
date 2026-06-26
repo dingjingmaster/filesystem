@@ -10,8 +10,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering as AtomicOrdering},
+    Arc,
 };
 use std::time::SystemTime;
 

@@ -1,6 +1,6 @@
 use crate::model::{DisplayEntry, EntryDecoration, EntryIcon, IconBadge};
 use filesystem_core::{EntryKind, FileEntry, SymlinkTargetKind};
-use filesystem_mime::{MimeInfo, detect_name, detect_path};
+use filesystem_mime::{detect_name, detect_path, MimeInfo};
 use std::collections::HashMap;
 use std::env;
 use std::fs;

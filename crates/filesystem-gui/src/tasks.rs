@@ -5,10 +5,10 @@ use crate::model::{
     HomeShortcut, Message, NewEntryKind,
 };
 use filesystem_core::{
-    DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction, ScanOptions,
     create_file, create_folder, delete_entry, paste_paths_with_progress, search_file_names,
+    DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction, ScanOptions,
 };
-use iced::{Task, futures::SinkExt, futures::channel::mpsc as iced_mpsc, stream, window};
+use iced::{futures::channel::mpsc as iced_mpsc, futures::SinkExt, stream, window, Task};
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

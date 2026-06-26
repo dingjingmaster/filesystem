@@ -4,7 +4,7 @@ use filesystem_core::{
 };
 use filesystem_mime::MimeInfo;
 use iced::widget::text_editor;
-use iced::{Point, Size, window};
+use iced::{window, Point, Size};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;

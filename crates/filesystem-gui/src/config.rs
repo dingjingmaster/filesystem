@@ -1,4 +1,4 @@
-use iced::{Size, window};
+use iced::{window, Size};
 
 pub(crate) const APP_NAME_EN: &str = "File";
 pub(crate) const APP_NAME_ZH: &str = "文件";

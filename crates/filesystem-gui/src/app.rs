@@ -6,19 +6,19 @@ use crate::style;
 use crate::tasks::*;
 use crate::utils::*;
 use filesystem_core::{
-    ClipboardPaths, EntryKind, FileOperationCancelToken, FileProperties, FolderProperties, FsError,
-    PasteAction, PasteProgress, PasteProgressEvent, PasteProgressPhase, ScanOptions,
-    SymlinkTargetKind, child_path_limits, file_properties, folder_properties,
-    parse_clipboard_paths, rename_entry, set_permissions,
+    child_path_limits, file_properties, folder_properties, parse_clipboard_paths, rename_entry,
+    set_permissions, ClipboardPaths, EntryKind, FileOperationCancelToken, FileProperties,
+    FolderProperties, FsError, PasteAction, PasteProgress, PasteProgressEvent, PasteProgressPhase,
+    ScanOptions, SymlinkTargetKind,
 };
-use filesystem_mime::{MimeInfo, detect_name};
+use filesystem_mime::{detect_name, MimeInfo};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, checkbox, column, container, mouse_area, operation, progress_bar, row, scrollable,
     space, stack, text, text_editor, text_input,
 };
 use iced::{
-    Element, Fill, Length, Padding, Point, Rectangle, Size, Subscription, Task, mouse, window,
+    mouse, window, Element, Fill, Length, Padding, Point, Rectangle, Size, Subscription, Task,
 };
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};

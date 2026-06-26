@@ -143,11 +143,7 @@ pub(crate) fn menu_panel(_theme: &Theme) -> container_style::Style {
         .background(SURFACE)
         .color(TEXT)
         .border(Border::default().rounded(6).color(BORDER).width(1))
-        .shadow(Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.24),
-            offset: iced::Vector::new(0.0, 4.0),
-            blur_radius: 12.0,
-        })
+        .shadow(Shadow::default())
 }
 
 pub(crate) fn context_menu(theme: &Theme) -> container_style::Style {
@@ -185,11 +181,7 @@ pub(crate) fn properties_dialog(_theme: &Theme) -> container_style::Style {
         .background(CONTENT)
         .color(TEXT)
         .border(Border::default().rounded(8).color(BORDER).width(1))
-        .shadow(Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.36),
-            offset: iced::Vector::new(0.0, 8.0),
-            blur_radius: 18.0,
-        })
+        .shadow(Shadow::default())
 }
 
 pub(crate) fn property_group(_theme: &Theme) -> container_style::Style {

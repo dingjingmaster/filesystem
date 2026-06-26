@@ -5,7 +5,7 @@ use crate::utils::directory_permission;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, container, mouse_area, row, space, stack, svg, text, text_editor};
 use iced::widget::{container as container_style, svg as svg_style};
-use iced::{Element, Fill, Length, Padding, mouse, window};
+use iced::{mouse, window, Element, Fill, Length, Padding};
 use std::os::unix::ffi::OsStrExt;
 
 pub(crate) fn toolbar_icon<'a>(bytes: &'static [u8], enabled: bool) -> Element<'a, Message> {

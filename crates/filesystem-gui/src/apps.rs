@@ -409,31 +409,11 @@ fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, Stri
     let mut command = Vec::new();
 
     for token in split_exec(&app.exec)? {
-        if matches!(token.as_str(), "%i" | "%k") {
-            continue;
-        }
+        let (value, token_saw_file_code) =
+            expand_exec_token(&token, &app.name, path_value.as_ref(), &uri_value);
+        saw_file_code |= token_saw_file_code;
 
-        let mut value = token.replace("%%", "%");
-
-        if value.contains("%c") {
-            value = value.replace("%c", &app.name);
-        }
-
-        let before = value.clone();
-        for code in ["%f", "%F"] {
-            if value.contains(code) {
-                value = value.replace(code, &path_value);
-                saw_file_code = true;
-            }
-        }
-        for code in ["%u", "%U"] {
-            if value.contains(code) {
-                value = value.replace(code, &uri_value);
-                saw_file_code = true;
-            }
-        }
-
-        if before != value || !value.starts_with('%') {
+        if let Some(value) = value {
             command.push(value);
         }
     }
@@ -447,6 +427,45 @@ fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, Stri
     }
 
     Ok(command)
+}
+
+fn expand_exec_token(
+    token: &str,
+    app_name: &str,
+    path_value: &str,
+    uri_value: &str,
+) -> (Option<String>, bool) {
+    let mut value = String::with_capacity(token.len());
+    let mut saw_file_code = false;
+    let mut chars = token.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            value.push(ch);
+            continue;
+        }
+
+        let Some(code) = chars.next() else {
+            continue;
+        };
+
+        match code {
+            '%' => value.push('%'),
+            'c' => value.push_str(app_name),
+            'f' | 'F' => {
+                value.push_str(path_value);
+                saw_file_code = true;
+            }
+            'u' | 'U' => {
+                value.push_str(uri_value);
+                saw_file_code = true;
+            }
+            'i' | 'k' | 'd' | 'D' | 'n' | 'N' | 'v' | 'm' => {}
+            _ => {}
+        }
+    }
+
+    ((!value.is_empty()).then_some(value), saw_file_code)
 }
 
 fn file_uri(path: &Path) -> String {
@@ -570,6 +589,41 @@ mod tests {
         let command = build_exec_command(&app, Path::new("/tmp/a file#.txt")).unwrap();
 
         assert_eq!(command, vec!["viewer", "file:///tmp/a%20file%23.txt"]);
+    }
+
+    #[test]
+    fn build_exec_command_removes_unsupported_field_codes() {
+        let app = DesktopApp {
+            id: "viewer.desktop".to_string(),
+            name: "Viewer".to_string(),
+            exec: "viewer --token=%2 %d --name=%c %f".to_string(),
+            mime_types: vec!["text/plain".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let command = build_exec_command(&app, Path::new("/tmp/a.txt")).unwrap();
+
+        assert_eq!(
+            command,
+            vec!["viewer", "--token=", "--name=Viewer", "/tmp/a.txt"]
+        );
+    }
+
+    #[test]
+    fn build_exec_command_keeps_escaped_percent_literals() {
+        let app = DesktopApp {
+            id: "viewer.desktop".to_string(),
+            name: "Viewer".to_string(),
+            exec: "viewer %% %%f %f".to_string(),
+            mime_types: vec!["text/plain".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let command = build_exec_command(&app, Path::new("/tmp/a.txt")).unwrap();
+
+        assert_eq!(command, vec!["viewer", "%", "%f", "/tmp/a.txt"]);
     }
 
     #[test]

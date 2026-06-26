@@ -49,3 +49,7 @@
 | 14 | 2026-06-26 | L4 | research | [14-research-file-operation-progress.md](14-research-file-operation-progress.md) | 已完成 | 调研复制/剪切粘贴进度显示、跨文件系统剪切退化、取消和进度 UI 边界。 |
 | 14 | 2026-06-26 | L4 | plan | [14-plan-file-operation-progress.md](14-plan-file-operation-progress.md) | 已完成 | 规划 core 带进度粘贴 API、GUI 文件操作 stream、侧栏圆形总进度和详情条形进度。 |
 | 14 | 2026-06-26 | L4 | summary | [14-summary-file-operation-progress.md](14-summary-file-operation-progress.md) | 已完成 | 总结复制/剪切进度、跨文件系统剪切复制后删除、详情失焦隐藏、取消入口、最多 3 个复制线程和验证结果。 |
+| 15 | 2026-06-26 | L2 | task | [15-task-rust-edition-2021.md](15-task-rust-edition-2021.md) | 已完成 | 将 workspace Rust edition 从 2024 调整为 2021，并将 `rust-version` 修正为 1.88 以匹配当前依赖 MSRV。 |
+| 16 | 2026-06-26 | L2 | task | [16-task-renderer-selection.md](16-task-renderer-selection.md) | 已完成 | GUI 同时支持 `wgpu` 和 `tiny-skia`，默认优先 wgpu，探测失败或显式 `ICED_BACKEND=tiny-skia` 时使用 tiny-skia。 |
+| 17 | 2026-06-26 | L2 | fix | [17-fix-desktop-exec-field-codes.md](17-fix-desktop-exec-field-codes.md) | 已完成 | 修复 `.desktop` Exec 字段码展开，避免未知或废弃 `%x` 字段码原样传给外部应用。 |
+| 18 | 2026-06-26 | L2 | fix | [18-fix-uos-software-renderer-refresh.md](18-fix-uos-software-renderer-refresh.md) | 已完成 | UOS/虚拟机软件渲染环境下自动避开 wgpu，回退 tiny-skia 以规避交互刷新异常。 |
