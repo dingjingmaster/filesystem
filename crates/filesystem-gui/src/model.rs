@@ -18,6 +18,7 @@ pub(crate) enum Message {
     PathChanged(String),
     PathSubmit,
     SelectEntry(PathBuf),
+    SelectionModifiersChanged(SelectionModifiers),
     BrowserPointerMoved(Point),
     BrowserPressed,
     BrowserReleased,
@@ -358,4 +359,10 @@ pub(crate) struct DisplaySearchResults {
 pub(crate) struct SelectionDrag {
     pub(crate) origin: Point,
     pub(crate) current: Point,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SelectionModifiers {
+    pub(crate) control: bool,
+    pub(crate) shift: bool,
 }

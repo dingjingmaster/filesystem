@@ -2,8 +2,8 @@
 
 > 文档元数据
 > - 文档版本：v1.0.0
-> - 最后更新：2026-06-26
-> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md
+> - 最后更新：2026-06-27
+> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md
 
 ## 1. 产品定位
 
@@ -15,16 +15,16 @@
 
 ## 2. 功能边界
 
-- 核心功能：本地目录浏览、当前目录树文件名正则搜索、访问历史后退/前进、隐藏文件过滤、文件框选多选、空白区右键菜单、选中文件夹右键菜单、选中文件右键菜单、多选右键菜单、文件操作快捷键、新建文件/文件夹与内联重命名、文本剪贴板路径粘贴、文件/文件夹复制剪切粘贴、复制/剪切粘贴进度显示与取消、文件/文件夹删除确认、当前目录或目标文件夹终端打开、当前文件夹属性查看、当前文件夹权限修改、普通文件默认应用打开、打开方式选择、普通文件属性查看、软链接角标、软链接目标打开和断链提示、无系统边框窗口、窗口拖拽/关闭/最小化/最大化/边缘缩放、800x600 最小窗口尺寸、侧边栏本地导航、可编辑地址栏、分批显示大目录、流式图标视图、列表视图、基于内置 MIME 与系统 shared-mime-info fallback 的文件类型识别、基础文件类型与元数据展示；后续逐步补充更多安全写操作和外部二进制适配。
+- 核心功能：本地目录浏览、当前目录树文件名正则搜索、访问历史后退/前进、隐藏文件过滤、文件框选多选、Ctrl/Shift 点击多选、空白区右键菜单、选中文件夹右键菜单、选中文件右键菜单、多选右键菜单、文件操作快捷键、新建文件/文件夹与内联重命名、文本剪贴板路径粘贴、文件/文件夹复制剪切粘贴、复制/剪切粘贴进度显示与取消、文件/文件夹删除确认、当前目录或目标文件夹终端打开、当前文件夹属性查看、当前文件夹权限修改、普通文件默认应用打开、打开方式选择、普通文件属性查看、软链接角标、软链接目标打开和断链提示、无系统边框窗口、窗口拖拽/关闭/最小化/最大化/边缘缩放、800x600 最小窗口尺寸、侧边栏本地导航、可编辑地址栏、分批显示大目录、流式图标视图、列表视图、基于内置 MIME 与系统 shared-mime-info fallback 的文件类型识别、基础文件类型与元数据展示；后续逐步补充更多安全写操作和外部二进制适配。
 - 不支持功能：命令行/TUI、系统桌面服务、网络文件系统、桌面注册接口。
 - 关键对象：本地路径、目录条目、文件类型、隐藏状态、文件元数据、软链接目标。
-- 关键状态：当前目录、目录条目列表、选中路径集合、框选拖拽状态、搜索关键词、搜索根目录、隐藏文件显示开关、视图模式、状态消息、提示弹窗。
+- 关键状态：当前目录、目录条目列表、选中路径集合、选择范围锚点、框选拖拽状态、搜索关键词、搜索根目录、隐藏文件显示开关、视图模式、状态消息、提示弹窗。
 
 ## 3. 关键场景
 
 | 场景 | 用户目标 | 成功标准 | 异常/边界 |
 |------|----------|----------|-----------|
-| 浏览本地目录 | 查看当前目录内容并进入子目录 | GUI 以暗色文件管理器布局展示目录条目，目录优先排序；单击条目只选中，空白区域拖拽可框选多个条目，双击目录才进入；可通过后退/前进访问历史位置；可在图标视图和列表视图间切换，图标视图按窗口宽度流式重排且文件图标大小保持一致，列表列出名称、大小、所有者、修改时间 | 路径不存在或不可读时展示错误状态 |
+| 浏览本地目录 | 查看当前目录内容并进入子目录 | GUI 以暗色文件管理器布局展示目录条目，目录优先排序；普通单击条目只选中单项，按住 `Ctrl` 单击可切换多个条目，按住 `Shift` 单击可选中锚点到目标之间的范围，空白区域拖拽可框选多个条目，双击目录才进入；可通过后退/前进访问历史位置；可在图标视图和列表视图间切换，图标视图按窗口宽度流式重排且文件图标大小保持一致，列表列出名称、大小、所有者、修改时间 | 路径不存在或不可读时展示错误状态 |
 | 搜索当前目录树 | 通过地址栏输入正则表达式查找当前目录及子目录中的文件名 | 输入不是绝对路径时，按正则递归搜索当前目录树下的文件/目录名并列出匹配项；结果项显示相对路径 | 空关键词不搜索；无效正则展示错误；隐藏文件是否参与搜索由隐藏文件开关控制 |
 | 空白区右键操作 | 在当前目录执行常见操作 | 图标视图和列表视图空白处右键弹出菜单；当前没有选中任何文件/文件夹时，在条目上右键也弹出同一菜单；菜单固定宽度，靠近主文件区右侧时向左钳制显示，菜单项水平左对齐、垂直居中；支持新建文件、新建文件夹、粘贴、全选、在终端打开和属性；新建后默认名称全选，重命名编辑框作为覆盖层显示，不挤压文件布局，1.5 倍行高，长名称最多扩宽 3 倍后换行增高，编辑时拒绝超过当前目录名称/路径字节限制的输入，回车或点击外部区域提交重命名 | 粘贴首版只解析标准剪贴板文本中的本地路径或 `file://` URI；属性权限页只修改当前文件夹本身权限，不递归修改内容权限；限制未知且系统报文件名过长时保留默认名 |
 | 选中文件/文件夹右键操作 | 对选中目标执行上下文操作 | 单个文件夹已选中且右键命中该文件夹时显示文件夹菜单，支持打开、复制、剪切、重命名、删除、在终端打开和属性；单个非文件夹条目已选中且右键命中该条目时显示文件菜单，支持用默认应用打开、打开方式、复制、剪切、重命名、删除和属性；选中多个文件/文件夹后右键显示多选菜单，支持复制、剪切和删除；文件夹和文件删除前均弹出确认 | 删除不进入回收站；剪切状态在当前视图中变淡显示；打开方式只列出本地 `.desktop` 声明支持该文件 MIME 类型的应用 |
@@ -40,7 +40,7 @@
 1. 启动 GUI。
 2. 从当前工作目录扫描本地目录。
 3. 展示无系统边框窗口、侧边栏、路径栏和当前视图模式下的文件条目。
-4. 用户单击条目选中、拖拽框选多个条目、双击目录进入、后退/前进访问历史位置、在地址栏输入绝对路径跳转、输入非绝对路径正则搜索当前目录树文件名或在菜单中切换隐藏文件。
+4. 用户普通单击条目单选、按住 `Ctrl` 单击多点选择、按住 `Shift` 单击范围选择、拖拽框选多个条目、双击目录进入、后退/前进访问历史位置、在地址栏输入绝对路径跳转、输入非绝对路径正则搜索当前目录树文件名或在菜单中切换隐藏文件。
 5. 扫描失败时在窗口状态区域展示错误。
 ```
 
@@ -82,6 +82,7 @@
   - docs/dev/14-summary-file-operation-progress.md：复制/剪切粘贴进度、取消和跨文件系统剪切语义实现总结。
   - docs/dev/17-fix-desktop-exec-field-codes.md：Desktop Exec 字段码展开兼容修复记录。
   - docs/dev/19-task-shortcuts-multi-select-menu.md：快捷键和多选右键菜单实现记录。
+  - docs/dev/20-task-click-range-selection.md：Ctrl/Shift 点击多选实现记录。
 
 ## 8. 变更记录
 
@@ -120,3 +121,4 @@
 | 2026-06-26 | 记录复制/剪切粘贴总进度圆形入口、每次粘贴详情进度、详情失焦隐藏、取消入口、最多 3 个复制线程和跨文件系统剪切退化语义 | 更新文件操作用户可见行为 | docs/dev/14-summary-file-operation-progress.md |
 | 2026-06-26 | 记录打开文件前按 `.desktop` `Exec` 字段码展开参数，并丢弃未知或废弃字段码 | 更新打开文件兼容行为 | docs/dev/17-fix-desktop-exec-field-codes.md |
 | 2026-06-26 | 记录选中项复制/剪切/粘贴/删除快捷键和多选右键菜单 | 更新文件操作用户可见行为 | docs/dev/19-task-shortcuts-multi-select-menu.md |
+| 2026-06-27 | 记录 Ctrl 点击多点选择和 Shift 点击范围选择 | 更新文件选择用户可见行为 | docs/dev/20-task-click-range-selection.md |

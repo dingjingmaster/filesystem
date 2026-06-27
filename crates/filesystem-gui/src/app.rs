@@ -51,6 +51,8 @@ pub(crate) struct FileManager {
     properties_drag: Option<PropertiesDrag>,
     properties_pointer: Option<Point>,
     selected_paths: BTreeSet<PathBuf>,
+    selection_anchor: Option<PathBuf>,
+    selection_modifiers: SelectionModifiers,
     selection_drag: Option<SelectionDrag>,
     browser_pointer: Option<Point>,
     browser_scroll_y: f32,
@@ -101,6 +103,8 @@ impl FileManager {
             properties_drag: None,
             properties_pointer: None,
             selected_paths: BTreeSet::new(),
+            selection_anchor: None,
+            selection_modifiers: SelectionModifiers::default(),
             selection_drag: None,
             browser_pointer: None,
             browser_scroll_y: 0.0,
@@ -172,9 +176,11 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
-                self.selection_drag = None;
-                self.selected_paths.clear();
-                self.selected_paths.insert(path);
+                self.select_entry(path);
+                Task::none()
+            }
+            Message::SelectionModifiersChanged(modifiers) => {
+                self.selection_modifiers = modifiers;
                 Task::none()
             }
             Message::BrowserPointerMoved(position) => {
@@ -196,6 +202,7 @@ impl FileManager {
                         current: position,
                     });
                     self.selected_paths.clear();
+                    self.selection_anchor = None;
                 }
                 Task::none()
             }
@@ -285,6 +292,7 @@ impl FileManager {
                     .iter()
                     .map(|entry| entry.file.path.clone())
                     .collect();
+                self.selection_anchor = self.entries.first().map(|entry| entry.file.path.clone());
                 Task::none()
             }
             Message::ContextOpenTerminal => {
@@ -615,7 +623,8 @@ impl FileManager {
                     }
                     self.rename_state = None;
                     self.selected_paths.clear();
-                    self.selected_paths.insert(path);
+                    self.selected_paths.insert(path.clone());
+                    self.selection_anchor = Some(path);
                     self.status = "Renamed".to_string();
                     self.reload()
                 }
@@ -631,7 +640,8 @@ impl FileManager {
                             return Task::none();
                         };
                         self.selected_paths.clear();
-                        self.selected_paths.insert(rename.path);
+                        self.selected_paths.insert(rename.path.clone());
+                        self.selection_anchor = Some(rename.path);
                         self.status = format!(
                             "Name is too long; kept default name {}",
                             rename.fallback_name
@@ -851,6 +861,7 @@ impl FileManager {
         Subscription::batch([
             window::resize_events().map(|(_id, size)| Message::WindowResized(size)),
             event::listen_with(keyboard_shortcut_event),
+            event::listen_with(selection_modifier_event),
         ])
     }
 
@@ -1947,8 +1958,66 @@ impl FileManager {
         self.selected_paths.contains(&entry.file.path)
     }
 
+    fn select_entry(&mut self, path: PathBuf) {
+        self.selection_drag = None;
+
+        if self.selection_modifiers.shift
+            && self.select_entry_range(path.clone(), self.selection_modifiers.control)
+        {
+            return;
+        }
+
+        if self.selection_modifiers.control {
+            if !self.selected_paths.remove(&path) {
+                self.selected_paths.insert(path.clone());
+            }
+            self.selection_anchor = Some(path);
+            return;
+        }
+
+        self.selected_paths.clear();
+        self.selected_paths.insert(path.clone());
+        self.selection_anchor = Some(path);
+    }
+
+    fn select_entry_range(&mut self, path: PathBuf, add_to_existing: bool) -> bool {
+        let Some(anchor) = self.selection_anchor.as_ref() else {
+            return false;
+        };
+
+        let Some(anchor_index) = self.entry_index_for_path(anchor) else {
+            return false;
+        };
+        let Some(target_index) = self.entry_index_for_path(&path) else {
+            return false;
+        };
+
+        if !add_to_existing {
+            self.selected_paths.clear();
+        }
+
+        let (start, end) = if anchor_index <= target_index {
+            (anchor_index, target_index)
+        } else {
+            (target_index, anchor_index)
+        };
+
+        for entry in &self.entries[start..=end] {
+            self.selected_paths.insert(entry.file.path.clone());
+        }
+
+        true
+    }
+
+    fn entry_index_for_path(&self, path: &PathBuf) -> Option<usize> {
+        self.entries
+            .iter()
+            .position(|entry| entry.file.path == *path)
+    }
+
     fn clear_selection_state(&mut self) {
         self.selected_paths.clear();
+        self.selection_anchor = None;
         self.selection_drag = None;
         self.browser_pointer = None;
         self.browser_scroll_y = 0.0;
@@ -2017,6 +2086,11 @@ impl FileManager {
             })
             .map(|(_, entry)| entry.file.path.clone())
             .collect();
+        self.selection_anchor = self.entries.iter().find_map(|entry| {
+            self.selected_paths
+                .contains(&entry.file.path)
+                .then(|| entry.file.path.clone())
+        });
     }
 
     fn selection_content_rect(&self) -> Option<Rectangle> {
@@ -3150,7 +3224,8 @@ impl FileManager {
 
         self.rename_state = Some(RenameState::new(path.clone(), value, limits));
         self.selected_paths.clear();
-        self.selected_paths.insert(path);
+        self.selected_paths.insert(path.clone());
+        self.selection_anchor = Some(path);
         self.status = "Enter a new name".to_string();
         self.focus_rename_input(true)
     }
@@ -3658,6 +3733,28 @@ fn keyboard_shortcut_event(
     None
 }
 
+fn selection_modifier_event(
+    event: iced::Event,
+    _status: event::Status,
+    _window: window::Id,
+) -> Option<Message> {
+    match event {
+        iced::Event::Keyboard(keyboard::Event::KeyPressed { modifiers, .. })
+        | iced::Event::Keyboard(keyboard::Event::KeyReleased { modifiers, .. })
+        | iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => Some(
+            Message::SelectionModifiersChanged(selection_modifiers(modifiers)),
+        ),
+        _ => None,
+    }
+}
+
+fn selection_modifiers(modifiers: keyboard::Modifiers) -> SelectionModifiers {
+    SelectionModifiers {
+        control: modifiers.control(),
+        shift: modifiers.shift(),
+    }
+}
+
 fn initial_paste_progress(action: PasteAction) -> PasteProgress {
     PasteProgress {
         action,
@@ -3864,6 +3961,32 @@ mod tests {
         }
     }
 
+    fn file_entry(name: &str) -> DisplayEntry {
+        let path = PathBuf::from(format!("/tmp/{name}"));
+
+        DisplayEntry {
+            file: filesystem_core::FileEntry {
+                name: name.to_string(),
+                path,
+                kind: EntryKind::File,
+                symlink_target: None,
+                hidden: false,
+                size: None,
+                owner: None,
+                modified: None,
+            },
+            mime: MimeInfo::new("text/plain", filesystem_mime::MimeSource::BuiltInName),
+            icon: EntryIcon::Embedded(include_bytes!("../../../icons/file.svg")),
+            badge: None,
+        }
+    }
+
+    fn manager_with_entries(names: &[&str]) -> FileManager {
+        let (mut manager, _) = FileManager::new();
+        manager.entries = names.iter().map(|name| file_entry(name)).collect();
+        manager
+    }
+
     #[test]
     fn keyboard_shortcuts_map_requested_keys() {
         let ctrl = keyboard::Modifiers::CTRL;
@@ -3947,6 +4070,102 @@ mod tests {
         assert!(
             keyboard_shortcut_event(repeated, event::Status::Ignored, window::Id::unique())
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn selection_modifier_events_track_ctrl_and_shift() {
+        let event = key_press(
+            keyboard::Key::Character("a".into()),
+            keyboard::key::Physical::Code(keyboard::key::Code::KeyA),
+            keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT,
+        );
+
+        let Some(Message::SelectionModifiersChanged(modifiers)) =
+            selection_modifier_event(event, iced::event::Status::Captured, window::Id::unique())
+        else {
+            panic!("expected selection modifier message");
+        };
+
+        assert_eq!(
+            modifiers,
+            SelectionModifiers {
+                control: true,
+                shift: true,
+            }
+        );
+    }
+
+    #[test]
+    fn ctrl_click_toggles_entry_selection() {
+        let mut manager = manager_with_entries(&["alpha", "bravo", "charlie"]);
+        let first = manager.entries[0].file.path.clone();
+        let second = manager.entries[1].file.path.clone();
+
+        let _ = manager.update(Message::SelectEntry(first.clone()));
+        let _ = manager.update(Message::SelectionModifiersChanged(SelectionModifiers {
+            control: true,
+            shift: false,
+        }));
+        let _ = manager.update(Message::SelectEntry(second.clone()));
+
+        assert!(manager.selected_paths.contains(&first));
+        assert!(manager.selected_paths.contains(&second));
+
+        let _ = manager.update(Message::SelectEntry(first.clone()));
+
+        assert!(!manager.selected_paths.contains(&first));
+        assert!(manager.selected_paths.contains(&second));
+    }
+
+    #[test]
+    fn shift_click_selects_display_order_range_from_anchor() {
+        let mut manager = manager_with_entries(&["delta", "alpha", "charlie", "bravo"]);
+        let paths = manager
+            .entries
+            .iter()
+            .map(|entry| entry.file.path.clone())
+            .collect::<Vec<_>>();
+
+        let _ = manager.update(Message::SelectEntry(paths[0].clone()));
+        let _ = manager.update(Message::SelectionModifiersChanged(SelectionModifiers {
+            control: false,
+            shift: true,
+        }));
+        let _ = manager.update(Message::SelectEntry(paths[3].clone()));
+
+        assert_eq!(manager.selected_paths_vec(), paths);
+    }
+
+    #[test]
+    fn ctrl_shift_click_adds_display_order_range_to_existing_selection() {
+        let mut manager = manager_with_entries(&["alpha", "bravo", "charlie", "delta", "echo"]);
+        let paths = manager
+            .entries
+            .iter()
+            .map(|entry| entry.file.path.clone())
+            .collect::<Vec<_>>();
+
+        let _ = manager.update(Message::SelectEntry(paths[0].clone()));
+        let _ = manager.update(Message::SelectionModifiersChanged(SelectionModifiers {
+            control: true,
+            shift: false,
+        }));
+        let _ = manager.update(Message::SelectEntry(paths[4].clone()));
+        let _ = manager.update(Message::SelectionModifiersChanged(SelectionModifiers {
+            control: true,
+            shift: true,
+        }));
+        let _ = manager.update(Message::SelectEntry(paths[2].clone()));
+
+        assert_eq!(
+            manager.selected_paths_vec(),
+            vec![
+                paths[0].clone(),
+                paths[2].clone(),
+                paths[3].clone(),
+                paths[4].clone()
+            ]
         );
     }
 
