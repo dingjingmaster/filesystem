@@ -30,6 +30,10 @@ pub(crate) enum Message {
     ContextSelectAll,
     ContextOpenTerminal,
     ContextProperties,
+    SelectionCopy,
+    SelectionCut,
+    SelectionDelete,
+    ShortcutPaste,
     FolderOpen(PathBuf),
     FolderCopy(PathBuf),
     FolderCut(PathBuf),
@@ -45,8 +49,8 @@ pub(crate) enum Message {
     FileDelete(PathBuf),
     FileProperties(PathBuf),
     CancelDelete,
-    ConfirmDelete(PathBuf),
-    DeleteFinished(Result<PathBuf, FsError>),
+    ConfirmDelete(Vec<PathBuf>),
+    DeleteFinished(DeleteEntriesOutcome),
     ApplicationsLoaded(AppRegistry),
     OpenWithSelect(String),
     OpenWithCancel,
@@ -224,13 +228,20 @@ pub(crate) enum ContextMenuState {
     Blank(Point),
     Folder { position: Point, path: PathBuf },
     File { position: Point, path: PathBuf },
+    Selection { position: Point },
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct DeleteConfirm {
-    pub(crate) path: PathBuf,
-    pub(crate) name: String,
-    pub(crate) kind_label: &'static str,
+    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) title: String,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DeleteEntriesOutcome {
+    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) error: Option<FsError>,
 }
 
 #[derive(Debug, Clone)]

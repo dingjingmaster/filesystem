@@ -18,7 +18,8 @@ use iced::widget::{
     space, stack, text, text_editor, text_input,
 };
 use iced::{
-    mouse, window, Element, Fill, Length, Padding, Point, Rectangle, Size, Subscription, Task,
+    event, keyboard, mouse, window, Element, Fill, Length, Padding, Point, Rectangle, Size,
+    Subscription, Task,
 };
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -214,7 +215,9 @@ impl FileManager {
                 self.selection_drag = None;
 
                 self.context_menu = self.browser_pointer.and_then(|position| {
-                    if let Some(path) = self.folder_menu_path_at(position) {
+                    if self.selected_paths.len() > 1 {
+                        Some(ContextMenuState::Selection { position })
+                    } else if let Some(path) = self.folder_menu_path_at(position) {
                         Some(ContextMenuState::Folder { position, path })
                     } else if let Some(path) = self.file_menu_path_at(position) {
                         Some(ContextMenuState::File { position, path })
@@ -300,6 +303,45 @@ impl FileManager {
                 self.close_menu();
                 self.open_properties(self.cwd.clone())
             }
+            Message::SelectionCopy => {
+                if self.shortcuts_blocked() {
+                    return Task::none();
+                }
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.set_selection_clipboard(PasteAction::Copy)
+            }
+            Message::SelectionCut => {
+                if self.shortcuts_blocked() {
+                    return Task::none();
+                }
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.set_selection_clipboard(PasteAction::Cut)
+            }
+            Message::SelectionDelete => {
+                if self.shortcuts_blocked() {
+                    return Task::none();
+                }
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                let paths = self.selected_paths_vec();
+                self.show_delete_confirmation(paths, None)
+            }
+            Message::ShortcutPaste => {
+                if self.shortcuts_blocked() || !self.selected_paths.is_empty() {
+                    return Task::none();
+                }
+                self.close_menu();
+                if let Some(clipboard) = self.clipboard.clone() {
+                    return self.paste_paths(clipboard.paths, clipboard.action);
+                }
+                self.status = "Reading clipboard...".to_string();
+                iced::clipboard::read().map(Message::PasteClipboardRead)
+            }
             Message::FolderOpen(path) => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
@@ -342,13 +384,7 @@ impl FileManager {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
                 }
-                self.close_menu();
-                self.delete_confirm = Some(DeleteConfirm {
-                    name: display_name_for_path(&path),
-                    kind_label: "文件夹",
-                    path,
-                });
-                Task::none()
+                self.show_delete_confirmation(vec![path], Some("文件夹"))
             }
             Message::FolderOpenTerminal(path) => {
                 if self.rename_state.is_some() {
@@ -426,13 +462,7 @@ impl FileManager {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
                 }
-                self.close_menu();
-                self.delete_confirm = Some(DeleteConfirm {
-                    name: display_name_for_path(&path),
-                    kind_label: "文件",
-                    path,
-                });
-                Task::none()
+                self.show_delete_confirmation(vec![path], Some("文件"))
             }
             Message::FileProperties(path) => {
                 if self.rename_state.is_some() {
@@ -445,26 +475,50 @@ impl FileManager {
                 self.delete_confirm = None;
                 Task::none()
             }
-            Message::ConfirmDelete(path) => {
+            Message::ConfirmDelete(paths) => {
                 self.delete_confirm = None;
-                self.status = format!("Deleting {}...", display_name_for_path(&path));
-                delete_entry_task(path)
+                if paths.is_empty() {
+                    return Task::none();
+                }
+
+                self.status = if paths.len() == 1 {
+                    format!("Deleting {}...", display_name_for_path(&paths[0]))
+                } else {
+                    format!("Deleting {} item(s)...", paths.len())
+                };
+                delete_entries_task(paths)
             }
-            Message::DeleteFinished(result) => {
-                match result {
-                    Ok(path) => {
-                        self.selected_paths.remove(&path);
-                        if self.clipboard.as_ref().is_some_and(|clipboard| {
-                            clipboard.paths.iter().any(|item| item == &path)
-                        }) {
-                            self.clipboard = None;
-                        }
-                        self.status = format!("Deleted {}", display_name_for_path(&path));
-                        self.reload()
-                    }
-                    Err(error) => {
+            Message::DeleteFinished(outcome) => {
+                for path in &outcome.paths {
+                    self.selected_paths.remove(path);
+                }
+
+                if self.clipboard.as_ref().is_some_and(|clipboard| {
+                    clipboard
+                        .paths
+                        .iter()
+                        .any(|item| outcome.paths.iter().any(|path| path == item))
+                }) {
+                    self.clipboard = None;
+                }
+
+                match outcome.error {
+                    Some(error) if outcome.paths.is_empty() => {
                         self.status = error.to_string();
                         Task::none()
+                    }
+                    Some(error) => {
+                        self.status =
+                            format!("Deleted {} item(s); failed: {error}", outcome.paths.len());
+                        self.reload()
+                    }
+                    None => {
+                        self.status = if outcome.paths.len() == 1 {
+                            format!("Deleted {}", display_name_for_path(&outcome.paths[0]))
+                        } else {
+                            format!("Deleted {} item(s)", outcome.paths.len())
+                        };
+                        self.reload()
                     }
                 }
             }
@@ -794,7 +848,10 @@ impl FileManager {
     }
 
     pub(crate) fn subscription(&self) -> Subscription<Message> {
-        window::resize_events().map(|(_id, size)| Message::WindowResized(size))
+        Subscription::batch([
+            window::resize_events().map(|(_id, size)| Message::WindowResized(size)),
+            event::listen_with(keyboard_shortcut_event),
+        ])
     }
 
     pub(crate) fn view(&self) -> Element<'_, Message> {
@@ -2143,6 +2200,10 @@ impl FileManager {
                 self.context_menu_position(*position),
                 self.file_context_menu(path.clone()),
             ),
+            ContextMenuState::Selection { position } => (
+                self.context_menu_position(*position),
+                self.selection_context_menu(),
+            ),
         };
 
         container(
@@ -2236,6 +2297,22 @@ impl FileManager {
         .into()
     }
 
+    fn selection_context_menu(&self) -> Element<'_, Message> {
+        container(
+            column![
+                context_menu_item("复制", Message::SelectionCopy),
+                context_menu_item("剪切", Message::SelectionCut),
+                context_menu_item("删除", Message::SelectionDelete),
+            ]
+            .spacing(2)
+            .align_x(iced::Alignment::Start)
+            .padding(6),
+        )
+        .width(CONTEXT_MENU_WIDTH)
+        .style(style::context_menu)
+        .into()
+    }
+
     fn alert_overlay(&self) -> Element<'_, Message> {
         let Some(alert) = &self.alert_dialog else {
             return container(space()).height(Fill).width(Fill).into();
@@ -2293,15 +2370,8 @@ impl FileManager {
 
         let dialog = container(
             column![
-                text(format!("删除{}", confirm.kind_label))
-                    .size(16)
-                    .style(style::primary_text),
-                text(format!(
-                    "确定删除 {} {}吗？",
-                    confirm.name, confirm.kind_label
-                ))
-                .size(14)
-                .style(style::primary_text),
+                text(&confirm.title).size(16).style(style::primary_text),
+                text(&confirm.message).size(14).style(style::primary_text),
                 row![
                     button(
                         container(text("取消").size(14).style(style::primary_text))
@@ -2323,7 +2393,7 @@ impl FileManager {
                     .height(36)
                     .padding([0, 16])
                     .style(style::danger_button)
-                    .on_press(Message::ConfirmDelete(confirm.path.clone())),
+                    .on_press(Message::ConfirmDelete(confirm.paths.clone())),
                 ]
                 .align_y(iced::Center),
             ]
@@ -3085,6 +3155,98 @@ impl FileManager {
         self.focus_rename_input(true)
     }
 
+    fn shortcuts_blocked(&self) -> bool {
+        self.delete_confirm.is_some()
+            || self.alert_dialog.is_some()
+            || self.open_with_dialog.is_some()
+            || self.properties_dialog.is_some()
+    }
+
+    fn selected_paths_vec(&self) -> Vec<PathBuf> {
+        let mut seen = BTreeSet::new();
+        let mut paths = Vec::new();
+
+        for entry in &self.entries {
+            if self.selected_paths.contains(&entry.file.path)
+                && seen.insert(entry.file.path.clone())
+            {
+                paths.push(entry.file.path.clone());
+            }
+        }
+
+        for path in &self.selected_paths {
+            if seen.insert(path.clone()) {
+                paths.push(path.clone());
+            }
+        }
+
+        paths
+    }
+
+    fn set_selection_clipboard(&mut self, action: PasteAction) -> Task<Message> {
+        let paths = self.selected_paths_vec();
+        if paths.is_empty() {
+            return Task::none();
+        }
+
+        self.close_menu();
+        self.clipboard = Some(ClipboardState {
+            action,
+            paths: paths.clone(),
+        });
+
+        let target = selected_paths_label(&paths);
+        self.status = match action {
+            PasteAction::Copy => format!("Copied {target}"),
+            PasteAction::Cut => format!("Cut {target}"),
+        };
+        Task::none()
+    }
+
+    fn show_delete_confirmation(
+        &mut self,
+        paths: Vec<PathBuf>,
+        single_kind_label: Option<&'static str>,
+    ) -> Task<Message> {
+        if paths.is_empty() {
+            return Task::none();
+        }
+
+        self.close_menu();
+        let (title, message) = if paths.len() == 1 {
+            let path = &paths[0];
+            let kind_label = single_kind_label.unwrap_or_else(|| self.delete_kind_label(path));
+            (
+                format!("删除{kind_label}"),
+                format!(
+                    "确定删除 {} {}吗？",
+                    display_name_for_path(path),
+                    kind_label
+                ),
+            )
+        } else {
+            let count = paths.len();
+            (
+                format!("删除 {count} 项"),
+                format!("确定删除选中的 {count} 项吗？"),
+            )
+        };
+
+        self.delete_confirm = Some(DeleteConfirm {
+            paths,
+            title,
+            message,
+        });
+        Task::none()
+    }
+
+    fn delete_kind_label(&self, path: &PathBuf) -> &'static str {
+        self.entry_for_path(path)
+            .filter(|entry| matches!(Self::entry_effective_kind(entry), EntryKind::Directory))
+            .map(|_| "文件夹")
+            .unwrap_or("文件")
+    }
+
     fn paste_paths(&mut self, paths: Vec<PathBuf>, action: PasteAction) -> Task<Message> {
         if paths.is_empty() {
             self.status = "Clipboard does not contain local paths".to_string();
@@ -3445,6 +3607,57 @@ impl FileManager {
     }
 }
 
+fn keyboard_shortcut_event(
+    event: iced::Event,
+    status: event::Status,
+    _window: window::Id,
+) -> Option<Message> {
+    if status != event::Status::Ignored {
+        return None;
+    }
+
+    let iced::Event::Keyboard(keyboard::Event::KeyPressed {
+        key,
+        physical_key,
+        modifiers,
+        repeat,
+        ..
+    }) = event
+    else {
+        return None;
+    };
+
+    if repeat {
+        return None;
+    }
+
+    if modifiers.control() && !modifiers.shift() && !modifiers.alt() && !modifiers.logo() {
+        return match key
+            .to_latin(physical_key)
+            .map(|key| key.to_ascii_lowercase())
+        {
+            Some('c') => Some(Message::SelectionCopy),
+            Some('x') => Some(Message::SelectionCut),
+            Some('v') => Some(Message::ShortcutPaste),
+            _ => None,
+        };
+    }
+
+    if !modifiers.control()
+        && !modifiers.shift()
+        && !modifiers.alt()
+        && !modifiers.logo()
+        && matches!(
+            key.as_ref(),
+            keyboard::Key::Named(keyboard::key::Named::Delete)
+        )
+    {
+        return Some(Message::SelectionDelete);
+    }
+
+    None
+}
+
 fn initial_paste_progress(action: PasteAction) -> PasteProgress {
     PasteProgress {
         action,
@@ -3492,6 +3705,14 @@ fn file_operation_fraction(operation: &FileOperationState) -> f32 {
     };
 
     fraction.clamp(0.0, 1.0)
+}
+
+fn selected_paths_label(paths: &[PathBuf]) -> String {
+    if paths.len() == 1 {
+        display_name_for_path(&paths[0])
+    } else {
+        format!("{} item(s)", paths.len())
+    }
 }
 
 fn paste_action_label(action: PasteAction) -> &'static str {
@@ -3592,6 +3813,22 @@ fn display_entry_sort_group(entry: &DisplayEntry) -> u8 {
 mod tests {
     use super::*;
 
+    fn key_press(
+        key: keyboard::Key,
+        physical_key: keyboard::key::Physical,
+        modifiers: keyboard::Modifiers,
+    ) -> iced::Event {
+        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: key.clone(),
+            modified_key: key,
+            physical_key,
+            location: keyboard::Location::Standard,
+            modifiers,
+            text: None,
+            repeat: false,
+        })
+    }
+
     fn operation_with_progress(
         status: FileOperationStatus,
         completed_bytes: u64,
@@ -3625,6 +3862,175 @@ mod tests {
             speed_bytes_per_second: Some(2048),
             targets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn keyboard_shortcuts_map_requested_keys() {
+        let ctrl = keyboard::Modifiers::CTRL;
+        let window = window::Id::unique();
+
+        assert!(matches!(
+            keyboard_shortcut_event(
+                key_press(
+                    keyboard::Key::Character("c".into()),
+                    keyboard::key::Physical::Code(keyboard::key::Code::KeyC),
+                    ctrl,
+                ),
+                event::Status::Ignored,
+                window,
+            ),
+            Some(Message::SelectionCopy)
+        ));
+        assert!(matches!(
+            keyboard_shortcut_event(
+                key_press(
+                    keyboard::Key::Character("x".into()),
+                    keyboard::key::Physical::Code(keyboard::key::Code::KeyX),
+                    ctrl,
+                ),
+                event::Status::Ignored,
+                window,
+            ),
+            Some(Message::SelectionCut)
+        ));
+        assert!(matches!(
+            keyboard_shortcut_event(
+                key_press(
+                    keyboard::Key::Character("v".into()),
+                    keyboard::key::Physical::Code(keyboard::key::Code::KeyV),
+                    ctrl,
+                ),
+                event::Status::Ignored,
+                window,
+            ),
+            Some(Message::ShortcutPaste)
+        ));
+        assert!(matches!(
+            keyboard_shortcut_event(
+                key_press(
+                    keyboard::Key::Named(keyboard::key::Named::Delete),
+                    keyboard::key::Physical::Code(keyboard::key::Code::Delete),
+                    keyboard::Modifiers::NONE,
+                ),
+                event::Status::Ignored,
+                window,
+            ),
+            Some(Message::SelectionDelete)
+        ));
+    }
+
+    #[test]
+    fn keyboard_shortcuts_ignore_captured_or_repeated_events() {
+        let captured_event = key_press(
+            keyboard::Key::Character("c".into()),
+            keyboard::key::Physical::Code(keyboard::key::Code::KeyC),
+            keyboard::Modifiers::CTRL,
+        );
+
+        assert!(keyboard_shortcut_event(
+            captured_event,
+            event::Status::Captured,
+            window::Id::unique()
+        )
+        .is_none());
+
+        let repeated = iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Character("c".into()),
+            modified_key: keyboard::Key::Character("c".into()),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyC),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::CTRL,
+            text: None,
+            repeat: true,
+        });
+
+        assert!(
+            keyboard_shortcut_event(repeated, event::Status::Ignored, window::Id::unique())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn selection_copy_and_cut_store_all_selected_paths() {
+        let (mut manager, _) = FileManager::new();
+        let first = PathBuf::from("/tmp/alpha.txt");
+        let second = PathBuf::from("/tmp/bravo");
+
+        manager.selected_paths.insert(second.clone());
+        manager.selected_paths.insert(first.clone());
+        let _ = manager.update(Message::SelectionCopy);
+
+        let clipboard = manager.clipboard.as_ref().unwrap();
+        assert_eq!(clipboard.action, PasteAction::Copy);
+        assert_eq!(clipboard.paths, vec![first.clone(), second.clone()]);
+        assert_eq!(manager.status, "Copied 2 item(s)");
+
+        let _ = manager.update(Message::SelectionCut);
+
+        let clipboard = manager.clipboard.as_ref().unwrap();
+        assert_eq!(clipboard.action, PasteAction::Cut);
+        assert_eq!(clipboard.paths, vec![first, second]);
+        assert_eq!(manager.status, "Cut 2 item(s)");
+    }
+
+    #[test]
+    fn shortcut_paste_only_runs_without_selection() {
+        let (mut manager, _) = FileManager::new();
+        manager.clipboard = Some(ClipboardState {
+            action: PasteAction::Copy,
+            paths: vec![PathBuf::from("/tmp/source.txt")],
+        });
+        manager
+            .selected_paths
+            .insert(PathBuf::from("/tmp/source.txt"));
+
+        let _ = manager.update(Message::ShortcutPaste);
+
+        assert!(manager.file_operations.is_empty());
+
+        manager.selected_paths.clear();
+        let _ = manager.update(Message::ShortcutPaste);
+
+        assert_eq!(manager.file_operations.len(), 1);
+    }
+
+    #[test]
+    fn selection_delete_creates_multi_path_confirmation() {
+        let (mut manager, _) = FileManager::new();
+        let first = PathBuf::from("/tmp/alpha.txt");
+        let second = PathBuf::from("/tmp/bravo");
+
+        manager.selected_paths.insert(first.clone());
+        manager.selected_paths.insert(second.clone());
+        let _ = manager.update(Message::SelectionDelete);
+
+        let confirm = manager.delete_confirm.as_ref().unwrap();
+        assert_eq!(confirm.paths, vec![first, second]);
+        assert_eq!(confirm.title, "删除 2 项");
+        assert_eq!(confirm.message, "确定删除选中的 2 项吗？");
+    }
+
+    #[test]
+    fn delete_finished_clears_deleted_selection_and_clipboard() {
+        let (mut manager, _) = FileManager::new();
+        let first = PathBuf::from("/tmp/alpha.txt");
+        let second = PathBuf::from("/tmp/bravo");
+
+        manager.selected_paths.insert(first.clone());
+        manager.selected_paths.insert(second.clone());
+        manager.clipboard = Some(ClipboardState {
+            action: PasteAction::Cut,
+            paths: vec![first.clone(), second.clone()],
+        });
+
+        let _ = manager.update(Message::DeleteFinished(DeleteEntriesOutcome {
+            paths: vec![first.clone()],
+            error: None,
+        }));
+
+        assert!(!manager.selected_paths.contains(&first));
+        assert!(manager.selected_paths.contains(&second));
+        assert!(manager.clipboard.is_none());
     }
 
     #[test]

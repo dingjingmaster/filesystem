@@ -1,8 +1,8 @@
 use crate::apps::{load_app_registry, open_file_with_app};
 use crate::icons::{basic_entries, decorate_entry_batch};
 use crate::model::{
-    DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults, FileOperationEvent,
-    HomeShortcut, Message, NewEntryKind,
+    DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults,
+    FileOperationEvent, HomeShortcut, Message, NewEntryKind,
 };
 use filesystem_core::{
     create_file, create_folder, delete_entry, paste_paths_with_progress, search_file_names,
@@ -188,11 +188,34 @@ pub(crate) fn create_entry_task(parent: PathBuf, kind: NewEntryKind) -> Task<Mes
     )
 }
 
-pub(crate) fn delete_entry_task(path: PathBuf) -> Task<Message> {
+pub(crate) fn delete_entries_task(paths: Vec<PathBuf>) -> Task<Message> {
     Task::perform(
         async move {
-            delete_entry(&path)?;
-            Ok(path)
+            let mut paths = paths;
+            paths.sort_by(|left, right| {
+                right
+                    .components()
+                    .count()
+                    .cmp(&left.components().count())
+                    .then_with(|| right.cmp(left))
+            });
+
+            let mut deleted = Vec::new();
+
+            for path in paths {
+                if let Err(error) = delete_entry(&path) {
+                    return DeleteEntriesOutcome {
+                        paths: deleted,
+                        error: Some(error),
+                    };
+                }
+                deleted.push(path);
+            }
+
+            DeleteEntriesOutcome {
+                paths: deleted,
+                error: None,
+            }
         },
         Message::DeleteFinished,
     )
