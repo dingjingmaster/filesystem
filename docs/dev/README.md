@@ -58,3 +58,4 @@
 | 21 | 2026-06-29 | L2 | task | [21-task-filesystem-ini-config.md](21-task-filesystem-ini-config.md) | 已完成 | 启动时读取可执行文件同级 `filesystem.ini`，支持覆盖左侧标题栏名称和右键菜单终端命令。 |
 | 22 | 2026-06-29 | L2 | task | [22-task-blank-menu-custom-commands.md](22-task-blank-menu-custom-commands.md) | 已完成 | 通过 `filesystem.ini` 的 `[blank-menu.*]` section 为空白处右键菜单新增自定义命令。 |
 | 23 | 2026-06-29 | L2 | task | [23-task-current-folder-auto-refresh.md](23-task-current-folder-auto-refresh.md) | 已完成 | 监听当前打开文件夹的直接子项变化，并在新增、删除、重命名或修改时自动刷新。 |
+| 24 | 2026-06-29 | L2 | task | [24-task-open-with-default-app.md](24-task-open-with-default-app.md) | 已完成 | 打开方式弹窗支持勾选设为默认打开方式，写入当前桌面优先的用户级 MIME apps 配置并同步当前进程默认应用。 |

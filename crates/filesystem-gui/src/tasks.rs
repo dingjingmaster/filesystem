@@ -1,9 +1,9 @@
-use crate::apps::{load_app_registry, open_file_with_app};
+use crate::apps::{load_app_registry, open_file_with_app, set_default_app_for_mime};
 use crate::config::BlankMenuCommand;
 use crate::icons::{basic_entries, decorate_entry_batch};
 use crate::model::{
-    DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults,
-    FileOperationEvent, HomeShortcut, Message, NewEntryKind,
+    DefaultAppAssignment, DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest,
+    DisplaySearchResults, FileOperationEvent, HomeShortcut, Message, NewEntryKind, OpenFileOutcome,
 };
 use filesystem_core::{
     create_file, create_folder, delete_entry, paste_paths_with_progress, search_file_names,
@@ -353,9 +353,35 @@ pub(crate) fn remove_completed_file_operation_task(operation_id: u64) -> Task<Me
     )
 }
 
-pub(crate) fn open_file_with_app_task(path: PathBuf, app: DesktopApp) -> Task<Message> {
+pub(crate) fn open_file_with_app_task(
+    path: PathBuf,
+    app: DesktopApp,
+    default_mime: Option<String>,
+) -> Task<Message> {
     Task::perform(
-        async move { open_file_with_app(path, app) },
+        async move {
+            let app_id = app.id.clone();
+            let app_name = open_file_with_app(path, app)?;
+            let mut default_assignment = None;
+            let mut default_error = None;
+
+            if let Some(mime) = default_mime {
+                match set_default_app_for_mime(&mime, &app_id) {
+                    Ok(()) => {
+                        default_assignment = Some(DefaultAppAssignment { mime, app_id });
+                    }
+                    Err(error) => {
+                        default_error = Some(error);
+                    }
+                }
+            }
+
+            Ok(OpenFileOutcome {
+                app_name,
+                default_assignment,
+                default_error,
+            })
+        },
         Message::OpenFileFinished,
     )
 }

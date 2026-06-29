@@ -55,9 +55,10 @@ pub(crate) enum Message {
     DeleteFinished(DeleteEntriesOutcome),
     ApplicationsLoaded(AppRegistry),
     OpenWithSelect(String),
+    OpenWithSetDefault(bool),
     OpenWithCancel,
     OpenWithOpen,
-    OpenFileFinished(Result<String, String>),
+    OpenFileFinished(Result<OpenFileOutcome, String>),
     CreateFinished(NewEntryKind, Result<PathBuf, FsError>),
     RenameEditorAction(text_editor::Action),
     RenameSubmit,
@@ -278,6 +279,20 @@ pub(crate) struct OpenWithDialog {
     pub(crate) mime: String,
     pub(crate) apps: Vec<DesktopApp>,
     pub(crate) selected_app_id: Option<String>,
+    pub(crate) set_as_default: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DefaultAppAssignment {
+    pub(crate) mime: String,
+    pub(crate) app_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OpenFileOutcome {
+    pub(crate) app_name: String,
+    pub(crate) default_assignment: Option<DefaultAppAssignment>,
+    pub(crate) default_error: Option<String>,
 }
 
 impl ViewMode {

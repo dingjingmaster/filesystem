@@ -118,6 +118,168 @@ pub(crate) fn open_file_with_app(path: PathBuf, app: DesktopApp) -> Result<Strin
     Ok(app.name)
 }
 
+pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
+    let path = user_mimeapps_path()?;
+    set_default_app_for_mime_at(&path, mime, app_id)
+}
+
+fn set_default_app_for_mime_at(path: &Path, mime: &str, app_id: &str) -> Result<(), String> {
+    validate_mimeapps_assignment(mime, app_id)?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create user MIME applications directory {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read user MIME applications file {}: {error}",
+                path.display()
+            ));
+        }
+    };
+    let updated = update_mimeapps_contents(&contents, mime, app_id);
+
+    fs::write(path, updated).map_err(|error| {
+        format!(
+            "Failed to write user MIME applications file {}: {error}",
+            path.display()
+        )
+    })
+}
+
+fn user_mimeapps_path() -> Result<PathBuf, String> {
+    user_mimeapps_path_from(
+        env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
+        env::var_os("HOME").map(PathBuf::from),
+        &current_desktops(),
+    )
+}
+
+fn user_mimeapps_path_from(
+    config_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+    desktops: &[String],
+) -> Result<PathBuf, String> {
+    let config_dir = config_home
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            home.filter(|path| !path.as_os_str().is_empty())
+                .map(|home| home.join(".config"))
+        })
+        .ok_or_else(|| "Cannot determine the user MIME applications file path".to_string())?;
+
+    if let Some(desktop) = desktops.first() {
+        return Ok(config_dir.join(format!("{desktop}-mimeapps.list")));
+    }
+
+    Ok(config_dir.join("mimeapps.list"))
+}
+
+fn validate_mimeapps_assignment(mime: &str, app_id: &str) -> Result<(), String> {
+    let invalid_mime =
+        mime.trim().is_empty() || mime.chars().any(|ch| matches!(ch, '\n' | '\r' | '=' | ';'));
+    if invalid_mime {
+        return Err("Invalid MIME type for default application".to_string());
+    }
+
+    let invalid_app_id = app_id.trim().is_empty()
+        || app_id
+            .chars()
+            .any(|ch| matches!(ch, '\n' | '\r' | '=' | ';'));
+    if invalid_app_id {
+        return Err("Invalid desktop application id for default application".to_string());
+    }
+
+    Ok(())
+}
+
+fn update_mimeapps_contents(contents: &str, mime: &str, app_id: &str) -> String {
+    let updated = upsert_mimeapps_section_key(contents, "Default Applications", mime, |existing| {
+        desktop_list_with_first(app_id, existing)
+    });
+
+    upsert_mimeapps_section_key(&updated, "Added Associations", mime, |existing| {
+        desktop_list_with_first(app_id, existing)
+    })
+}
+
+fn desktop_list_with_first(app_id: &str, existing: Option<&str>) -> String {
+    let mut ids = Vec::new();
+    push_unique_string(&mut ids, app_id.to_string());
+
+    for id in existing.unwrap_or_default().split(';') {
+        push_unique_string(&mut ids, id.trim().to_string());
+    }
+
+    format!("{};", ids.join(";"))
+}
+
+fn upsert_mimeapps_section_key<F>(contents: &str, section: &str, key: &str, value_for: F) -> String
+where
+    F: Fn(Option<&str>) -> String,
+{
+    let section_header = format!("[{section}]");
+    let mut lines = Vec::new();
+    let mut found_section = false;
+    let mut in_target_section = false;
+    let mut inserted_key = false;
+
+    for raw_line in contents.lines() {
+        let trimmed = raw_line.trim();
+        let is_section_header = trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if is_section_header {
+            if in_target_section && !inserted_key {
+                lines.push(format!("{key}={}", value_for(None)));
+                inserted_key = true;
+            }
+
+            in_target_section = trimmed == section_header;
+            found_section |= in_target_section;
+            lines.push(raw_line.to_string());
+            continue;
+        }
+
+        if in_target_section {
+            if let Some((line_key, line_value)) = trimmed.split_once('=') {
+                if line_key.trim() == key {
+                    if !inserted_key {
+                        lines.push(format!("{key}={}", value_for(Some(line_value.trim()))));
+                        inserted_key = true;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        lines.push(raw_line.to_string());
+    }
+
+    if in_target_section && !inserted_key {
+        lines.push(format!("{key}={}", value_for(None)));
+    }
+
+    if !found_section {
+        if lines.last().is_some_and(|line| !line.is_empty()) {
+            lines.push(String::new());
+        }
+        lines.push(section_header);
+        lines.push(format!("{key}={}", value_for(None)));
+    }
+
+    let mut updated = lines.join("\n");
+    updated.push('\n');
+    updated
+}
+
 fn app_supports_mime(app: &DesktopApp, mime: &str) -> bool {
     app_mime_match_score(app, mime).is_some()
 }
@@ -842,6 +1004,75 @@ mod tests {
                 PathBuf::from("/etc/xdg/unity-mimeapps.list"),
                 PathBuf::from("/etc/xdg/mimeapps.list"),
             ]
+        );
+    }
+
+    #[test]
+    fn update_mimeapps_contents_adds_default_and_association_sections() {
+        let updated = update_mimeapps_contents("", "text/plain", "editor.desktop");
+
+        assert_eq!(
+            updated,
+            "[Default Applications]\ntext/plain=editor.desktop;\n\n[Added Associations]\ntext/plain=editor.desktop;\n"
+        );
+    }
+
+    #[test]
+    fn update_mimeapps_contents_moves_selected_app_to_front() {
+        let contents = "# user defaults\n[Default Applications]\ntext/plain=viewer.desktop;editor.desktop;\nimage/png=image-viewer.desktop;\n\n[Added Associations]\ntext/plain=viewer.desktop;\n";
+
+        let updated = update_mimeapps_contents(contents, "text/plain", "editor.desktop");
+
+        assert!(updated.contains("# user defaults\n"));
+        assert!(updated.contains("text/plain=editor.desktop;viewer.desktop;\n"));
+        assert!(updated.contains("image/png=image-viewer.desktop;\n"));
+        assert!(
+            updated.contains("[Added Associations]\ntext/plain=editor.desktop;viewer.desktop;\n")
+        );
+    }
+
+    #[test]
+    fn set_default_app_for_mime_at_creates_user_file() {
+        let root = temp_dir("mimeapps-write");
+        let path = root.join("config/mimeapps.list");
+
+        set_default_app_for_mime_at(&path, "application/pdf", "viewer.desktop").unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("[Default Applications]\napplication/pdf=viewer.desktop;\n"));
+        assert!(contents.contains("[Added Associations]\napplication/pdf=viewer.desktop;\n"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn user_mimeapps_path_prefers_xdg_config_home() {
+        assert_eq!(
+            user_mimeapps_path_from(
+                Some(PathBuf::from("/tmp/config")),
+                Some(PathBuf::from("/tmp/home")),
+                &[]
+            )
+            .unwrap(),
+            PathBuf::from("/tmp/config/mimeapps.list")
+        );
+
+        assert_eq!(
+            user_mimeapps_path_from(None, Some(PathBuf::from("/tmp/home")), &[]).unwrap(),
+            PathBuf::from("/tmp/home/.config/mimeapps.list")
+        );
+    }
+
+    #[test]
+    fn user_mimeapps_path_prefers_current_desktop_file() {
+        assert_eq!(
+            user_mimeapps_path_from(
+                Some(PathBuf::from("/tmp/config")),
+                None,
+                &["gnome".to_string(), "unity".to_string()]
+            )
+            .unwrap(),
+            PathBuf::from("/tmp/config/gnome-mimeapps.list")
         );
     }
 

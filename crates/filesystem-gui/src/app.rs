@@ -572,6 +572,12 @@ impl FileManager {
                 }
                 Task::none()
             }
+            Message::OpenWithSetDefault(set_as_default) => {
+                if let Some(dialog) = &mut self.open_with_dialog {
+                    dialog.set_as_default = set_as_default;
+                }
+                Task::none()
+            }
             Message::OpenWithCancel => {
                 self.open_with_dialog = None;
                 Task::none()
@@ -589,12 +595,29 @@ impl FileManager {
                     return Task::none();
                 };
 
-                self.status = format!("Opening with {}...", app.name);
-                open_file_with_app_task(dialog.path, app)
+                let default_mime = dialog.set_as_default.then_some(dialog.mime);
+                self.status = if default_mime.is_some() {
+                    format!("Setting {} as default and opening...", app.name)
+                } else {
+                    format!("Opening with {}...", app.name)
+                };
+                open_file_with_app_task(dialog.path, app, default_mime)
             }
             Message::OpenFileFinished(result) => {
                 self.status = match result {
-                    Ok(app_name) => format!("Opened with {app_name}"),
+                    Ok(outcome) => {
+                        if let Some(assignment) = outcome.default_assignment {
+                            self.set_default_app_in_registry(assignment);
+                            format!("Opened with {}; set as default", outcome.app_name)
+                        } else if let Some(error) = outcome.default_error {
+                            format!(
+                                "Opened with {}; failed to set default: {error}",
+                                outcome.app_name
+                            )
+                        } else {
+                            format!("Opened with {}", outcome.app_name)
+                        }
+                    }
                     Err(error) => error,
                 };
                 Task::none()
@@ -1725,7 +1748,7 @@ impl FileManager {
         let mime = mime.mime;
         if let Some(app) = best_app_for_mime(&self.app_registry, &mime) {
             self.status = format!("Opening with {}...", app.name);
-            open_file_with_app_task(path, app)
+            open_file_with_app_task(path, app, None)
         } else {
             self.status = "No application found for this file".to_string();
             Task::none()
@@ -2633,6 +2656,17 @@ impl FileManager {
                 .height(54)
                 .width(Fill)
                 .align_y(Vertical::Center),
+                container(
+                    checkbox(dialog.set_as_default)
+                        .label("设为默认打开方式")
+                        .on_toggle(Message::OpenWithSetDefault)
+                        .size(16)
+                        .text_size(13)
+                        .style(style::checkbox),
+                )
+                .height(32)
+                .width(Fill)
+                .align_y(Vertical::Center),
                 row![
                     button(
                         container(text("取消(C)").size(14).style(style::primary_text))
@@ -3216,7 +3250,18 @@ impl FileManager {
             mime,
             apps,
             selected_app_id,
+            set_as_default: false,
         })
+    }
+
+    fn set_default_app_in_registry(&mut self, assignment: DefaultAppAssignment) {
+        let defaults = self
+            .app_registry
+            .defaults
+            .entry(assignment.mime)
+            .or_default();
+        defaults.retain(|app_id| app_id != &assignment.app_id);
+        defaults.insert(0, assignment.app_id);
     }
 
     fn default_app_for_path(&self, path: &PathBuf) -> Option<DesktopApp> {
@@ -4349,6 +4394,69 @@ mod tests {
         assert!(!manager.selected_paths.contains(&first));
         assert!(manager.selected_paths.contains(&second));
         assert!(manager.clipboard.is_none());
+    }
+
+    #[test]
+    fn open_with_set_default_toggles_dialog_state() {
+        let (mut manager, _) = FileManager::new();
+        manager.open_with_dialog = Some(OpenWithDialog {
+            path: PathBuf::from("/tmp/readme.txt"),
+            mime: "text/plain".to_string(),
+            apps: Vec::new(),
+            selected_app_id: None,
+            set_as_default: false,
+        });
+
+        let _ = manager.update(Message::OpenWithSetDefault(true));
+
+        assert!(manager
+            .open_with_dialog
+            .as_ref()
+            .is_some_and(|dialog| dialog.set_as_default));
+    }
+
+    #[test]
+    fn open_file_finished_updates_in_memory_default_app() {
+        let (mut manager, _) = FileManager::new();
+        manager.app_registry.defaults.insert(
+            "text/plain".to_string(),
+            vec!["old-editor.desktop".to_string()],
+        );
+
+        let _ = manager.update(Message::OpenFileFinished(Ok(OpenFileOutcome {
+            app_name: "Editor".to_string(),
+            default_assignment: Some(DefaultAppAssignment {
+                mime: "text/plain".to_string(),
+                app_id: "editor.desktop".to_string(),
+            }),
+            default_error: None,
+        })));
+
+        assert_eq!(
+            manager.app_registry.defaults.get("text/plain"),
+            Some(&vec![
+                "editor.desktop".to_string(),
+                "old-editor.desktop".to_string()
+            ])
+        );
+        assert_eq!(manager.status, "Opened with Editor; set as default");
+    }
+
+    #[test]
+    fn open_file_finished_reports_default_error_without_registry_update() {
+        let (mut manager, _) = FileManager::new();
+
+        let _ = manager.update(Message::OpenFileFinished(Ok(OpenFileOutcome {
+            app_name: "Editor".to_string(),
+            default_assignment: None,
+            default_error: Some("permission denied".to_string()),
+        })));
+
+        assert!(manager.app_registry.defaults.is_empty());
+        assert_eq!(
+            manager.status,
+            "Opened with Editor; failed to set default: permission denied"
+        );
     }
 
     #[test]
