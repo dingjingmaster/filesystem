@@ -12,7 +12,7 @@ use iced::{futures::channel::mpsc as iced_mpsc, futures::SinkExt, stream, window
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc as std_mpsc;
 use std::thread;
@@ -281,7 +281,14 @@ pub(crate) fn open_file_with_app_task(path: PathBuf, app: DesktopApp) -> Task<Me
     )
 }
 
-pub(crate) fn open_terminal(cwd: PathBuf) -> Result<String, String> {
+pub(crate) fn open_terminal(
+    cwd: PathBuf,
+    configured_terminal: Option<PathBuf>,
+) -> Result<String, String> {
+    if let Some(terminal) = configured_terminal {
+        return open_configured_terminal(&terminal, &cwd);
+    }
+
     for terminal in ["terminator", "mate-terminal", "gnome-terminal"] {
         let Some(executable) = find_executable_in_path(terminal) else {
             continue;
@@ -297,6 +304,16 @@ pub(crate) fn open_terminal(cwd: PathBuf) -> Result<String, String> {
     }
 
     Err("No supported terminal found in PATH".to_string())
+}
+
+fn open_configured_terminal(executable: &Path, cwd: &Path) -> Result<String, String> {
+    let name = executable.to_string_lossy().into_owned();
+    Command::new(executable)
+        .current_dir(cwd)
+        .spawn()
+        .map_err(|error| format!("Failed to open {name}: {error}"))?;
+
+    Ok(name)
 }
 
 fn find_executable_in_path(name: &str) -> Option<PathBuf> {

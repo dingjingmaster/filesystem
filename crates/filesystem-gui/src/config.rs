@@ -1,7 +1,11 @@
 use iced::{window, Size};
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 
 pub(crate) const APP_NAME_EN: &str = "File";
 pub(crate) const APP_NAME_ZH: &str = "文件";
+pub(crate) const RUNTIME_CONFIG_FILE: &str = "filesystem.ini";
 pub(crate) const WINDOW_ICON_SIZE: u32 = 128;
 pub(crate) const WINDOW_INITIAL_WIDTH: f32 = 1220.0;
 pub(crate) const WINDOW_INITIAL_HEIGHT: f32 = 760.0;
@@ -40,6 +44,93 @@ pub(crate) const RENAME_MAX_WIDTH_MULTIPLIER: f32 = 3.0;
 pub(crate) const LIST_RENAME_BASE_WIDTH: f32 = 340.0;
 pub(crate) const GRID_RENAME_Y_OFFSET: f32 = 94.0;
 pub(crate) const LIST_RENAME_X_OFFSET: f32 = 48.0;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeConfig {
+    pub(crate) name: String,
+    pub(crate) terminal: Option<PathBuf>,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            name: APP_NAME_ZH.to_string(),
+            terminal: None,
+        }
+    }
+}
+
+pub(crate) fn load_runtime_config() -> RuntimeConfig {
+    runtime_config_path()
+        .and_then(|path| load_runtime_config_from_path(&path).ok())
+        .unwrap_or_default()
+}
+
+fn runtime_config_path() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    executable
+        .parent()
+        .map(|directory| directory.join(RUNTIME_CONFIG_FILE))
+}
+
+fn load_runtime_config_from_path(path: &Path) -> io::Result<RuntimeConfig> {
+    if !path.is_file() {
+        return Ok(RuntimeConfig::default());
+    }
+
+    fs::read_to_string(path).map(|contents| parse_runtime_config(&contents))
+}
+
+fn parse_runtime_config(contents: &str) -> RuntimeConfig {
+    let mut config = RuntimeConfig::default();
+
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty()
+            || line.starts_with('#')
+            || line.starts_with(';')
+            || line.starts_with('[')
+        {
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = normalized_ini_value(value);
+        if value.is_empty() {
+            continue;
+        }
+
+        match key.trim().to_ascii_lowercase().as_str() {
+            "name" => config.name = value.to_string(),
+            "terminal" => config.terminal = Some(PathBuf::from(value)),
+            _ => {}
+        }
+    }
+
+    config
+}
+
+fn normalized_ini_value(value: &str) -> &str {
+    let value = value.trim();
+
+    if let Some(value) = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    {
+        return value.trim();
+    }
+
+    if let Some(value) = value
+        .strip_prefix('\'')
+        .and_then(|value| value.strip_suffix('\''))
+    {
+        return value.trim();
+    }
+
+    value
+}
 
 pub(crate) fn window_settings() -> window::Settings {
     let mut settings = window::Settings {
@@ -87,5 +178,59 @@ fn unpremultiply_rgba(rgba: &mut [u8]) {
                 *channel = ((*channel as u32 * 255 + alpha / 2) / alpha).min(255) as u8;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_config_defaults_without_supported_values() {
+        let config = parse_runtime_config(
+            r#"
+            # comment
+            ; another comment
+            [window]
+            ignored=true
+            name=
+            terminal=
+            "#,
+        );
+
+        assert_eq!(config, RuntimeConfig::default());
+    }
+
+    #[test]
+    fn runtime_config_reads_name_and_terminal() {
+        let config = parse_runtime_config(
+            r#"
+            name = Work Files
+            terminal = /usr/bin/gnome-terminal
+            "#,
+        );
+
+        assert_eq!(config.name, "Work Files");
+        assert_eq!(
+            config.terminal,
+            Some(PathBuf::from("/usr/bin/gnome-terminal"))
+        );
+    }
+
+    #[test]
+    fn runtime_config_trims_quotes_and_uses_last_supported_value() {
+        let config = parse_runtime_config(
+            r#"
+            NAME = "First"
+            name = 'Second'
+            TERMINAL = "/opt/Terminal/bin/terminal"
+            "#,
+        );
+
+        assert_eq!(config.name, "Second");
+        assert_eq!(
+            config.terminal,
+            Some(PathBuf::from("/opt/Terminal/bin/terminal"))
+        );
     }
 }

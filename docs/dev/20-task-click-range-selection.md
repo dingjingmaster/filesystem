@@ -52,9 +52,9 @@
 
 | 步骤 | 修改内容 | 验证方式 | 状态 |
 |------|----------|----------|------|
-| 1 | 扩展 GUI 选择状态和条目点击逻辑，支持 Ctrl/Shift 多选 | `cargo test -p filesystem-gui`、`cargo check -p filesystem-gui` | 进行中 |
-| 2 | 更新产品概览、开发概览和本地 dev 索引 | 人工检查文档一致性、`git diff --check` | 进行中 |
-| 3 | 运行格式、GUI 测试和编译检查命令 | `cargo fmt --check`、`cargo test -p filesystem-gui`、`cargo check -p filesystem-gui`、`git diff --check` | 待开始 |
+| 1 | 扩展 GUI 选择状态和条目点击逻辑，支持 Ctrl/Shift 多选 | `cargo test -p filesystem-gui`、`cargo check -p filesystem-gui` | 完成 |
+| 2 | 更新产品概览、开发概览和本地 dev 索引 | 人工检查文档一致性、`git diff --check` | 完成 |
+| 3 | 运行格式、GUI 测试和编译检查命令 | `cargo fmt --check`、`cargo test -p filesystem-gui`、`cargo check -p filesystem-gui`、`git diff --check` | 完成 |
 
 ## 6. 实现记录
 
@@ -71,25 +71,34 @@
   - Ctrl 点击会更新选择锚点；Shift 点击成功选中范围时保留原锚点，便于继续调整范围。
   - `Ctrl+Shift` 追加范围到现有选择；单独 `Shift` 用范围替换当前选择。
 - 计划偏差：无。
-- 安全门禁执行结果：未执行破坏性操作；未执行 C2/C3 命令；未修改 `AGENTS.project.md`；未提交 git。
+- 安全门禁执行结果：未执行破坏性操作；未执行 C2/C3 命令；未修改 `AGENTS.project.md`；本轮未主动执行提交命令。
 
 ## 7. 验证记录
 
 - 验证环境：本地 Linux workspace。
-- 系统信息（OS/内核/架构/编译器/运行时，按需）：待补充最终验证命令结果。
+- 系统信息（OS/内核/架构/编译器/运行时，按需）：Linux 7.0.11-gentoo-dingjing x86_64 GNU/Linux；rustc 1.93.1 (01f6ddf75 2026-02-11) (gentoo)。
 
 | 验证项 | 命令/步骤 | 结果 | 备注 |
 |--------|-----------|------|------|
 | GUI 单元测试 | `cargo test -p filesystem-gui` | 通过 | 57 个测试通过；新增覆盖 Ctrl 点击切换、Shift 范围选择、Ctrl+Shift 追加范围和修饰键事件映射 |
-| GUI 编译检查 | `cargo check -p filesystem-gui` | 待验证 | 待执行 |
-| 格式检查 | `cargo fmt --check` | 待验证 | 待执行 |
-| diff 空白检查 | `git diff --check` | 待验证 | 待执行 |
+| GUI 编译检查 | `cargo check -p filesystem-gui` | 通过 | 验证消息类型、订阅和选择状态编译通过 |
+| 格式检查 | `cargo fmt --check` | 通过 | Rust 格式符合项目设置 |
+| diff 空白检查 | `git diff --check` | 通过 | 无尾随空白 |
 
 - 未执行验证项：未启动真实 X11/Wayland GUI 做人工 Ctrl/Shift 点击 smoke test。
 - 残余风险：不同窗口管理器或输入法环境下修饰键事件顺序仍需真实图形会话确认。
 
 ## 8. 总结
 
-- 最终结果：待最终验证后补充。
-- 遗留风险：待最终验证后补充。
+- 最终结果：完成 Ctrl 点击多点选择和 Shift 点击范围选择；普通点击保持单选，Ctrl 点击切换单项，Shift 点击按显示顺序选择锚点到目标之间的闭区间，Ctrl+Shift 追加范围。
+- 遗留风险：真实 X11/Wayland 图形会话下的修饰键事件顺序仍需人工 smoke test。
 - 后续建议：如后续需要键盘方向键范围选择，应单独设计焦点条目和锚点更新规则。
+
+## 9. L2 审视
+
+| 角色 | 结论 |
+|------|------|
+| 安全审查员 | 通过。未执行破坏性操作或 C2/C3 命令；本次是需求实现，不是 bug 修复；变更在 GUI 状态机和文档范围内，不涉及 unsafe、指针、共享数据结构、ABI/API 或配置格式；选择逻辑只修改内存中的 `selected_paths`、选择锚点和修饰键状态，错误路径不涉及资源释放。 |
+| 高级产品 | 通过。普通单击、Ctrl 点击、Shift 点击和 Ctrl+Shift 点击覆盖用户要求及常见文件管理器选择语义；未改变双击打开、框选、多选右键菜单和快捷键语义。 |
+| 高级架构师 | 通过。没有新增依赖或 core API；范围选择基于当前 `entries` 显示顺序，与图标/列表布局解耦，职责保持在 GUI 层。 |
+| 高级工程师 | 通过。实现保持局部；`cargo test -p filesystem-gui` 覆盖修饰键事件、Ctrl 切换、Shift 范围和 Ctrl+Shift 追加；`cargo check -p filesystem-gui`、`cargo fmt --check` 和 `git diff --check` 均通过。 |

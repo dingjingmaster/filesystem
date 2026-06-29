@@ -54,4 +54,5 @@
 | 17 | 2026-06-26 | L2 | fix | [17-fix-desktop-exec-field-codes.md](17-fix-desktop-exec-field-codes.md) | 已完成 | 修复 `.desktop` Exec 字段码展开，避免未知或废弃 `%x` 字段码原样传给外部应用。 |
 | 18 | 2026-06-26 | L2 | fix | [18-fix-uos-software-renderer-refresh.md](18-fix-uos-software-renderer-refresh.md) | 已完成 | UOS/虚拟机软件渲染环境下自动避开 wgpu，回退 tiny-skia 以规避交互刷新异常。 |
 | 19 | 2026-06-26 | L2 | task | [19-task-shortcuts-multi-select-menu.md](19-task-shortcuts-multi-select-menu.md) | 已完成 | 为选中文件/文件夹新增复制、剪切、删除快捷键，为空选择新增粘贴快捷键，并为多选新增复制/剪切/删除右键菜单。 |
-| 20 | 2026-06-27 | L2 | task | [20-task-click-range-selection.md](20-task-click-range-selection.md) | 进行中 | 为文件视图新增 Ctrl 点击多点选择和 Shift 点击范围选择。 |
+| 20 | 2026-06-27 | L2 | task | [20-task-click-range-selection.md](20-task-click-range-selection.md) | 已完成 | 为文件视图新增 Ctrl 点击多点选择和 Shift 点击范围选择。 |
+| 21 | 2026-06-29 | L2 | task | [21-task-filesystem-ini-config.md](21-task-filesystem-ini-config.md) | 已完成 | 启动时读取可执行文件同级 `filesystem.ini`，支持覆盖左侧标题栏名称和右键菜单终端命令。 |

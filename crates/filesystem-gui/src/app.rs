@@ -28,6 +28,7 @@ use std::time::Instant;
 
 pub(crate) struct FileManager {
     cwd: PathBuf,
+    runtime_config: RuntimeConfig,
     entries: Vec<DisplayEntry>,
     show_hidden: bool,
     status: String,
@@ -74,12 +75,14 @@ impl FileManager {
     }
 
     pub(crate) fn new() -> (Self, Task<Message>) {
+        let runtime_config = load_runtime_config();
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let shortcuts_task = load_home_shortcuts(home.clone());
         let app_registry_task = load_app_registry_task();
         let mut manager = Self {
             cwd,
+            runtime_config,
             entries: Vec::new(),
             show_hidden: false,
             status: String::new(),
@@ -302,7 +305,11 @@ impl FileManager {
                 self.close_menu();
                 self.status = "Opening terminal...".to_string();
                 let cwd = self.cwd.clone();
-                Task::perform(async move { open_terminal(cwd) }, Message::TerminalOpened)
+                let terminal = self.runtime_config.terminal.clone();
+                Task::perform(
+                    async move { open_terminal(cwd, terminal) },
+                    Message::TerminalOpened,
+                )
             }
             Message::ContextProperties => {
                 if self.rename_state.is_some() {
@@ -407,7 +414,11 @@ impl FileManager {
                     .map(Self::entry_open_path)
                     .unwrap_or(path);
                 self.status = "Opening terminal...".to_string();
-                Task::perform(async move { open_terminal(path) }, Message::TerminalOpened)
+                let terminal = self.runtime_config.terminal.clone();
+                Task::perform(
+                    async move { open_terminal(path, terminal) },
+                    Message::TerminalOpened,
+                )
             }
             Message::FolderProperties(path) => {
                 if self.rename_state.is_some() {
@@ -936,12 +947,16 @@ impl FileManager {
     fn sidebar_header(&self) -> Element<'_, Message> {
         let title = || {
             mouse_area(
-                container(text(APP_NAME_ZH).size(16).style(style::primary_text))
-                    .height(Fill)
-                    .width(Fill)
-                    .padding([0, 14])
-                    .align_x(Horizontal::Center)
-                    .align_y(Vertical::Center),
+                container(
+                    text(&self.runtime_config.name)
+                        .size(16)
+                        .style(style::primary_text),
+                )
+                .height(Fill)
+                .width(Fill)
+                .padding([0, 14])
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
             )
             .on_press(Message::WindowDrag)
             .on_double_click(Message::WindowToggleMaximize)
