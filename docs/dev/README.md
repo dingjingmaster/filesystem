@@ -56,3 +56,4 @@
 | 19 | 2026-06-26 | L2 | task | [19-task-shortcuts-multi-select-menu.md](19-task-shortcuts-multi-select-menu.md) | 已完成 | 为选中文件/文件夹新增复制、剪切、删除快捷键，为空选择新增粘贴快捷键，并为多选新增复制/剪切/删除右键菜单。 |
 | 20 | 2026-06-27 | L2 | task | [20-task-click-range-selection.md](20-task-click-range-selection.md) | 已完成 | 为文件视图新增 Ctrl 点击多点选择和 Shift 点击范围选择。 |
 | 21 | 2026-06-29 | L2 | task | [21-task-filesystem-ini-config.md](21-task-filesystem-ini-config.md) | 已完成 | 启动时读取可执行文件同级 `filesystem.ini`，支持覆盖左侧标题栏名称和右键菜单终端命令。 |
+| 22 | 2026-06-29 | L2 | task | [22-task-blank-menu-custom-commands.md](22-task-blank-menu-custom-commands.md) | 已完成 | 通过 `filesystem.ini` 的 `[blank-menu.*]` section 为空白处右键菜单新增自定义命令。 |

@@ -49,6 +49,14 @@ pub(crate) const LIST_RENAME_X_OFFSET: f32 = 48.0;
 pub(crate) struct RuntimeConfig {
     pub(crate) name: String,
     pub(crate) terminal: Option<PathBuf>,
+    pub(crate) blank_menu_commands: Vec<BlankMenuCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BlankMenuCommand {
+    pub(crate) label: String,
+    pub(crate) command: PathBuf,
+    pub(crate) args: Vec<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -56,6 +64,7 @@ impl Default for RuntimeConfig {
         Self {
             name: APP_NAME_ZH.to_string(),
             terminal: None,
+            blank_menu_commands: Vec::new(),
         }
     }
 }
@@ -83,33 +92,102 @@ fn load_runtime_config_from_path(path: &Path) -> io::Result<RuntimeConfig> {
 
 fn parse_runtime_config(contents: &str) -> RuntimeConfig {
     let mut config = RuntimeConfig::default();
+    let mut section = RuntimeConfigSection::Root;
+    let mut blank_menu_command: Option<BlankMenuCommandBuilder> = None;
 
     for line in contents.lines() {
         let line = line.trim();
-        if line.is_empty()
-            || line.starts_with('#')
-            || line.starts_with(';')
-            || line.starts_with('[')
-        {
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+
+        if line.starts_with('[') {
+            push_blank_menu_command(&mut config, blank_menu_command.take());
+
+            let section_name = line
+                .strip_prefix('[')
+                .and_then(|line| line.strip_suffix(']'))
+                .map(str::trim)
+                .unwrap_or_default();
+
+            if section_name.to_ascii_lowercase().starts_with("blank-menu.") {
+                section = RuntimeConfigSection::BlankMenu;
+                blank_menu_command = Some(BlankMenuCommandBuilder::default());
+            } else if section_name.eq_ignore_ascii_case("window") {
+                section = RuntimeConfigSection::Root;
+            } else {
+                section = RuntimeConfigSection::Other;
+            }
             continue;
         }
 
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
+        let key = key.trim().to_ascii_lowercase();
         let value = normalized_ini_value(value);
-        if value.is_empty() {
-            continue;
-        }
 
-        match key.trim().to_ascii_lowercase().as_str() {
-            "name" => config.name = value.to_string(),
-            "terminal" => config.terminal = Some(PathBuf::from(value)),
-            _ => {}
+        match section {
+            RuntimeConfigSection::Root => {
+                if value.is_empty() {
+                    continue;
+                }
+
+                match key.as_str() {
+                    "name" => config.name = value.to_string(),
+                    "terminal" => config.terminal = Some(PathBuf::from(value)),
+                    _ => {}
+                }
+            }
+            RuntimeConfigSection::BlankMenu => {
+                let Some(command) = blank_menu_command.as_mut() else {
+                    continue;
+                };
+
+                match key.as_str() {
+                    "label" if !value.is_empty() => command.label = Some(value.to_string()),
+                    "command" if !value.is_empty() => command.command = Some(PathBuf::from(value)),
+                    "arg" => command.args.push(value.to_string()),
+                    _ => {}
+                }
+            }
+            RuntimeConfigSection::Other => {}
         }
     }
 
+    push_blank_menu_command(&mut config, blank_menu_command);
+
     config
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeConfigSection {
+    Root,
+    BlankMenu,
+    Other,
+}
+
+#[derive(Debug, Default)]
+struct BlankMenuCommandBuilder {
+    label: Option<String>,
+    command: Option<PathBuf>,
+    args: Vec<String>,
+}
+
+impl BlankMenuCommandBuilder {
+    fn build(self) -> Option<BlankMenuCommand> {
+        Some(BlankMenuCommand {
+            label: self.label?,
+            command: self.command?,
+            args: self.args,
+        })
+    }
+}
+
+fn push_blank_menu_command(config: &mut RuntimeConfig, command: Option<BlankMenuCommandBuilder>) {
+    if let Some(command) = command.and_then(BlankMenuCommandBuilder::build) {
+        config.blank_menu_commands.push(command);
+    }
 }
 
 fn normalized_ini_value(value: &str) -> &str {
@@ -215,6 +293,78 @@ mod tests {
             config.terminal,
             Some(PathBuf::from("/usr/bin/gnome-terminal"))
         );
+    }
+
+    #[test]
+    fn runtime_config_reads_window_section_name_and_terminal() {
+        let config = parse_runtime_config(
+            r#"
+            [window]
+            name = 沙盒
+            terminal = /usr/bin/gnome-terminal
+            "#,
+        );
+
+        assert_eq!(config.name, "沙盒");
+        assert_eq!(
+            config.terminal,
+            Some(PathBuf::from("/usr/bin/gnome-terminal"))
+        );
+    }
+
+    #[test]
+    fn runtime_config_reads_blank_menu_commands_in_section_order() {
+        let config = parse_runtime_config(
+            r#"
+            [blank-menu.open-terminal]
+            label = 用 WezTerm 打开
+            command = /usr/bin/wezterm
+            arg = start
+            arg = --cwd
+            arg = {cwd}
+
+            [blank-menu.custom-script]
+            label = 执行整理脚本
+            command = /home/user/bin/organize-folder
+            arg = {cwd}
+            "#,
+        );
+
+        assert_eq!(config.blank_menu_commands.len(), 2);
+        assert_eq!(config.blank_menu_commands[0].label, "用 WezTerm 打开");
+        assert_eq!(
+            config.blank_menu_commands[0].command,
+            PathBuf::from("/usr/bin/wezterm")
+        );
+        assert_eq!(
+            config.blank_menu_commands[0].args,
+            vec!["start", "--cwd", "{cwd}"]
+        );
+        assert_eq!(config.blank_menu_commands[1].label, "执行整理脚本");
+        assert_eq!(
+            config.blank_menu_commands[1].command,
+            PathBuf::from("/home/user/bin/organize-folder")
+        );
+        assert_eq!(config.blank_menu_commands[1].args, vec!["{cwd}"]);
+    }
+
+    #[test]
+    fn runtime_config_ignores_incomplete_blank_menu_commands() {
+        let config = parse_runtime_config(
+            r#"
+            [blank-menu.no-label]
+            command = /usr/bin/tool
+
+            [blank-menu.no-command]
+            label = Broken
+
+            [other]
+            label = Ignored
+            command = /usr/bin/ignored
+            "#,
+        );
+
+        assert!(config.blank_menu_commands.is_empty());
     }
 
     #[test]

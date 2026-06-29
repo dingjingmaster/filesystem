@@ -1,4 +1,5 @@
 use crate::apps::{load_app_registry, open_file_with_app};
+use crate::config::BlankMenuCommand;
 use crate::icons::{basic_entries, decorate_entry_batch};
 use crate::model::{
     DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplaySearchResults,
@@ -306,6 +307,29 @@ pub(crate) fn open_terminal(
     Err("No supported terminal found in PATH".to_string())
 }
 
+pub(crate) fn run_blank_menu_command(
+    cwd: PathBuf,
+    command: BlankMenuCommand,
+) -> Result<String, String> {
+    let args = expand_command_args(&command.args, &cwd);
+
+    Command::new(&command.command)
+        .args(args)
+        .current_dir(&cwd)
+        .spawn()
+        .map_err(|error| format!("Failed to run {}: {error}", command.label))?;
+
+    Ok(command.label)
+}
+
+fn expand_command_args(args: &[String], cwd: &Path) -> Vec<String> {
+    let cwd = cwd.to_string_lossy();
+
+    args.iter()
+        .map(|arg| arg.replace("{cwd}", cwd.as_ref()))
+        .collect()
+}
+
 fn open_configured_terminal(executable: &Path, cwd: &Path) -> Result<String, String> {
     let name = executable.to_string_lossy().into_owned();
     Command::new(executable)
@@ -326,6 +350,26 @@ fn find_executable_in_path(name: &str) -> Option<PathBuf> {
                 .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
                 .unwrap_or(false)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_args_replace_cwd_placeholder() {
+        let args = vec![
+            "start".to_string(),
+            "--cwd".to_string(),
+            "{cwd}".to_string(),
+            "path={cwd}".to_string(),
+        ];
+
+        assert_eq!(
+            expand_command_args(&args, Path::new("/tmp/example")),
+            vec!["start", "--cwd", "/tmp/example", "path=/tmp/example"]
+        );
+    }
 }
 
 pub(crate) fn latest_window_task(

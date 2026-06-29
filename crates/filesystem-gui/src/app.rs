@@ -311,6 +311,23 @@ impl FileManager {
                     Message::TerminalOpened,
                 )
             }
+            Message::ContextCustomCommand(index) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                self.close_menu();
+                let Some(command) = self.runtime_config.blank_menu_commands.get(index).cloned()
+                else {
+                    self.status = "Custom command is unavailable".to_string();
+                    return Task::none();
+                };
+                self.status = format!("Running {}...", command.label);
+                let cwd = self.cwd.clone();
+                Task::perform(
+                    async move { run_blank_menu_command(cwd, command) },
+                    Message::CustomCommandStarted,
+                )
+            }
             Message::ContextProperties => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
@@ -708,6 +725,13 @@ impl FileManager {
             Message::TerminalOpened(result) => {
                 self.status = match result {
                     Ok(name) => format!("Opened {name}"),
+                    Err(error) => error,
+                };
+                Task::none()
+            }
+            Message::CustomCommandStarted(result) => {
+                self.status = match result {
+                    Ok(label) => format!("Started {label}"),
                     Err(error) => error,
                 };
                 Task::none()
@@ -2313,25 +2337,37 @@ impl FileManager {
     }
 
     fn blank_context_menu(&self) -> Element<'_, Message> {
-        container(
-            column![
-                context_menu_item("新建文件", Message::ContextNewFile),
-                context_menu_item("新建文件夹", Message::ContextNewFolder),
-                context_menu_separator(),
-                context_menu_item("粘贴", Message::ContextPaste),
-                context_menu_item("全选", Message::ContextSelectAll),
-                context_menu_separator(),
-                context_menu_item("在终端打开", Message::ContextOpenTerminal),
-                context_menu_separator(),
-                context_menu_item("属性", Message::ContextProperties),
-            ]
-            .spacing(2)
-            .align_x(iced::Alignment::Start)
-            .padding(6),
-        )
-        .width(CONTEXT_MENU_WIDTH)
-        .style(style::context_menu)
-        .into()
+        let mut menu = column![
+            context_menu_item("新建文件", Message::ContextNewFile),
+            context_menu_item("新建文件夹", Message::ContextNewFolder),
+            context_menu_separator(),
+            context_menu_item("粘贴", Message::ContextPaste),
+            context_menu_item("全选", Message::ContextSelectAll),
+            context_menu_separator(),
+            context_menu_item("在终端打开", Message::ContextOpenTerminal),
+            context_menu_separator(),
+        ]
+        .spacing(2)
+        .align_x(iced::Alignment::Start)
+        .padding(6);
+
+        for (index, command) in self.runtime_config.blank_menu_commands.iter().enumerate() {
+            menu = menu.push(context_menu_item_owned(
+                command.label.clone(),
+                Message::ContextCustomCommand(index),
+            ));
+        }
+
+        if !self.runtime_config.blank_menu_commands.is_empty() {
+            menu = menu.push(context_menu_separator());
+        }
+
+        menu = menu.push(context_menu_item("属性", Message::ContextProperties));
+
+        container(menu)
+            .width(CONTEXT_MENU_WIDTH)
+            .style(style::context_menu)
+            .into()
     }
 
     fn folder_context_menu(&self, path: PathBuf) -> Element<'_, Message> {
