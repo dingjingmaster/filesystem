@@ -59,3 +59,4 @@
 | 22 | 2026-06-29 | L2 | task | [22-task-blank-menu-custom-commands.md](22-task-blank-menu-custom-commands.md) | 已完成 | 通过 `filesystem.ini` 的 `[blank-menu.*]` section 为空白处右键菜单新增自定义命令。 |
 | 23 | 2026-06-29 | L2 | task | [23-task-current-folder-auto-refresh.md](23-task-current-folder-auto-refresh.md) | 已完成 | 监听当前打开文件夹的直接子项变化，并在新增、删除、重命名或修改时自动刷新。 |
 | 24 | 2026-06-29 | L2 | task | [24-task-open-with-default-app.md](24-task-open-with-default-app.md) | 已完成 | 打开方式弹窗支持勾选设为默认打开方式，写入当前桌面优先的用户级 MIME apps 配置并同步当前进程默认应用。 |
+| 25 | 2026-06-29 | L3 | fix | [25-fix-wps-docx-open.md](25-fix-wps-docx-open.md) | 已完成 | 远端 GUI 双击和 strace 取证修复 WPS 默认打开差异：支持无 MimeType 默认应用、按 GIO 规则处理 desktop-specific mimeapps、保留 WPS 扩展名 MIME、WPS `%U` 传本地路径并回收外部应用 wrapper 子进程。 |

@@ -59,7 +59,7 @@ pub fn detect_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> MimeInfo {
 
     detect_builtin_content(bytes, path)
         .map(|mime| MimeInfo::new(mime, MimeSource::BuiltInContent))
-        .or_else(|| detect_system_magic(bytes))
+        .or_else(|| detect_system_magic(bytes).filter(|info| !is_generic_magic_mime(&info.mime)))
         .or_else(|| detect_structured_text(bytes).map(|mime| MimeInfo::new(mime, MimeSource::Text)))
         .or_else(|| {
             detect_builtin_name(path).map(|mime| MimeInfo::new(mime, MimeSource::BuiltInName))
@@ -67,6 +67,10 @@ pub fn detect_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> MimeInfo {
         .or_else(|| detect_system_glob(path))
         .or_else(|| detect_plain_text(bytes).map(|mime| MimeInfo::new(mime, MimeSource::Text)))
         .unwrap_or_else(unknown)
+}
+
+fn is_generic_magic_mime(mime: &str) -> bool {
+    matches!(mime, "application/octet-stream")
 }
 
 pub fn label_for_mime(mime: &str) -> &'static str {
@@ -87,12 +91,30 @@ pub fn label_for_mime(mime: &str) -> &'static str {
         "application/pdf" => "PDF Document",
         "application/rtf" => "Rich Text Document",
         "application/msword"
+        | "application/wps-office.doc"
+        | "application/wps-office.docx"
+        | "application/wps-office.dot"
+        | "application/wps-office.dotx"
+        | "application/wps-office.wps"
+        | "application/wps-office.wpt"
         | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         | "application/vnd.oasis.opendocument.text" => "Document",
         "application/vnd.ms-excel"
+        | "application/wps-office.xls"
+        | "application/wps-office.xlsx"
+        | "application/wps-office.xlt"
+        | "application/wps-office.xltx"
+        | "application/wps-office.et"
+        | "application/wps-office.ett"
         | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         | "application/vnd.oasis.opendocument.spreadsheet" => "Spreadsheet",
         "application/vnd.ms-powerpoint"
+        | "application/wps-office.ppt"
+        | "application/wps-office.pptx"
+        | "application/wps-office.pot"
+        | "application/wps-office.potx"
+        | "application/wps-office.dps"
+        | "application/wps-office.dpt"
         | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         | "application/vnd.oasis.opendocument.presentation" => "Presentation",
         "application/epub+zip" => "EPUB Book",
@@ -218,7 +240,11 @@ fn detect_builtin_content(bytes: &[u8], path: &Path) -> Option<&'static str> {
         );
     }
     if bytes.starts_with(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1") {
-        return Some(ole_mime(bytes).unwrap_or("application/x-ole-storage"));
+        return Some(
+            ole_container_extension_mime(path)
+                .or_else(|| ole_mime(bytes))
+                .unwrap_or("application/x-ole-storage"),
+        );
     }
 
     None
@@ -356,12 +382,18 @@ fn extension_mime(extension: &str) -> Option<&'static str> {
         "rar" => Some("application/vnd.rar"),
         "doc" => Some("application/msword"),
         "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "wps" => Some("application/wps-office.wps"),
+        "wpt" => Some("application/wps-office.wpt"),
         "odt" => Some("application/vnd.oasis.opendocument.text"),
         "xls" => Some("application/vnd.ms-excel"),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "et" => Some("application/wps-office.et"),
+        "ett" => Some("application/wps-office.ett"),
         "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
         "ppt" => Some("application/vnd.ms-powerpoint"),
         "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        "dps" => Some("application/wps-office.dps"),
+        "dpt" => Some("application/wps-office.dpt"),
         "odp" => Some("application/vnd.oasis.opendocument.presentation"),
         "epub" => Some("application/epub+zip"),
         "jar" => Some("application/java-archive"),
@@ -836,14 +868,40 @@ fn zip_container_extension_mime(path: &Path) -> Option<&'static str> {
 
     match extension.as_str() {
         "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "wps" => Some("application/wps-office.wps"),
+        "wpt" => Some("application/wps-office.wpt"),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "et" => Some("application/wps-office.et"),
+        "ett" => Some("application/wps-office.ett"),
         "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        "dps" => Some("application/wps-office.dps"),
+        "dpt" => Some("application/wps-office.dpt"),
         "odt" => Some("application/vnd.oasis.opendocument.text"),
         "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
         "odp" => Some("application/vnd.oasis.opendocument.presentation"),
         "epub" => Some("application/epub+zip"),
         "jar" => Some("application/java-archive"),
         "apk" => Some("application/vnd.android.package-archive"),
+        _ => None,
+    }
+}
+
+fn ole_container_extension_mime(path: &Path) -> Option<&'static str> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())?
+        .to_ascii_lowercase();
+
+    match extension.as_str() {
+        "doc" => Some("application/msword"),
+        "wps" => Some("application/wps-office.wps"),
+        "wpt" => Some("application/wps-office.wpt"),
+        "xls" => Some("application/vnd.ms-excel"),
+        "et" => Some("application/wps-office.et"),
+        "ett" => Some("application/wps-office.ett"),
+        "ppt" => Some("application/vnd.ms-powerpoint"),
+        "dps" => Some("application/wps-office.dps"),
+        "dpt" => Some("application/wps-office.dpt"),
         _ => None,
     }
 }
@@ -1035,6 +1093,10 @@ mod tests {
             detect_name("a.docx").mime,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         );
+        assert_eq!(detect_name("a.wps").mime, "application/wps-office.wps");
+        assert_eq!(detect_name("a.et").mime, "application/wps-office.et");
+        assert_eq!(detect_name("a.dps").mime, "application/wps-office.dps");
+        assert_eq!(detect_name("a.wps").label, "Document");
         assert_eq!(detect_name("a.pdf").label, "PDF Document");
         assert_eq!(detect_name("a.webp").mime, "image/webp");
         assert_eq!(detect_name("a.desktop").mime, "application/x-desktop");
@@ -1051,6 +1113,20 @@ mod tests {
 
         assert_eq!(info.mime, "application/pdf");
         assert_eq!(info.source, MimeSource::BuiltInContent);
+    }
+
+    #[test]
+    fn binary_wps_content_keeps_extension_mime_when_magic_is_generic() {
+        let bytes = b"\x18DRM\xc3\xdc\xce\xc4\x02\x00\x00\x10\x00\x01P\x00";
+
+        assert_eq!(
+            detect_bytes("a.docx", bytes).mime,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
+        assert_eq!(
+            detect_bytes("a.wps", bytes).mime,
+            "application/wps-office.wps"
+        );
     }
 
     #[test]
@@ -1095,7 +1171,41 @@ mod tests {
             detect_bytes("a.odt", &bytes).mime,
             "application/vnd.oasis.opendocument.text"
         );
+        assert_eq!(
+            detect_bytes("a.wps", &bytes).mime,
+            "application/wps-office.wps"
+        );
+        assert_eq!(
+            detect_bytes("a.et", &bytes).mime,
+            "application/wps-office.et"
+        );
+        assert_eq!(
+            detect_bytes("a.dps", &bytes).mime,
+            "application/wps-office.dps"
+        );
         assert_eq!(detect_bytes("a.zip", &bytes).mime, "application/zip");
+    }
+
+    #[test]
+    fn ole_container_extensions_fall_back_to_office_mime() {
+        let bytes = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1generic ole data";
+
+        assert_eq!(
+            detect_bytes("a.wps", bytes).mime,
+            "application/wps-office.wps"
+        );
+        assert_eq!(
+            detect_bytes("a.et", bytes).mime,
+            "application/wps-office.et"
+        );
+        assert_eq!(
+            detect_bytes("a.dps", bytes).mime,
+            "application/wps-office.dps"
+        );
+        assert_eq!(
+            detect_bytes("a.bin", bytes).mime,
+            "application/x-ole-storage"
+        );
     }
 
     #[test]

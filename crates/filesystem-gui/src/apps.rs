@@ -6,10 +6,12 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
 
 pub(crate) fn load_app_registry() -> AppRegistry {
     let mut apps = Vec::new();
     let mut seen = BTreeSet::new();
+    let mimeapps = load_mimeapps();
 
     for directory in application_dirs() {
         for (id, path) in desktop_files(&directory) {
@@ -23,6 +25,7 @@ pub(crate) fn load_app_registry() -> AppRegistry {
         }
     }
 
+    apply_mimeapps_associations(&mut apps, &mimeapps);
     apps.sort_by(|left, right| {
         left.name
             .to_lowercase()
@@ -32,7 +35,7 @@ pub(crate) fn load_app_registry() -> AppRegistry {
 
     AppRegistry {
         apps,
-        defaults: load_mime_defaults(),
+        defaults: mimeapps.defaults,
     }
 }
 
@@ -111,21 +114,47 @@ pub(crate) fn open_file_with_app(path: PathBuf, app: DesktopApp) -> Result<Strin
         child.current_dir(parent);
     }
 
-    child
+    let mut child = child
         .spawn()
         .map_err(|error| format!("Failed to open with {}: {error}", app.name))?;
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
 
     Ok(app.name)
 }
 
 pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
-    let path = user_mimeapps_path()?;
-    set_default_app_for_mime_at(&path, mime, app_id)
+    let paths = user_mimeapps_paths()?;
+    set_default_app_for_mime_at(&paths.default_path, &paths.association_path, mime, app_id)
 }
 
-fn set_default_app_for_mime_at(path: &Path, mime: &str, app_id: &str) -> Result<(), String> {
+fn set_default_app_for_mime_at(
+    default_path: &Path,
+    association_path: &Path,
+    mime: &str,
+    app_id: &str,
+) -> Result<(), String> {
     validate_mimeapps_assignment(mime, app_id)?;
 
+    if default_path == association_path {
+        return update_mimeapps_file(default_path, |contents| {
+            update_mimeapps_contents(contents, mime, app_id)
+        });
+    }
+
+    update_mimeapps_file(default_path, |contents| {
+        update_mimeapps_default_contents(contents, mime, app_id)
+    })?;
+    update_mimeapps_file(association_path, |contents| {
+        update_mimeapps_association_contents(contents, mime, app_id)
+    })
+}
+
+fn update_mimeapps_file<F>(path: &Path, update: F) -> Result<(), String>
+where
+    F: FnOnce(&str) -> String,
+{
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
@@ -145,7 +174,7 @@ fn set_default_app_for_mime_at(path: &Path, mime: &str, app_id: &str) -> Result<
             ));
         }
     };
-    let updated = update_mimeapps_contents(&contents, mime, app_id);
+    let updated = update(&contents);
 
     fs::write(path, updated).map_err(|error| {
         format!(
@@ -155,12 +184,21 @@ fn set_default_app_for_mime_at(path: &Path, mime: &str, app_id: &str) -> Result<
     })
 }
 
-fn user_mimeapps_path() -> Result<PathBuf, String> {
-    user_mimeapps_path_from(
-        env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
-        env::var_os("HOME").map(PathBuf::from),
-        &current_desktops(),
-    )
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UserMimeappsPaths {
+    default_path: PathBuf,
+    association_path: PathBuf,
+}
+
+fn user_mimeapps_paths() -> Result<UserMimeappsPaths, String> {
+    let config_home = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let desktops = current_desktops();
+
+    Ok(UserMimeappsPaths {
+        default_path: user_mimeapps_path_from(config_home.clone(), home.clone(), &desktops)?,
+        association_path: user_association_mimeapps_path_from(config_home, home)?,
+    })
 }
 
 fn user_mimeapps_path_from(
@@ -168,19 +206,31 @@ fn user_mimeapps_path_from(
     home: Option<PathBuf>,
     desktops: &[String],
 ) -> Result<PathBuf, String> {
-    let config_dir = config_home
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| {
-            home.filter(|path| !path.as_os_str().is_empty())
-                .map(|home| home.join(".config"))
-        })
-        .ok_or_else(|| "Cannot determine the user MIME applications file path".to_string())?;
+    let config_dir = user_config_dir(config_home, home)?;
 
     if let Some(desktop) = desktops.first() {
         return Ok(config_dir.join(format!("{desktop}-mimeapps.list")));
     }
 
     Ok(config_dir.join("mimeapps.list"))
+}
+
+fn user_association_mimeapps_path_from(
+    config_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Result<PathBuf, String> {
+    let config_dir = user_config_dir(config_home, home)?;
+    Ok(config_dir.join("mimeapps.list"))
+}
+
+fn user_config_dir(config_home: Option<PathBuf>, home: Option<PathBuf>) -> Result<PathBuf, String> {
+    config_home
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            home.filter(|path| !path.as_os_str().is_empty())
+                .map(|home| home.join(".config"))
+        })
+        .ok_or_else(|| "Cannot determine the user MIME applications file path".to_string())
 }
 
 fn validate_mimeapps_assignment(mime: &str, app_id: &str) -> Result<(), String> {
@@ -202,11 +252,18 @@ fn validate_mimeapps_assignment(mime: &str, app_id: &str) -> Result<(), String> 
 }
 
 fn update_mimeapps_contents(contents: &str, mime: &str, app_id: &str) -> String {
-    let updated = upsert_mimeapps_section_key(contents, "Default Applications", mime, |existing| {
-        desktop_list_with_first(app_id, existing)
-    });
+    let updated = update_mimeapps_default_contents(contents, mime, app_id);
+    update_mimeapps_association_contents(&updated, mime, app_id)
+}
 
-    upsert_mimeapps_section_key(&updated, "Added Associations", mime, |existing| {
+fn update_mimeapps_default_contents(contents: &str, mime: &str, app_id: &str) -> String {
+    upsert_mimeapps_section_key(contents, "Default Applications", mime, |existing| {
+        desktop_list_with_first(app_id, existing)
+    })
+}
+
+fn update_mimeapps_association_contents(contents: &str, mime: &str, app_id: &str) -> String {
+    upsert_mimeapps_section_key(contents, "Added Associations", mime, |existing| {
         desktop_list_with_first(app_id, existing)
     })
 }
@@ -311,11 +368,17 @@ fn app_mime_match_score(app: &DesktopApp, mime: &str) -> Option<u8> {
         .filter_map(|candidate| mime_match_score(candidate, mime))
         .max();
 
-    mime_score.or_else(|| (is_text_editable_mime(mime) && app.text_editor).then_some(4))
+    mime_score
+        .or_else(|| wps_app_mime_match_score(app, mime))
+        .or_else(|| (is_text_editable_mime(mime) && app.text_editor).then_some(4))
 }
 
 fn mime_match_score(candidate: &str, mime: &str) -> Option<u8> {
     if candidate == mime {
+        return Some(7);
+    }
+
+    if mimes_are_equivalent(candidate, mime) {
         return Some(6);
     }
 
@@ -335,10 +398,119 @@ fn mime_match_score(candidate: &str, mime: &str) -> Option<u8> {
 
 fn default_mime_candidates(mime: &str) -> Vec<&str> {
     let mut candidates = vec![mime];
+    for alias in mime_aliases(mime) {
+        if *alias != mime && !candidates.contains(alias) {
+            candidates.push(alias);
+        }
+    }
     if is_text_editable_mime(mime) && mime != "text/plain" {
         candidates.push("text/plain");
     }
     candidates
+}
+
+fn mimes_are_equivalent(left: &str, right: &str) -> bool {
+    left == right || office_mime_family(left).is_some_and(|family| family.contains(&right))
+}
+
+fn mime_aliases(mime: &str) -> &'static [&'static str] {
+    office_mime_family(mime).unwrap_or(&[])
+}
+
+fn office_mime_family(mime: &str) -> Option<&'static [&'static str]> {
+    [
+        WPS_WRITER_MIME_FAMILY,
+        WPS_SPREADSHEET_MIME_FAMILY,
+        WPS_PRESENTATION_MIME_FAMILY,
+    ]
+    .into_iter()
+    .find(|family| family.contains(&mime))
+}
+
+const WPS_WRITER_MIME_FAMILY: &[&str] = &[
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/wps-office.doc",
+    "application/wps-office.docx",
+    "application/wps-office.dot",
+    "application/wps-office.dotx",
+    "application/wps-office.wps",
+    "application/wps-office.wpt",
+];
+
+const WPS_SPREADSHEET_MIME_FAMILY: &[&str] = &[
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/wps-office.xls",
+    "application/wps-office.xlsx",
+    "application/wps-office.xlt",
+    "application/wps-office.xltx",
+    "application/wps-office.et",
+    "application/wps-office.ett",
+];
+
+const WPS_PRESENTATION_MIME_FAMILY: &[&str] = &[
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/wps-office.ppt",
+    "application/wps-office.pptx",
+    "application/wps-office.pot",
+    "application/wps-office.potx",
+    "application/wps-office.dps",
+    "application/wps-office.dpt",
+];
+
+fn wps_app_mime_match_score(app: &DesktopApp, mime: &str) -> Option<u8> {
+    let family = office_mime_family(mime)?;
+    (wps_app_mime_family(app) == Some(family)).then_some(4)
+}
+
+fn wps_app_mime_family(app: &DesktopApp) -> Option<&'static [&'static str]> {
+    let id = app.id.to_ascii_lowercase();
+    let name = app.name.to_ascii_lowercase();
+    let exec = app.exec.to_ascii_lowercase();
+    let program = split_exec(&app.exec)
+        .ok()
+        .and_then(|tokens| tokens.into_iter().next())
+        .and_then(|program| {
+            Path::new(&program)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_ascii_lowercase)
+        })
+        .unwrap_or_default();
+
+    let looks_like_wps = id.contains("wps") || name.contains("wps") || exec.contains("kingsoft");
+    if !looks_like_wps {
+        return None;
+    }
+
+    if id.contains("wps-office-wps")
+        || name.contains("wps writer")
+        || program == "wps"
+        || program == "wps.bin"
+    {
+        return Some(WPS_WRITER_MIME_FAMILY);
+    }
+
+    if id.contains("wps-office-et")
+        || name.contains("wps spreadsheets")
+        || name.contains("wps spreadsheet")
+        || program == "et"
+        || program == "et.bin"
+    {
+        return Some(WPS_SPREADSHEET_MIME_FAMILY);
+    }
+
+    if id.contains("wps-office-wpp")
+        || name.contains("wps presentation")
+        || program == "wpp"
+        || program == "wpp.bin"
+    {
+        return Some(WPS_PRESENTATION_MIME_FAMILY);
+    }
+
+    None
 }
 
 fn is_text_editable_mime(mime: &str) -> bool {
@@ -434,46 +606,160 @@ fn parse_desktop_app(id: String, path: &Path) -> Option<DesktopApp> {
         text_editor,
         icon: resolve_app_icon(icon.as_deref()),
     })
-    .filter(|app| !app.mime_types.is_empty() || app.text_editor)
 }
 
-fn load_mime_defaults() -> BTreeMap<String, Vec<String>> {
-    let mut defaults = BTreeMap::new();
+#[derive(Default)]
+struct MimeApps {
+    defaults: BTreeMap<String, Vec<String>>,
+    added: BTreeMap<String, Vec<String>>,
+    removed: BTreeMap<String, Vec<String>>,
+}
 
-    for path in mimeapps_paths() {
-        let Ok(contents) = fs::read_to_string(path) else {
+fn load_mimeapps() -> MimeApps {
+    let mut mimeapps = MimeApps::default();
+
+    for candidate in mimeapps_paths() {
+        let Ok(contents) = fs::read_to_string(&candidate.path) else {
             continue;
         };
-        let mut in_defaults = false;
+        merge_mimeapps_contents(&mut mimeapps, &contents, candidate.allow_associations);
+    }
 
-        for raw_line in contents.lines() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
+    mimeapps
+}
 
-            if line.starts_with('[') && line.ends_with(']') {
-                in_defaults = line == "[Default Applications]";
-                continue;
-            }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MimeAppsSection {
+    DefaultApplications,
+    AddedAssociations,
+    RemovedAssociations,
+    Other,
+}
 
-            if !in_defaults {
-                continue;
-            }
+fn merge_mimeapps_contents(mimeapps: &mut MimeApps, contents: &str, allow_associations: bool) {
+    let file = parse_mimeapps_contents(contents);
 
-            let Some((mime, apps)) = line.split_once('=') else {
-                continue;
+    for (mime, app_ids) in &file.defaults {
+        mimeapps
+            .defaults
+            .entry(mime.clone())
+            .or_insert_with(|| app_ids.clone());
+        push_mimeapps_associations_unless_removed(mimeapps, mime, app_ids);
+    }
+
+    if allow_associations {
+        for (mime, app_ids) in &file.added {
+            push_mimeapps_associations_unless_removed(mimeapps, mime, app_ids);
+        }
+
+        for (mime, app_ids) in file.removed {
+            push_mimeapps_entries(&mut mimeapps.removed, &mime, &app_ids);
+        }
+    }
+}
+
+fn parse_mimeapps_contents(contents: &str) -> MimeApps {
+    let mut mimeapps = MimeApps::default();
+    let mut section = MimeAppsSection::Other;
+
+    for raw_line in contents.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with('[') && line.ends_with(']') {
+            section = match line {
+                "[Default Applications]" => MimeAppsSection::DefaultApplications,
+                "[Added Associations]" => MimeAppsSection::AddedAssociations,
+                "[Removed Associations]" => MimeAppsSection::RemovedAssociations,
+                _ => MimeAppsSection::Other,
             };
-            defaults.entry(mime.to_string()).or_insert_with(|| {
-                apps.split(';')
-                    .filter(|value| !value.is_empty())
-                    .map(ToString::to_string)
-                    .collect()
-            });
+            continue;
+        }
+
+        let Some((mime, apps)) = line.split_once('=') else {
+            continue;
+        };
+        let mime = mime.trim();
+        if mime.is_empty() {
+            continue;
+        }
+        let app_ids = parse_desktop_id_list(apps);
+
+        match section {
+            MimeAppsSection::DefaultApplications => {
+                mimeapps
+                    .defaults
+                    .entry(mime.to_string())
+                    .or_insert_with(|| app_ids.clone());
+            }
+            MimeAppsSection::AddedAssociations => {
+                push_mimeapps_entries(&mut mimeapps.added, mime, &app_ids);
+            }
+            MimeAppsSection::RemovedAssociations => {
+                push_mimeapps_entries(&mut mimeapps.removed, mime, &app_ids);
+            }
+            MimeAppsSection::Other => {}
         }
     }
 
-    defaults
+    mimeapps
+}
+
+fn parse_desktop_id_list(value: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    for id in value.split(';') {
+        push_unique_string(&mut ids, id.trim().to_string());
+    }
+    ids
+}
+
+fn push_mimeapps_entries(
+    entries: &mut BTreeMap<String, Vec<String>>,
+    mime: &str,
+    app_ids: &[String],
+) {
+    let mime_entries = entries.entry(mime.to_string()).or_default();
+    for app_id in app_ids {
+        push_unique_string(mime_entries, app_id.clone());
+    }
+}
+
+fn push_mimeapps_associations_unless_removed(
+    mimeapps: &mut MimeApps,
+    mime: &str,
+    app_ids: &[String],
+) {
+    let filtered = app_ids
+        .iter()
+        .filter(|app_id| !mimeapp_is_removed(mimeapps, mime, app_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    push_mimeapps_entries(&mut mimeapps.added, mime, &filtered);
+}
+
+fn mimeapp_is_removed(mimeapps: &MimeApps, mime: &str, app_id: &str) -> bool {
+    mimeapps
+        .removed
+        .get(mime)
+        .is_some_and(|removed| removed.iter().any(|removed_id| removed_id == app_id))
+}
+
+fn apply_mimeapps_associations(apps: &mut [DesktopApp], mimeapps: &MimeApps) {
+    for app in apps.iter_mut() {
+        for (mime, app_ids) in &mimeapps.removed {
+            if app_ids.iter().any(|app_id| app_id == &app.id) {
+                app.mime_types.retain(|candidate| candidate != mime);
+            }
+        }
+
+        for (mime, app_ids) in &mimeapps.added {
+            if app_ids.iter().any(|app_id| app_id == &app.id) {
+                push_unique_string(&mut app.mime_types, mime.clone());
+            }
+        }
+    }
 }
 
 fn application_dirs() -> Vec<PathBuf> {
@@ -494,7 +780,13 @@ fn application_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn mimeapps_paths() -> Vec<PathBuf> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MimeAppsPath {
+    path: PathBuf,
+    allow_associations: bool,
+}
+
+fn mimeapps_paths() -> Vec<MimeAppsPath> {
     let mut paths = Vec::new();
     let desktops = current_desktops();
 
@@ -539,20 +831,37 @@ fn config_dirs() -> Vec<PathBuf> {
 
     let config_dirs = env::var_os("XDG_CONFIG_DIRS").unwrap_or_else(|| "/etc/xdg".into());
     for directory in env::split_paths(&config_dirs) {
-        push_unique_candidate_path(&mut dirs, directory);
+        push_unique_path(&mut dirs, directory);
     }
 
     dirs
 }
 
-fn push_mimeapps_candidates(paths: &mut Vec<PathBuf>, directory: &Path, desktops: &[String]) {
+fn push_mimeapps_candidates(paths: &mut Vec<MimeAppsPath>, directory: &Path, desktops: &[String]) {
     for desktop in desktops {
-        push_unique_candidate_path(paths, directory.join(format!("{desktop}-mimeapps.list")));
+        push_unique_mimeapps_candidate(
+            paths,
+            directory.join(format!("{desktop}-mimeapps.list")),
+            false,
+        );
     }
-    push_unique_candidate_path(paths, directory.join("mimeapps.list"));
+    push_unique_mimeapps_candidate(paths, directory.join("mimeapps.list"), true);
 }
 
-fn push_unique_candidate_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+fn push_unique_mimeapps_candidate(
+    paths: &mut Vec<MimeAppsPath>,
+    path: PathBuf,
+    allow_associations: bool,
+) {
+    if !paths.iter().any(|existing| existing.path == path) {
+        paths.push(MimeAppsPath {
+            path,
+            allow_associations,
+        });
+    }
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
     if !paths.iter().any(|existing| existing == &path) {
         paths.push(path);
     }
@@ -566,7 +875,11 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
 
 fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, String> {
     let path_value = path.to_string_lossy();
-    let uri_value = file_uri(path);
+    let uri_value = if wps_app_mime_family(app).is_some() {
+        path_value.as_ref().to_string()
+    } else {
+        file_uri(path)
+    };
     let mut saw_file_code = false;
     let mut command = Vec::new();
 
@@ -754,6 +1067,22 @@ mod tests {
     }
 
     #[test]
+    fn build_exec_command_uses_local_paths_for_wps_uri_field_codes() {
+        let app = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "/usr/bin/wps %U".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let command = build_exec_command(&app, Path::new("/tmp/a file.wps")).unwrap();
+
+        assert_eq!(command, vec!["/usr/bin/wps", "/tmp/a file.wps"]);
+    }
+
+    #[test]
     fn build_exec_command_removes_unsupported_field_codes() {
         let app = DesktopApp {
             id: "viewer.desktop".to_string(),
@@ -886,6 +1215,290 @@ mod tests {
     }
 
     #[test]
+    fn wps_office_alias_mimes_match_standard_office_mimes() {
+        let writer = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "wps %f".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let registry = AppRegistry {
+            apps: vec![writer],
+            defaults: BTreeMap::from([(
+                "application/wps-office.wps".to_string(),
+                vec!["wps-office-wps.desktop".to_string()],
+            )]),
+        };
+
+        let standard_docx =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+        assert_eq!(
+            apps_for_mime(&registry, standard_docx)
+                .first()
+                .map(|app| app.id.as_str()),
+            Some("wps-office-wps.desktop")
+        );
+        assert_eq!(
+            default_app_for_mime(&registry, standard_docx).map(|app| app.id),
+            Some("wps-office-wps.desktop".to_string())
+        );
+    }
+
+    #[test]
+    fn standard_office_mimes_match_wps_office_alias_mimes() {
+        let writer = DesktopApp {
+            id: "writer.desktop".to_string(),
+            name: "Writer".to_string(),
+            exec: "writer %f".to_string(),
+            mime_types: vec![
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    .to_string(),
+            ],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let registry = AppRegistry {
+            apps: vec![writer],
+            defaults: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            apps_for_mime(&registry, "application/wps-office.wps")
+                .first()
+                .map(|app| app.id.as_str()),
+            Some("writer.desktop")
+        );
+    }
+
+    #[test]
+    fn exact_wps_native_mime_beats_family_alias_candidate() {
+        let exact_wps = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "Z WPS Writer".to_string(),
+            exec: "wps %f".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let standard_writer = DesktopApp {
+            id: "writer.desktop".to_string(),
+            name: "A Writer".to_string(),
+            exec: "writer %f".to_string(),
+            mime_types: vec![
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    .to_string(),
+            ],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let registry = AppRegistry {
+            apps: vec![standard_writer, exact_wps],
+            defaults: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            apps_for_mime(&registry, "application/wps-office.wps")
+                .first()
+                .map(|app| app.id.as_str()),
+            Some("wps-office-wps.desktop")
+        );
+    }
+
+    #[test]
+    fn mimeapps_added_associations_make_apps_support_mimes() {
+        let mut mimeapps = MimeApps::default();
+        merge_mimeapps_contents(
+            &mut mimeapps,
+            "[Added Associations]\napplication/wps-office.wps=wps-office-wps.desktop;\n",
+            true,
+        );
+        let mut apps = vec![DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "wps %f".to_string(),
+            mime_types: Vec::new(),
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        }];
+
+        apply_mimeapps_associations(&mut apps, &mimeapps);
+        let registry = AppRegistry {
+            apps,
+            defaults: mimeapps.defaults,
+        };
+
+        assert_eq!(
+            apps_for_mime(
+                &registry,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            .first()
+            .map(|app| app.id.as_str()),
+            Some("wps-office-wps.desktop")
+        );
+    }
+
+    #[test]
+    fn mimeapps_default_entries_also_make_apps_support_mimes() {
+        let mut mimeapps = MimeApps::default();
+        merge_mimeapps_contents(
+            &mut mimeapps,
+            "[Default Applications]\napplication/wps-office.wps=wps-office-wps.desktop;\n",
+            true,
+        );
+        let mut apps = vec![DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "wps %f".to_string(),
+            mime_types: Vec::new(),
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        }];
+
+        apply_mimeapps_associations(&mut apps, &mimeapps);
+        let registry = AppRegistry {
+            apps,
+            defaults: mimeapps.defaults,
+        };
+
+        assert_eq!(
+            default_app_for_mime(
+                &registry,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            .map(|app| app.id),
+            Some("wps-office-wps.desktop".to_string())
+        );
+    }
+
+    #[test]
+    fn mimeapps_removed_associations_remove_desktop_mimes() {
+        let mut mimeapps = MimeApps::default();
+        merge_mimeapps_contents(
+            &mut mimeapps,
+            "[Removed Associations]\napplication/wps-office.wps=wps-office-wps.desktop;\n",
+            true,
+        );
+        let mut apps = vec![DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "wps %f".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        }];
+
+        apply_mimeapps_associations(&mut apps, &mimeapps);
+
+        assert!(apps[0].mime_types.is_empty());
+    }
+
+    #[test]
+    fn higher_priority_added_association_survives_lower_priority_removed_association() {
+        let mut mimeapps = MimeApps::default();
+        merge_mimeapps_contents(
+            &mut mimeapps,
+            "[Added Associations]\napplication/wps-office.wps=wps-office-wps.desktop;\n",
+            true,
+        );
+        merge_mimeapps_contents(
+            &mut mimeapps,
+            "[Removed Associations]\napplication/wps-office.wps=wps-office-wps.desktop;\n",
+            true,
+        );
+        let mut apps = vec![DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "wps %f".to_string(),
+            mime_types: Vec::new(),
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        }];
+
+        apply_mimeapps_associations(&mut apps, &mimeapps);
+
+        assert_eq!(apps[0].mime_types, vec!["application/wps-office.wps"]);
+    }
+
+    #[test]
+    fn wps_writer_app_name_fallback_handles_missing_mime_declarations() {
+        let writer = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "/usr/bin/wps %f".to_string(),
+            mime_types: Vec::new(),
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let registry = AppRegistry {
+            apps: vec![writer],
+            defaults: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            apps_for_mime(
+                &registry,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            .first()
+            .map(|app| app.id.as_str()),
+            Some("wps-office-wps.desktop")
+        );
+        assert!(apps_for_mime(&registry, "application/vnd.ms-excel").is_empty());
+    }
+
+    #[test]
+    fn desktop_specific_mimeapps_ignores_added_and_removed_associations() {
+        let mut mimeapps = MimeApps::default();
+        merge_mimeapps_contents(
+            &mut mimeapps,
+            "[Default Applications]\napplication/wps-office.docx=wps-office-prometheus.desktop;\n\n[Added Associations]\napplication/wps-office.docx=wps-office-wps.desktop;\n\n[Removed Associations]\napplication/wps-office.wps=wps-office-wps.desktop;\n",
+            false,
+        );
+
+        assert_eq!(
+            mimeapps.defaults.get("application/wps-office.docx"),
+            Some(&vec!["wps-office-prometheus.desktop".to_string()])
+        );
+        assert!(mimeapps.added.contains_key("application/wps-office.docx"));
+        assert!(!mimeapps
+            .added
+            .get("application/wps-office.docx")
+            .is_some_and(|apps| apps.iter().any(|app| app == "wps-office-wps.desktop")));
+        assert!(!mimeapps.removed.contains_key("application/wps-office.wps"));
+    }
+
+    #[test]
+    fn wps_office_alias_table_covers_common_office_formats() {
+        let families = [
+            (
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                WPS_WRITER_MIME_FAMILY,
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                WPS_SPREADSHEET_MIME_FAMILY,
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                WPS_PRESENTATION_MIME_FAMILY,
+            ),
+        ];
+
+        for (standard, family) in families {
+            let candidates = default_mime_candidates(standard);
+            for mime in family {
+                assert!(mimes_are_equivalent(standard, mime));
+                assert!(mimes_are_equivalent(mime, standard));
+                assert!(candidates.contains(mime));
+            }
+        }
+    }
+
+    #[test]
     fn text_plain_apps_can_open_specialized_text_files() {
         let app = DesktopApp {
             id: "editor.desktop".to_string(),
@@ -1000,9 +1613,18 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                PathBuf::from("/etc/xdg/gnome-mimeapps.list"),
-                PathBuf::from("/etc/xdg/unity-mimeapps.list"),
-                PathBuf::from("/etc/xdg/mimeapps.list"),
+                MimeAppsPath {
+                    path: PathBuf::from("/etc/xdg/gnome-mimeapps.list"),
+                    allow_associations: false
+                },
+                MimeAppsPath {
+                    path: PathBuf::from("/etc/xdg/unity-mimeapps.list"),
+                    allow_associations: false
+                },
+                MimeAppsPath {
+                    path: PathBuf::from("/etc/xdg/mimeapps.list"),
+                    allow_associations: true
+                },
             ]
         );
     }
@@ -1036,11 +1658,39 @@ mod tests {
         let root = temp_dir("mimeapps-write");
         let path = root.join("config/mimeapps.list");
 
-        set_default_app_for_mime_at(&path, "application/pdf", "viewer.desktop").unwrap();
+        set_default_app_for_mime_at(&path, &path, "application/pdf", "viewer.desktop").unwrap();
 
         let contents = fs::read_to_string(&path).unwrap();
         assert!(contents.contains("[Default Applications]\napplication/pdf=viewer.desktop;\n"));
         assert!(contents.contains("[Added Associations]\napplication/pdf=viewer.desktop;\n"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_default_app_for_mime_at_splits_desktop_default_and_generic_association() {
+        let root = temp_dir("mimeapps-split-write");
+        let default_path = root.join("config/ubuntu-mimeapps.list");
+        let association_path = root.join("config/mimeapps.list");
+
+        set_default_app_for_mime_at(
+            &default_path,
+            &association_path,
+            "application/pdf",
+            "viewer.desktop",
+        )
+        .unwrap();
+
+        let default_contents = fs::read_to_string(&default_path).unwrap();
+        assert!(
+            default_contents.contains("[Default Applications]\napplication/pdf=viewer.desktop;\n")
+        );
+        assert!(!default_contents.contains("[Added Associations]"));
+
+        let association_contents = fs::read_to_string(&association_path).unwrap();
+        assert!(association_contents
+            .contains("[Added Associations]\napplication/pdf=viewer.desktop;\n"));
+        assert!(!association_contents.contains("[Default Applications]"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1073,6 +1723,18 @@ mod tests {
             )
             .unwrap(),
             PathBuf::from("/tmp/config/gnome-mimeapps.list")
+        );
+    }
+
+    #[test]
+    fn user_association_mimeapps_path_always_uses_generic_file() {
+        assert_eq!(
+            user_association_mimeapps_path_from(
+                Some(PathBuf::from("/tmp/config")),
+                Some(PathBuf::from("/tmp/home")),
+            )
+            .unwrap(),
+            PathBuf::from("/tmp/config/mimeapps.list")
         );
     }
 

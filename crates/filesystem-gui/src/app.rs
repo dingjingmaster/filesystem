@@ -4131,6 +4131,17 @@ mod tests {
         manager
     }
 
+    fn desktop_app(id: &str, name: &str, exec: &str, mime_types: &[&str]) -> DesktopApp {
+        DesktopApp {
+            id: id.to_string(),
+            name: name.to_string(),
+            exec: exec.to_string(),
+            mime_types: mime_types.iter().map(|mime| mime.to_string()).collect(),
+            text_editor: false,
+            icon: EntryIcon::Embedded(include_bytes!("../../../icons/app.svg")),
+        }
+    }
+
     #[test]
     fn keyboard_shortcuts_map_requested_keys() {
         let ctrl = keyboard::Modifiers::CTRL;
@@ -4457,6 +4468,41 @@ mod tests {
             manager.status,
             "Opened with Editor; failed to set default: permission denied"
         );
+    }
+
+    #[test]
+    fn double_click_wps_family_files_uses_wps_app() {
+        let mut manager = manager_with_entries(&["sample.wps", "sample.docx"]);
+        manager.app_registry = AppRegistry {
+            apps: vec![desktop_app(
+                "wps-office-wps.desktop",
+                "WPS Writer",
+                "/usr/bin/wps %F",
+                &["application/wps-office.wps"],
+            )],
+            defaults: BTreeMap::from([(
+                "application/wps-office.wps".to_string(),
+                vec!["wps-office-wps.desktop".to_string()],
+            )]),
+        };
+
+        manager.entries[0].mime = MimeInfo::new(
+            "application/wps-office.wps",
+            filesystem_mime::MimeSource::BuiltInName,
+        );
+        manager.entries[1].mime = MimeInfo::new(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filesystem_mime::MimeSource::BuiltInName,
+        );
+
+        let wps_path = manager.entries[0].file.path.clone();
+        let docx_path = manager.entries[1].file.path.clone();
+
+        let _ = manager.update(Message::Open(wps_path, EntryKind::File));
+        assert_eq!(manager.status, "Opening with WPS Writer...");
+
+        let _ = manager.update(Message::Open(docx_path, EntryKind::File));
+        assert_eq!(manager.status, "Opening with WPS Writer...");
     }
 
     #[test]
