@@ -3,7 +3,7 @@
 > 文档元数据
 > - 文档版本：v1.0.0
 > - 最后更新：2026-06-29
-> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/4-summary-gui-module-refactor.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/15-task-rust-edition-2021.md、docs/dev/16-task-renderer-selection.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/18-fix-uos-software-renderer-refresh.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md
+> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/4-summary-gui-module-refactor.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/15-task-rust-edition-2021.md、docs/dev/16-task-renderer-selection.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/18-fix-uos-software-renderer-refresh.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md
 > - 关联产品文档：docs/overview-product.md
 
 ## 1. 技术栈
@@ -14,7 +14,7 @@
 | 构建系统 | Cargo workspace + Makefile | 多 crate 构建与 feature 管理 | `make` 封装常用构建/测试入口 |
 | 运行平台 | Linux 本地文件系统 | 目标运行平台 | 不支持网络文件系统服务集成 |
 | 内部 crate | `filesystem-core`、`filesystem-mime`、`filesystem-gui` | 文件系统 API、文件类型识别和 GUI | `filesystem-mime` 无第三方依赖，不调用 `file` 命令 |
-| 关键依赖 | `iced 0.14`、`resvg 0.45`、`regex 1`、`libc 0.2` | GUI、窗口事件、SVG 窗口图标渲染、文件名正则搜索、Linux 文件系统容量查询 | `iced` 关闭 default features；启用 `advanced` 仅用于访问 text wrapping 类型；`resvg` 复用 iced SVG 渲染路径；`regex` 和 `libc` 只在 core 中使用 |
+| 关键依赖 | `iced 0.14`、`notify 8.2`、`resvg 0.45`、`regex 1`、`libc 0.2` | GUI、窗口事件和订阅、当前文件夹文件事件监听、SVG 窗口图标渲染、文件名正则搜索、Linux 文件系统容量查询 | `iced` 关闭 default features；启用 `advanced` 仅用于访问 text wrapping 类型；`notify` 关闭 default features 并在 Linux 使用 inotify 推荐后端；`resvg` 复用 iced SVG 渲染路径；`regex` 和 `libc` 只在 core 中使用 |
 | 渲染 | `iced/wgpu` + `iced/tiny-skia` | 默认优先 GPU 渲染，必要时软件渲染兜底 | 未显式设置 `ICED_BACKEND` 时先执行 wgpu 能力探测，探测失败、CPU adapter 或 llvmpipe/lavapipe/softpipe/SwiftShader 等软件 rasterizer 则设置 `ICED_BACKEND=tiny-skia`；显式 `ICED_BACKEND=tiny-skia` 直接使用 tiny-skia |
 | 窗口后端 | `iced/x11`、`iced/wayland` | 同一二进制支持 X11/Wayland | 由 winit 运行时选择 |
 
@@ -23,21 +23,21 @@
 - 模块划分：
   - `crates/filesystem-core`：本地文件系统模型、只读扫描/搜索 API、软链接目标解析、首批写操作 API、剪贴板文本路径解析、当前文件夹属性统计、普通文件属性读取和权限修改 API，不依赖 GUI。
   - `crates/filesystem-mime`：无第三方依赖的文件类型识别模块，内置常见名称/扩展名/内容签名规则，并只读解析 shared-mime-info `globs2` 和保守子集 `MIME-Magic` 作为 fallback。
-  - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、访问历史栈、侧边栏导航、可编辑地址栏、视图模式、菜单状态、右键菜单状态、文件操作快捷键消息、内联重命名状态、属性弹窗状态、打开方式弹窗状态、本地应用注册表、属性弹窗位置/拖拽/权限编辑状态、选中路径集合、选择锚点、选择修饰键状态、框选拖拽状态、主文件区宽度、窗口尺寸、窗口控制/缩放消息和显示状态。
+  - `crates/filesystem-gui`：iced 图形入口，使用无系统边框窗口，持有当前目录、条目列表、访问历史栈、侧边栏导航、可编辑地址栏、视图模式、菜单状态、右键菜单状态、文件操作快捷键消息、内联重命名状态、属性弹窗状态、打开方式弹窗状态、本地应用注册表、属性弹窗位置/拖拽/权限编辑状态、选中路径集合、选择锚点、选择修饰键状态、框选拖拽状态、当前文件夹自动刷新待处理状态、主文件区宽度、窗口尺寸、窗口控制/缩放消息和显示状态。
   - `crates/filesystem-gui/src/main.rs`：保留模块声明、渲染后端选择和 iced 应用入口。
   - `crates/filesystem-gui/src/renderer.rs`：启动前选择 iced 渲染后端；默认优先 wgpu，显式 `ICED_BACKEND=tiny-skia`、wgpu 探测失败、CPU adapter 或软件 rasterizer 时使用 tiny-skia。
   - `crates/filesystem-gui/src/app.rs`：`FileManager` 状态机、导航历史、update/view 编排和主要交互控制流。
   - `crates/filesystem-gui/src/model.rs`：GUI 消息、视图模式、显示条目、属性弹窗、重命名和选择拖拽等共享状态模型。
-  - `crates/filesystem-gui/src/tasks.rs`：目录加载、文件名搜索、新建、终端启动、应用注册表加载、外部应用启动和窗口 task 等后台/系统适配函数；阻塞型 I/O 继续通过 `Task::perform` 发起。
+  - `crates/filesystem-gui/src/tasks.rs`：目录加载、当前文件夹事件监听、文件名搜索、新建、终端启动、应用注册表加载、外部应用启动和窗口 task 等后台/系统适配函数；阻塞型 I/O 继续通过 `Task::perform` 发起。
   - `crates/filesystem-gui/src/apps.rs`：本地 `.desktop`、通用和桌面专用 `mimeapps.list`、MIME 应用候选排序、文本编辑器兜底和 Exec field code 解析；直接以 argv 启动外部应用，不调用桌面服务。
   - `crates/filesystem-gui/src/icons.rs`：主题图标解析、MIME 到主题图标名映射、本地 SVG 回退策略和软链接角标状态，封装 `IconResolver`。
   - `crates/filesystem-gui/src/components.rs`：toolbar、窗口按钮、侧栏图标、列表单元格、重命名编辑器、右键菜单和属性页行组件等 iced widget 工厂。
   - `crates/filesystem-gui/src/utils.rs`：布局计算、几何命中、格式化、权限显示和相关单元测试等纯函数。
   - `crates/filesystem-gui/src/config.rs`：应用名、运行时 `filesystem.ini` 配置读取、窗口尺寸、布局常量和窗口 icon 设置。
   - `crates/filesystem-gui/src/style.rs`：主题颜色、按钮/容器/输入框/SVG 样式和分割线组件；右键菜单、工具栏菜单和属性弹窗等动态 overlay 不使用模糊阴影，避免软件渲染局部 damage 清理旧阴影时留下残影。
-- 进程/线程边界：当前只运行单 GUI 进程；目录扫描通过 iced `Task::stream` 驱动 core `DirectoryScanner` 分批发送 Started/Batch/Finished/Failed 事件；复制/剪切粘贴通过 iced `Task::stream` 驱动 core 进度回调发送操作进度和完成事件；文件名正则搜索、MIME 内容识别和主题图标解析、新建、重命名、删除、当前文件夹属性统计、普通文件属性读取、当前文件夹权限保存、本地应用注册表加载、外部文件打开和终端探测/启动通过 iced `Task::perform` 或 stream runner 交给 `thread-pool` executor 执行，UI 线程只处理状态更新和渲染；后续任何可能阻塞 UI 的文件操作必须沿用后台任务模型。
+- 进程/线程边界：当前只运行单 GUI 进程；目录扫描通过 iced `Task::stream` 驱动 core `DirectoryScanner` 分批发送 Started/Batch/Finished/Failed 事件；当前文件夹自动刷新通过 iced `Subscription::run_with(cwd, ...)` 驱动 `notify` 非递归监听当前目录直接子项变化，事件进入状态机后用 200ms 延时合并，再复用目录 reload 或搜索重跑；复制/剪切粘贴通过 iced `Task::stream` 驱动 core 进度回调发送操作进度和完成事件；文件名正则搜索、MIME 内容识别和主题图标解析、新建、重命名、删除、当前文件夹属性统计、普通文件属性读取、当前文件夹权限保存、本地应用注册表加载、外部文件打开和终端探测/启动通过 iced `Task::perform` 或 stream runner 交给 `thread-pool` executor 执行，UI 线程只处理状态更新和渲染；后续任何可能阻塞 UI 的文件操作必须沿用后台任务模型。
 - 客户端/服务端/驱动边界：无服务端、无内核模块、无桌面服务客户端。
-- 数据流：GUI 状态发起后台目录 stream 或 `search_file_names` 任务；目录 stream 先发送 Started 清空旧条目和更新路径，再按批次发送基础 `DisplayEntry`，GUI 追加后排序并立即渲染；每个批次的原始 `FileEntry` 再触发后台装饰任务，返回 `EntryDecoration` 后按 path 原地替换 MIME、主题图标和角标；搜索结果仍一次性返回基础条目，但同样后台装饰；每个后台请求带自增 ID，过期批次、完成消息和装饰结果会被丢弃。
+- 数据流：GUI 状态发起后台目录 stream 或 `search_file_names` 任务；目录 stream 先发送 Started 清空旧条目和更新路径，再按批次发送基础 `DisplayEntry`，GUI 追加后排序并立即渲染；每个批次的原始 `FileEntry` 再触发后台装饰任务，返回 `EntryDecoration` 后按 path 原地替换 MIME、主题图标和角标；搜索结果仍一次性返回基础条目，但同样后台装饰；当前目录文件事件先变成 `CurrentFolderChanged(cwd)`，状态机确认路径仍是当前目录且没有待处理刷新后，再延时发送 `CurrentFolderRefreshReady(cwd)` 触发 reload 或搜索重跑；每个后台请求带自增 ID，过期批次、完成消息和装饰结果会被丢弃。
 - 启动配置规则：GUI 启动时通过 `current_exe()` 定位可执行文件同级 `filesystem.ini`，解析顶层或 `[window]` section 下的非空 `name` 和 `terminal` 键，以及 `[blank-menu.*]` section 下的 `label`、`command` 和重复 `arg`；`name` 写入 `RuntimeConfig` 后覆盖左侧标题栏显示，`terminal` 写入 `RuntimeConfig` 后作为右键“在终端打开”的优先终端路径，合法 blank-menu section 以配置文件顺序写入空白菜单自定义命令列表；配置文件不存在、读取失败或键为空时使用默认值。
 - 控制流：启动时先配置 iced 渲染后端，用户显式设置 `ICED_BACKEND` 时尊重用户选择，其中 `tiny-skia`/`tiny_skia` 会规范化为 `tiny-skia`；未设置时执行 wgpu 探测，探测通过且 adapter 不是 CPU/软件 rasterizer 则保持 iced 默认顺序优先 wgpu，探测失败、CPU adapter 或 adapter 信息包含 llvmpipe/lavapipe/softpipe/software rasterizer/SwiftShader 时设置 `ICED_BACKEND=tiny-skia`；随后把 `icons/fs.svg` 渲染为 128x128 RGBA 窗口 icon，设置 Linux application_id 为 `File`，并把窗口最小尺寸设置为 800x600；GUI 订阅 `window::resize_events()` 和 `event::listen_with` 键盘事件，窗口大小变化后更新主文件区宽度和窗口尺寸，并把属性弹窗位置钳制在可见范围内，未被输入控件捕获的 `Ctrl+C`、`Ctrl+X`、`Ctrl+V` 和 `Del` 映射为选中集合复制、剪切、空选择粘贴和删除确认，同时同步当前 Ctrl/Shift 选择修饰键状态；用户双击目录、点击侧边栏主文件夹/根目录/家目录常见路径或在地址栏输入绝对路径回车后，成功切换目录会写入后退栈并清空前进栈；右侧主区域条目普通单击会清空旧选择、更新 `selected_paths` 为单个路径并记录选择锚点，Ctrl 单击会在 `selected_paths` 中切换目标路径并更新锚点，Shift 单击会按当前 `entries` 显示顺序选中锚点到目标路径之间的闭区间，Ctrl+Shift 单击会把该范围追加到现有选择，双击才发送打开消息；从文件视图空白区域按下并拖拽时记录 `SelectionDrag`，结合当前 `ViewMode` 的布局公式和 `scrollable` 绝对滚动偏移计算命中的条目矩形，并更新 `selected_paths` 为多个路径；文件视图空白处右键打开 `context_menu` 覆盖层，菜单点击后发起后台新建/粘贴/终端/属性任务或同步执行全选；新建成功后设置 `RenameState`，其中保存 `text_editor::Content` 并对默认名称执行 `SelectAll`，图标视图和列表视图主体仍按普通条目固定布局渲染；`rename_overlay` 通过 `stack` 覆盖在文件视图上层，根据 `entry_content_rect` 和当前滚动偏移定位固定 widget id 的 `text_editor`，目录批次加载或刷新完成后通过 iced widget operation 聚焦；重命名 editor 拦截 Enter 作为提交，不插入换行，按 1.5 倍行高渲染，宽度随字符估算最多扩展到基础宽度 3 倍，继续输入后使用 `Wrapping::WordOrGlyph` 换行并按估算行数增高；编辑框动态宽高不参与图标网格或列表行布局测量，因此不会挤压其它文件/文件夹位置；点击文件视图/工具栏/侧边栏等外部区域时统一调用后台 `rename_entry`，空名保持编辑状态，名称未变则退出编辑；粘贴先用 `iced::clipboard::read()` 读取标准剪贴板文本，再通过 core `parse_clipboard_paths` 解析本地路径并启动 `paste_paths_stream` 后台进度流；属性弹窗打开后后台调用 `folder_properties`，结果以概要和权限页展示；属性弹窗使用全窗口 `mouse_area` 事件层阻止点击、右键和滚轮事件落到底层文件视图，标题区域拖拽更新弹窗坐标，关闭按钮复用 `icons/close.svg` 和 `style::close_button`；权限页维护待保存 mode，owner/group/other 访问行只修改本地待保存状态，点击“取消”恢复为当前属性 mode，点击“更改”后后台调用 `set_permissions` 并重新读取 `folder_properties`；地址栏输入不是绝对路径时，按正则在当前目录树递归搜索文件/目录名并把匹配项渲染到主区域；目录加载分批后台执行，搜索、MIME 内容识别和文件主题图标解析也在后台执行；后退/前进按钮从对应历史栈切换路径并维护反向栈；隐藏文件开关位于地址栏右侧菜单中，在目录模式下重新扫描当前路径，在搜索模式下用当前正则重新搜索；地址栏右侧菜单切换 `ViewMode`，图标视图按主文件区宽度和固定 tile 尺寸计算列数，列表视图渲染名称、大小、所有者、修改时间列，两个视图都渲染条目图标；图标视图和列表视图根据 `browser_scroll_y`、窗口高度和缓冲行数只构建可视区域附近条目，并用顶部/底部占位保持完整滚动高度；主内容区域用 `stack` 叠加透明菜单层，菜单和子菜单覆盖在文件视图上方，不参与工具栏/文件视图 column 排版；窗口拖拽/关闭/最小化/最大化通过 iced `window` task 执行；四边和四角 resize 命中区调用 `window::drag_resize`，由窗口管理器接管实际缩放。
 - GUI 文件打开规则：启动时后台加载本地应用注册表；目录装饰时通过 `filesystem-mime` 识别文件 MIME 并缓存到 `DisplayEntry`，非目录条目双击、文件菜单“用 xxx 打开”、打开方式弹窗和文件属性优先使用缓存 MIME；缓存缺失时只用 `detect_name` 做无 I/O 退化识别，避免 UI 线程读取文件内容；非目录条目双击或文件菜单“用 xxx 打开”会优先按本地 `mimeapps.list` 默认应用选择本地 `.desktop` 应用，没有默认应用但有打开方式候选时按 MIME 匹配质量选择首选候选应用，并通过 `Command::spawn` 直接启动；默认应用查询读取 `XDG_CURRENT_DESKTOP` 对应的桌面专用文件，如 `gnome-mimeapps.list`，并按配置目录优先级覆盖通用 `mimeapps.list`；打开前逐字符展开 `.desktop` `Exec` field code，`%f/%F` 使用本地路径、`%u/%U` 使用 `file://` URI、`%%` 保留字面 `%`，未知或废弃字段码不传给外部应用；`Makefile`、`Dockerfile`、`README`、`LICENSE`、`.gitignore`、`.desktop`、`.c`、`.cpp`、`.md`、JSON/XML/SVG 等文本类文件按文本可编辑 MIME 处理，支持 `text/plain` 的应用可匹配这些文本类 MIME，`TextEditor` 分类应用可作为兜底候选，专有文本 MIME 默认应用缺失时回落到 `text/plain` 默认应用；打开方式候选按默认应用、精确 MIME、`text/plain` 兜底、`TextEditor` 分类兜底、类型通配、全局通配和名称排序；`Terminal=true` 的 `.desktop` 应用当前不进入打开候选；打开方式弹窗列出支持当前 MIME 的应用并预选首选应用，应用行左侧显示 APP 图标和名称，选中对钩右对齐；首版不写入默认应用设置。
@@ -68,7 +68,8 @@
 | `open_file_with_app(path, app)` | `filesystem-gui` | `filesystem-gui::apps` | 解析 `.desktop` Exec field code 后直接 `Command::spawn`，不经 shell；`%%` 保留字面 `%`，`%f/%F` 使用本地路径，`%u/%U` 使用 `file://` URI，未知或废弃字段码移除；当前工作目录设为文件父目录 | 支持普通文件默认应用打开和打开方式打开 |
 | `open_terminal(cwd, configured_terminal)` | `filesystem-gui` | `filesystem-gui::tasks` | 配置终端存在时直接 `Command::new(path).current_dir(cwd).spawn()`；未配置时按 `terminator`、`mate-terminal`、`gnome-terminal` 顺序查找 PATH 并传入 `--working-directory`；不经 shell | 支持当前目录或目标文件夹终端打开 |
 | `run_blank_menu_command(cwd, command)` | `filesystem-gui` | `filesystem-gui::tasks` | 用 `Command::new(command.command).args(expanded_args).current_dir(cwd).spawn()` 启动；每个 `arg` 单独作为 argv 参数，参数内 `{cwd}` 替换为当前目录；不经 shell，不等待命令结束 | 支持空白处右键菜单自定义命令 |
-| `Task::perform(...)` / `Task::stream(...)` 后台任务 | `filesystem-gui` | `iced` thread-pool executor | 所有可能阻塞 UI 的 I/O、复制、移动、删除和大目录扫描都必须通过后台任务或 stream 发起；目录扫描和复制/剪切进度使用 stream 回传中间事件 | UI 线程不直接执行耗时文件系统操作，目录扫描和文件操作可分批回传 |
+| `watch_current_folder(cwd)` | `filesystem-gui` | `filesystem-gui::tasks` / `notify` | 使用 `Subscription::run_with` 让 `cwd` 参与订阅身份；对当前目录使用 `RecursiveMode::NonRecursive`；只把 create/remove/rename/data/非访问时间 metadata/close-write/rescan 类事件转成刷新消息；监听失败写入状态消息 | 当前打开文件夹直接子项变化后自动刷新；切换目录后订阅随 `cwd` 重建 |
+| `Task::perform(...)` / `Task::stream(...)` / `Subscription::run_with(...)` 后台任务与订阅 | `filesystem-gui` | `iced` thread-pool executor | 所有可能阻塞 UI 的 I/O、复制、移动、删除和大目录扫描都必须通过后台任务或 stream 发起；目录扫描和复制/剪切进度使用 stream 回传中间事件；长期文件事件监听使用 subscription，且不得阻塞 UI 线程 | UI 线程不直接执行耗时文件系统操作，目录扫描和文件操作可分批回传，当前文件夹事件可长期监听 |
 | `iced` feature 集 | 构建者 | `filesystem-gui` | 固定启用 `advanced`、`thread-pool`、`svg`、`wgpu`、`tiny-skia`、`x11`、`wayland` | 默认优先 wgpu，探测失败、CPU/软件 rasterizer adapter 或显式 `ICED_BACKEND=tiny-skia` 时使用 tiny-skia；同时支持 SVG 图标、text wrapping 类型和双窗口后端 |
 | `load_window_icon()` | `filesystem-gui` | `resvg`/`tiny-skia` | 直接依赖不额外启用 `resvg` default features；输出非预乘 RGBA | 把 `icons/fs.svg` 转换为 iced/winit 窗口 icon |
 | `IconResolver` | `filesystem-gui` 后台任务 | 本地图标主题文件 | 只查找并读取本地 SVG 图标文件，不调用桌面服务；找不到就回退本地 `icons/file.svg`；软链接角标使用编译期 SVG | 根据 MIME 类型映射常见主题图标名，完成消息携带已读入内存的 SVG |
@@ -119,6 +120,7 @@
 | 文件类型识别 | 内容签名误判、系统 shared-mime-info 数据差异、大目录大量文件前缀读取成本 | MIME 单测覆盖内置名称/扩展名、内容签名优先、zip Office、文本内容、`globs2` 和 magic 解析；内容读取上限 256 KiB 并在后台装饰任务执行；复杂系统 magic 子规则保守跳过 | docs/dev/9-summary-filesystem-mime.md |
 | 本地应用/默认应用解析 | 不同发行版 `.desktop`、通用/桌面专用 `mimeapps.list`、`Terminal=true` 和 MIME 声明差异 | GUI 单测覆盖 `text/plain` 应用匹配文本类 MIME、`TextEditor` 分类兜底、未知二进制不走文本编辑器、`Terminal=true` 过滤、Exec field code、`%u/%U` file URI、未知/废弃字段码移除、`%%` 字面百分号、嵌套 applications 目录、`XDG_CURRENT_DESKTOP` 桌面名拆分和桌面专用 mimeapps 优先级；未知类型使用保守回退 | docs/dev/8-summary-selected-file-context-menu.md；docs/dev/9-summary-filesystem-mime.md；docs/dev/11-fix-text-editor-fallback.md；docs/dev/17-fix-desktop-exec-field-codes.md |
 | 大目录浏览性能 | 扫描批次背压、过期结果丢弃、虚拟化滚动高度和命中坐标一致性 | core 测试覆盖 `DirectoryScanner` 分批读取和隐藏过滤；GUI 编译覆盖 stream 消息类型；真实帧时间需人工 GUI 验证 | docs/dev/13-summary-large-directory-performance.md |
+| 当前文件夹自动刷新 | Linux inotify 在伪文件系统、网络文件系统、大事件量或队列溢出时可能丢事件；纯读取访问不会可靠触发刷新；高频保存可能产生多事件 | GUI 单测覆盖事件路径匹配、待处理刷新合并、过期 ready 不清理新状态和 ready 触发 reload；真实 GUI 文件事件需图形会话人工验证 | docs/dev/23-task-current-folder-auto-refresh.md |
 | 渲染后端 | wgpu 驱动栈复杂度；UOS/虚拟机软件 rasterizer 可能探测成功但刷新不稳定；Wayland CSD 传递依赖 `tiny-skia`；模糊阴影可能超出 widget damage bounds 导致旧 overlay 残影 | 同时编译 wgpu 和 tiny-skia；默认优先 wgpu，但 CPU/llvmpipe/lavapipe/softpipe/SwiftShader 等软件 adapter 自动 tiny-skia；动态 overlay 使用实色背景和边框，不使用模糊阴影；需真实图形会话验证 | docs/dev/1-plan-local-linux-file-manager.md；docs/dev/16-task-renderer-selection.md；docs/dev/18-fix-uos-software-renderer-refresh.md |
 
 ## 6. 构建与验证
@@ -190,6 +192,7 @@
   - docs/dev/20-task-click-range-selection.md
   - docs/dev/21-task-filesystem-ini-config.md
   - docs/dev/22-task-blank-menu-custom-commands.md
+  - docs/dev/23-task-current-folder-auto-refresh.md
 
 ## 10. 变更记录
 
@@ -236,3 +239,4 @@
 | 2026-06-27 | 记录选择锚点、Ctrl/Shift 修饰键状态、Ctrl 点击切换选择和 Shift 点击范围选择 | 更新 GUI 选择控制流 | docs/dev/20-task-click-range-selection.md |
 | 2026-06-29 | 记录 `RuntimeConfig`、同级 `filesystem.ini` 解析、`name` 标题覆盖和 `terminal` 终端路径覆盖 | 更新 GUI 启动配置和外部终端启动规则 | docs/dev/21-task-filesystem-ini-config.md |
 | 2026-06-29 | 记录 `BlankMenuCommand`、`[blank-menu.*]` section、空白菜单动态项插入位置和 `{cwd}` argv 参数替换 | 更新 GUI 启动配置、空白菜单和外部命令启动规则 | docs/dev/22-task-blank-menu-custom-commands.md |
+| 2026-06-29 | 记录 `notify` 当前文件夹非递归监听、`CurrentFolderChanged`/`CurrentFolderRefreshReady` 去抖刷新和监听残余风险 | 更新 GUI 订阅和文件系统事件控制流 | docs/dev/23-task-current-folder-auto-refresh.md |

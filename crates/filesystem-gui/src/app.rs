@@ -24,7 +24,9 @@ use iced::{
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+const CURRENT_FOLDER_REFRESH_DELAY: Duration = Duration::from_millis(200);
 
 pub(crate) struct FileManager {
     cwd: PathBuf,
@@ -61,6 +63,7 @@ pub(crate) struct FileManager {
     window_size: Size,
     next_request_id: u64,
     active_request_id: Option<u64>,
+    current_folder_refresh_pending: Option<PathBuf>,
     back_history: Vec<PathBuf>,
     forward_history: Vec<PathBuf>,
     home: Option<PathBuf>,
@@ -115,6 +118,7 @@ impl FileManager {
             window_size: Size::new(WINDOW_INITIAL_WIDTH, WINDOW_INITIAL_HEIGHT),
             next_request_id: 0,
             active_request_id: None,
+            current_folder_refresh_pending: None,
             back_history: Vec::new(),
             forward_history: Vec::new(),
             home,
@@ -878,6 +882,14 @@ impl FileManager {
                 Task::none()
             }
             Message::SearchFinished(request, result) => self.search_finished(request, result),
+            Message::CurrentFolderChanged(path) => self.current_folder_changed(path),
+            Message::CurrentFolderRefreshReady(path) => self.current_folder_refresh_ready(path),
+            Message::CurrentFolderWatchFailed(path, error) => {
+                if path == self.cwd {
+                    self.status = format!("Auto-refresh unavailable: {error}");
+                }
+                Task::none()
+            }
             Message::HomeShortcutsLoaded(shortcuts) => {
                 self.home_shortcuts = shortcuts;
                 Task::none()
@@ -897,6 +909,7 @@ impl FileManager {
             window::resize_events().map(|(_id, size)| Message::WindowResized(size)),
             event::listen_with(keyboard_shortcut_event),
             event::listen_with(selection_modifier_event),
+            watch_current_folder(self.cwd.clone()),
         ])
     }
 
@@ -1797,6 +1810,40 @@ impl FileManager {
         self.search_current_dir(query)
     }
 
+    fn current_folder_changed(&mut self, path: PathBuf) -> Task<Message> {
+        if path != self.cwd || self.current_folder_refresh_pending.is_some() {
+            return Task::none();
+        }
+
+        self.current_folder_refresh_pending = Some(path.clone());
+
+        Task::perform(
+            async move {
+                std::thread::sleep(CURRENT_FOLDER_REFRESH_DELAY);
+                path
+            },
+            Message::CurrentFolderRefreshReady,
+        )
+    }
+
+    fn current_folder_refresh_ready(&mut self, path: PathBuf) -> Task<Message> {
+        if self.current_folder_refresh_pending.as_ref() != Some(&path) {
+            return Task::none();
+        }
+
+        self.current_folder_refresh_pending = None;
+
+        if path != self.cwd {
+            return Task::none();
+        }
+
+        if self.search_query.is_some() {
+            self.rerun_search()
+        } else {
+            self.reload()
+        }
+    }
+
     fn load_path(
         &mut self,
         path: PathBuf,
@@ -1898,6 +1945,7 @@ impl FileManager {
         self.path_input = self.cwd.display().to_string();
         self.search_query = None;
         self.search_root = None;
+        self.current_folder_refresh_pending = None;
         self.clear_selection_state();
         self.status = "Loading entries...".to_string();
     }
@@ -4301,6 +4349,51 @@ mod tests {
         assert!(!manager.selected_paths.contains(&first));
         assert!(manager.selected_paths.contains(&second));
         assert!(manager.clipboard.is_none());
+    }
+
+    #[test]
+    fn current_folder_change_ignores_non_current_path() {
+        let (mut manager, _) = FileManager::new();
+        let other = manager.cwd.join("other");
+
+        let _ = manager.update(Message::CurrentFolderChanged(other));
+
+        assert!(manager.current_folder_refresh_pending.is_none());
+    }
+
+    #[test]
+    fn current_folder_change_schedules_single_pending_refresh() {
+        let (mut manager, _) = FileManager::new();
+        let cwd = manager.cwd.clone();
+
+        let _ = manager.update(Message::CurrentFolderChanged(cwd.clone()));
+        let _ = manager.update(Message::CurrentFolderChanged(cwd.clone()));
+
+        assert_eq!(manager.current_folder_refresh_pending.as_ref(), Some(&cwd));
+    }
+
+    #[test]
+    fn stale_current_folder_refresh_ready_does_not_clear_pending_refresh() {
+        let (mut manager, _) = FileManager::new();
+        let cwd = manager.cwd.clone();
+        manager.current_folder_refresh_pending = Some(cwd.clone());
+
+        let _ = manager.update(Message::CurrentFolderRefreshReady(cwd.join("old")));
+
+        assert_eq!(manager.current_folder_refresh_pending.as_ref(), Some(&cwd));
+    }
+
+    #[test]
+    fn current_folder_refresh_ready_reloads_current_directory() {
+        let (mut manager, _) = FileManager::new();
+        let cwd = manager.cwd.clone();
+        let previous_request = manager.active_request_id;
+        manager.current_folder_refresh_pending = Some(cwd.clone());
+
+        let _ = manager.update(Message::CurrentFolderRefreshReady(cwd));
+
+        assert!(manager.current_folder_refresh_pending.is_none());
+        assert!(manager.active_request_id > previous_request);
     }
 
     #[test]

@@ -9,9 +9,14 @@ use filesystem_core::{
     create_file, create_folder, delete_entry, paste_paths_with_progress, search_file_names,
     DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction, ScanOptions,
 };
-use iced::{futures::channel::mpsc as iced_mpsc, futures::SinkExt, stream, window, Task};
+use iced::{
+    futures::channel::mpsc as iced_mpsc, futures::SinkExt, stream, window, Subscription, Task,
+};
+use notify::event::{AccessKind, AccessMode, MetadataKind, ModifyKind};
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::env;
 use std::fs;
+use std::future;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,6 +26,7 @@ use std::time::Duration;
 
 const DIRECTORY_BATCH_SIZE: usize = 128;
 const DIRECTORY_STREAM_BUFFER: usize = 1024;
+const CURRENT_FOLDER_WATCH_BUFFER: usize = 128;
 
 pub(crate) fn load_home_shortcuts(home: Option<PathBuf>) -> Task<Message> {
     Task::perform(
@@ -31,6 +37,78 @@ pub(crate) fn load_home_shortcuts(home: Option<PathBuf>) -> Task<Message> {
 
 pub(crate) fn load_app_registry_task() -> Task<Message> {
     Task::perform(async { load_app_registry() }, Message::ApplicationsLoaded)
+}
+
+pub(crate) fn watch_current_folder(path: PathBuf) -> Subscription<Message> {
+    Subscription::run_with(path, current_folder_events)
+}
+
+fn current_folder_events(path: &PathBuf) -> impl iced::futures::Stream<Item = Message> {
+    let path = path.clone();
+
+    stream::channel(
+        CURRENT_FOLDER_WATCH_BUFFER,
+        move |mut output: iced_mpsc::Sender<Message>| async move {
+            let watch_path = path.clone();
+            let event_path = path.clone();
+            let mut event_output = output.clone();
+
+            let mut watcher =
+                match notify::recommended_watcher(move |event: notify::Result<Event>| match event {
+                    Ok(event) if should_refresh_for_event(&event) => {
+                        let _ = event_output
+                            .try_send(Message::CurrentFolderChanged(event_path.clone()));
+                    }
+                    Err(error) => {
+                        let _ = event_output.try_send(Message::CurrentFolderWatchFailed(
+                            event_path.clone(),
+                            error.to_string(),
+                        ));
+                    }
+                    _ => {}
+                }) {
+                    Ok(watcher) => watcher,
+                    Err(error) => {
+                        let _ = output
+                            .send(Message::CurrentFolderWatchFailed(
+                                watch_path,
+                                error.to_string(),
+                            ))
+                            .await;
+                        future::pending::<()>().await;
+                        return;
+                    }
+                };
+
+            if let Err(error) = watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
+                let _ = output
+                    .send(Message::CurrentFolderWatchFailed(
+                        watch_path,
+                        error.to_string(),
+                    ))
+                    .await;
+                future::pending::<()>().await;
+                return;
+            }
+
+            let _watcher = watcher;
+            future::pending::<()>().await;
+        },
+    )
+}
+
+fn should_refresh_for_event(event: &Event) -> bool {
+    if event.need_rescan() {
+        return true;
+    }
+
+    match event.kind {
+        EventKind::Any | EventKind::Create(_) | EventKind::Remove(_) => true,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => false,
+        EventKind::Modify(_) => true,
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) | EventKind::Other => false,
+    }
 }
 
 fn detect_home_shortcuts(home: Option<PathBuf>) -> Vec<HomeShortcut> {
