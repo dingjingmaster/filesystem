@@ -3,7 +3,7 @@
 > 文档元数据
 > - 文档版本：v1.0.0
 > - 最后更新：2026-06-29
-> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md、docs/dev/24-task-open-with-default-app.md、docs/dev/25-fix-wps-docx-open.md
+> - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md、docs/dev/24-task-open-with-default-app.md、docs/dev/25-fix-wps-docx-open.md、docs/dev/26-fix-wps-sandbox-prometheus-open.md
 
 ## 1. 产品定位
 
@@ -32,7 +32,7 @@
 | 复制/剪切粘贴进度 | 了解文件操作整体进度并管理单次粘贴 | 用户发起复制或剪切粘贴后，侧栏标题“文件”居中显示，标题右侧显示右对齐圆形总进度，按顺时针填充；总进度完成后中心显示对钩并延时 3 秒消失；点击圆形区域在其下方展开或隐藏详情，详情作为上层 popup 可覆盖到右侧内容上方且不改变侧栏或主区域布局，点击 popup 外部区域会自动隐藏详情；每次粘贴显示独立条形进度、当前文件、速度和 `x` 按钮，不超过 5 条详情时不显示滚动条 | `x` 对运行中的粘贴表示取消该次操作并立即移除对应详情条；对失败、取消或已结束条目表示关闭详情；同一时间最多 3 个文件操作复制线程，更多操作显示为排队并在前序操作结束后启动；跨文件系统剪切会复制成功后删除源路径 |
 | 切换隐藏文件 | 查看或隐藏点号开头文件 | 在地址栏右侧菜单中切换后刷新列表 | 不读取桌面配置服务 |
 | 软链接浏览与打开 | 识别文件/文件夹软链接并处理断链 | 有效文件夹软链接显示文件夹图标加 `icons/symbol.svg` 角标，双击进入目标文件夹；有效文件软链接显示文件图标加 `icons/symbol.svg` 角标，双击打开目标文件；断链显示 `icons/symbol-disconnect.svg` 角标，双击或打开时弹窗提示“软连接 xxx 损坏” | 复制、剪切、重命名、删除仍作用于软链接路径本身；搜索不递归跟随目录软链接 |
-| 打开文件 | 用本地应用处理普通文件 | 双击普通文件或选择“用 xxx 打开”时，优先使用本地配置解析到的默认应用启动；没有默认应用但打开方式列表有候选时，自动选择最匹配的候选应用；启动外部应用前会按 `.desktop` `Exec` 字段码展开参数，并丢弃未知或废弃字段码，WPS Office 本地文件的 `%u/%U` 兼容展开为本地路径；文件类型优先来自后台缓存的内容签名、内置名称/扩展名和系统 shared-mime-info fallback，系统 magic 返回 `application/octet-stream` 等泛型结果时不覆盖明确扩展名 MIME；打开候选合并 `.desktop` `MimeType`、`mimeapps.list` 的 `[Default Applications]` 和通用 `mimeapps.list` 的 `[Added Associations]`，默认应用即使对应 `.desktop` 没有 `MimeType` 也可作为候选，并按通用 `mimeapps.list` 的 `[Removed Associations]` 移除关联；`Makefile`、`Dockerfile`、`README`、`LICENSE`、`.gitignore`、`.desktop`、`.c`、`.cpp`、`.md` 等文本类文件可退到文本编辑器打开；内置识别 `*.wps/*.wpt/*.et/*.ett/*.dps/*.dpt` 等 WPS 原生格式，标准 Office MIME 与同类 WPS Office MIME 在打开候选匹配中互认；“打开方式”弹窗列出可处理该文件类型的应用并默认选中首选应用，应用行左侧显示 APP 图标和名称，右侧显示选中对钩，可勾选“设为默认打开方式”把所选应用保存为当前 MIME 的用户级默认应用 | 不使用 `file` 命令、`xdg-open`、DBus、GVFS、portal 或桌面 MIME 服务；默认应用只写用户级 MIME apps 配置，有当前桌面名时桌面专用文件保存 `[Default Applications]`、通用 `mimeapps.list` 保存 `[Added Associations]`，无桌面名时通用文件保存两者，不写系统配置；APP 无图标或图标找不到时使用 `icons/app.svg`；当前不把需要终端的应用作为打开候选 |
+| 打开文件 | 用本地应用处理普通文件 | 双击普通文件或选择“用 xxx 打开”时，优先使用本地配置解析到的默认应用启动；没有默认应用但打开方式列表有候选时，自动选择最匹配的候选应用；启动外部应用前会按 `.desktop` `Exec` 字段码展开参数，并丢弃未知或废弃字段码，WPS Office 本地文件的 `%u/%U` 兼容展开为本地路径，WPS Writer/表格/演示的 `wps`/`et`/`wpp` 启动器优先走 `wpsoffice /prometheus` 并保留原 `.desktop` 命令 fallback；文件类型优先来自后台缓存的内容签名、内置名称/扩展名和系统 shared-mime-info fallback，系统 magic 返回 `application/octet-stream` 等泛型结果时不覆盖明确扩展名 MIME；打开候选合并 `.desktop` `MimeType`、`mimeapps.list` 的 `[Default Applications]` 和通用 `mimeapps.list` 的 `[Added Associations]`，默认应用即使对应 `.desktop` 没有 `MimeType` 也可作为候选，并按通用 `mimeapps.list` 的 `[Removed Associations]` 移除关联；`Makefile`、`Dockerfile`、`README`、`LICENSE`、`.gitignore`、`.desktop`、`.c`、`.cpp`、`.md` 等文本类文件可退到文本编辑器打开；内置识别 WPS Writer/表格/演示常见原生格式、UOF、OOXML 模板和宏格式，标准 Office MIME 与同类 WPS Office MIME 在打开候选匹配中互认；“打开方式”弹窗列出可处理该文件类型的应用并默认选中首选应用，应用行左侧显示 APP 图标和名称，右侧显示选中对钩，可勾选“设为默认打开方式”把所选应用保存为当前 MIME 的用户级默认应用 | 不使用 `file` 命令、`xdg-open`、DBus、GVFS、portal 或桌面 MIME 服务；默认应用只写用户级 MIME apps 配置，有当前桌面名时桌面专用文件保存 `[Default Applications]`、通用 `mimeapps.list` 保存 `[Added Associations]`，无桌面名时通用文件保存两者，不写系统配置；APP 无图标或图标找不到时使用 `icons/app.svg`；当前不把需要终端的应用作为打开候选 |
 
 ## 4. 核心流程
 
@@ -90,6 +90,7 @@
   - docs/dev/23-task-current-folder-auto-refresh.md：当前打开文件夹自动刷新实现记录。
   - docs/dev/24-task-open-with-default-app.md：打开方式设为默认应用实现记录。
   - docs/dev/25-fix-wps-docx-open.md：WPS 文档和 WPS 原生格式打开兼容修复记录。
+  - docs/dev/26-fix-wps-sandbox-prometheus-open.md：WPS Office 沙盒 Prometheus 入口修复记录。
 
 ## 8. 变更记录
 
@@ -134,3 +135,4 @@
 | 2026-06-29 | 记录当前打开文件夹直接子项变化后自动刷新 | 更新目录浏览用户可见行为 | docs/dev/23-task-current-folder-auto-refresh.md |
 | 2026-06-29 | 记录打开方式弹窗可将选中应用设为当前 MIME 的用户级默认打开方式 | 更新打开文件用户可见行为 | docs/dev/24-task-open-with-default-app.md |
 | 2026-06-29 | 记录无 `MimeType` 默认应用、desktop-specific mimeapps 规则、WPS 原生扩展名识别、WPS `%u/%U` 本地路径兼容，以及 WPS Writer/表格/演示 MIME 家族与标准 Office MIME 在打开候选中互认 | 更新打开文件兼容行为 | docs/dev/25-fix-wps-docx-open.md |
+| 2026-06-29 | 记录 WPS Writer/表格/演示的 `wps`/`et`/`wpp` 启动器优先走 `wpsoffice /prometheus` 并保留原 `.desktop` 命令 fallback | 更新打开文件兼容行为 | docs/dev/26-fix-wps-sandbox-prometheus-open.md |

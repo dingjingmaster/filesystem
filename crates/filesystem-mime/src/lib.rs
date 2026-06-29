@@ -91,30 +91,76 @@ pub fn label_for_mime(mime: &str) -> &'static str {
         "application/pdf" => "PDF Document",
         "application/rtf" => "Rich Text Document",
         "application/msword"
+        | "application/msword-template"
+        | "application/vnd.ms-word"
+        | "application/vnd.ms-word.document.macroEnabled.12"
+        | "application/vnd.ms-word.template.macroEnabled.12"
+        | "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+        | "application/x-msword"
         | "application/wps-office.doc"
         | "application/wps-office.docx"
         | "application/wps-office.dot"
         | "application/wps-office.dotx"
+        | "application/wps-office.uof"
+        | "application/wps-office.uot"
+        | "application/wps-office.uot3"
+        | "application/wps-office.uott"
+        | "application/wps-office.uott3"
         | "application/wps-office.wps"
+        | "application/wps-office.wpsx"
+        | "application/wps-office.wpss"
         | "application/wps-office.wpt"
+        | "application/wps-office.wptx"
+        | "application/wps-office.wpso"
         | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         | "application/vnd.oasis.opendocument.text" => "Document",
-        "application/vnd.ms-excel"
+        "application/msexcel"
+        | "application/vnd.ms-excel"
+        | "application/vnd.ms-excel.sheet.macroEnabled.12"
+        | "application/vnd.ms-excel.template.macroEnabled.12"
+        | "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+        | "application/x-msexcel"
         | "application/wps-office.xls"
         | "application/wps-office.xlsx"
         | "application/wps-office.xlt"
         | "application/wps-office.xltx"
         | "application/wps-office.et"
+        | "application/wps-office.etx"
+        | "application/wps-office.eto"
+        | "application/wps-office.ets"
         | "application/wps-office.ett"
+        | "application/wps-office.ettx"
+        | "application/wps-office.uos"
+        | "application/wps-office.uos3"
+        | "application/wps-office.uost"
+        | "application/wps-office.uost3"
         | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         | "application/vnd.oasis.opendocument.spreadsheet" => "Spreadsheet",
-        "application/vnd.ms-powerpoint"
+        "application/mspowerpoint"
+        | "application/powerpoint"
+        | "application/vnd.ms-powerpoint"
+        | "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+        | "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+        | "application/vnd.ms-powerpoint.template.macroEnabled.12"
+        | "application/vnd.mspowerpoint"
+        | "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+        | "application/vnd.openxmlformats-officedocument.presentationml.template"
+        | "application/x-mspowerpoint"
         | "application/wps-office.ppt"
         | "application/wps-office.pptx"
         | "application/wps-office.pot"
         | "application/wps-office.potx"
         | "application/wps-office.dps"
+        | "application/wps-office.dpsx"
+        | "application/wps-office.dpso"
+        | "application/wps-office.dpss"
         | "application/wps-office.dpt"
+        | "application/wps-office.dptx"
+        | "application/wps-office.uop"
+        | "application/wps-office.uop3"
+        | "application/wps-office.uopt"
+        | "application/wps-office.uopt3"
+        | "application/wps-office.wpp"
         | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         | "application/vnd.oasis.opendocument.presentation" => "Presentation",
         "application/epub+zip" => "EPUB Book",
@@ -320,6 +366,10 @@ fn special_name_mime(lower_name: &str) -> Option<&'static str> {
 }
 
 fn extension_mime(extension: &str) -> Option<&'static str> {
+    if let Some(mime) = office_extension_mime(extension) {
+        return Some(mime);
+    }
+
     match extension {
         "txt" | "text" | "asc" | "nfo" => Some("text/plain"),
         "log" => Some("text/x-log"),
@@ -380,21 +430,6 @@ fn extension_mime(extension: &str) -> Option<&'static str> {
         "zst" => Some("application/zstd"),
         "7z" => Some("application/x-7z-compressed"),
         "rar" => Some("application/vnd.rar"),
-        "doc" => Some("application/msword"),
-        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-        "wps" => Some("application/wps-office.wps"),
-        "wpt" => Some("application/wps-office.wpt"),
-        "odt" => Some("application/vnd.oasis.opendocument.text"),
-        "xls" => Some("application/vnd.ms-excel"),
-        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        "et" => Some("application/wps-office.et"),
-        "ett" => Some("application/wps-office.ett"),
-        "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
-        "ppt" => Some("application/vnd.ms-powerpoint"),
-        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
-        "dps" => Some("application/wps-office.dps"),
-        "dpt" => Some("application/wps-office.dpt"),
-        "odp" => Some("application/vnd.oasis.opendocument.presentation"),
         "epub" => Some("application/epub+zip"),
         "jar" => Some("application/java-archive"),
         "apk" => Some("application/vnd.android.package-archive"),
@@ -402,6 +437,62 @@ fn extension_mime(extension: &str) -> Option<&'static str> {
         "otf" => Some("font/otf"),
         "woff" => Some("font/woff"),
         "woff2" => Some("font/woff2"),
+        _ => None,
+    }
+}
+
+fn office_extension_mime(extension: &str) -> Option<&'static str> {
+    match extension {
+        "doc" => Some("application/msword"),
+        "docm" => Some("application/vnd.ms-word.document.macroEnabled.12"),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "dot" => Some("application/msword-template"),
+        "dotm" => Some("application/vnd.ms-word.template.macroEnabled.12"),
+        "dotx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.template"),
+        "odt" => Some("application/vnd.oasis.opendocument.text"),
+        "rtf" => Some("application/rtf"),
+        "uof" => Some("application/wps-office.uof"),
+        "uot" | "uot3" => Some("application/wps-office.uot3"),
+        "uott" | "uott3" => Some("application/wps-office.uott3"),
+        "wps" | "wpsx" => Some("application/wps-office.wps"),
+        "wpss" => Some("application/wps-office.wpss"),
+        "wpt" | "wptx" => Some("application/wps-office.wpt"),
+        "wpso" => Some("application/wps-office.wpso"),
+
+        "et" | "etx" => Some("application/wps-office.et"),
+        "eto" => Some("application/wps-office.eto"),
+        "ets" => Some("application/wps-office.ets"),
+        "ett" | "ettx" => Some("application/wps-office.ett"),
+        "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
+        "uos" => Some("application/wps-office.uos"),
+        "uos3" => Some("application/wps-office.uos3"),
+        "uost3" => Some("application/wps-office.uost3"),
+        "xls" => Some("application/vnd.ms-excel"),
+        "xlsm" => Some("application/vnd.ms-excel.sheet.macroEnabled.12"),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "xlt" => Some("application/vnd.ms-excel"),
+        "xltm" => Some("application/vnd.ms-excel.template.macroEnabled.12"),
+        "xltx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.template"),
+
+        "dps" | "dpsx" => Some("application/wps-office.dps"),
+        "dpss" => Some("application/wps-office.dpss"),
+        "dpt" | "dptx" => Some("application/wps-office.dpt"),
+        "dpso" => Some("application/wps-office.dpso"),
+        "odp" => Some("application/vnd.oasis.opendocument.presentation"),
+        "pot" => Some("application/vnd.ms-powerpoint"),
+        "potm" => Some("application/vnd.ms-powerpoint.template.macroEnabled.12"),
+        "potx" => Some("application/vnd.openxmlformats-officedocument.presentationml.template"),
+        "pps" => Some("application/vnd.ms-powerpoint"),
+        "ppsm" => Some("application/vnd.ms-powerpoint.slideshow.macroEnabled.12"),
+        "ppsx" => Some("application/vnd.openxmlformats-officedocument.presentationml.slideshow"),
+        "ppt" => Some("application/vnd.ms-powerpoint"),
+        "pptm" => Some("application/vnd.ms-powerpoint.presentation.macroEnabled.12"),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        "uop" => Some("application/wps-office.uop"),
+        "uop3" => Some("application/wps-office.uop3"),
+        "uopt3" => Some("application/wps-office.uopt3"),
+        "wpp" => Some("application/wps-office.wpp"),
+
         _ => None,
     }
 }
@@ -868,14 +959,41 @@ fn zip_container_extension_mime(path: &Path) -> Option<&'static str> {
 
     match extension.as_str() {
         "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-        "wps" => Some("application/wps-office.wps"),
-        "wpt" => Some("application/wps-office.wpt"),
+        "docm" => Some("application/vnd.ms-word.document.macroEnabled.12"),
+        "dotx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.template"),
+        "dotm" => Some("application/vnd.ms-word.template.macroEnabled.12"),
+        "wps" | "wpsx" => Some("application/wps-office.wps"),
+        "wpss" => Some("application/wps-office.wpss"),
+        "wpt" | "wptx" => Some("application/wps-office.wpt"),
+        "wpso" => Some("application/wps-office.wpso"),
+        "uof" => Some("application/wps-office.uof"),
+        "uot" | "uot3" => Some("application/wps-office.uot3"),
+        "uott" | "uott3" => Some("application/wps-office.uott3"),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        "et" => Some("application/wps-office.et"),
-        "ett" => Some("application/wps-office.ett"),
+        "xlsm" => Some("application/vnd.ms-excel.sheet.macroEnabled.12"),
+        "xltx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.template"),
+        "xltm" => Some("application/vnd.ms-excel.template.macroEnabled.12"),
+        "et" | "etx" => Some("application/wps-office.et"),
+        "ett" | "ettx" => Some("application/wps-office.ett"),
+        "ets" => Some("application/wps-office.ets"),
+        "eto" => Some("application/wps-office.eto"),
+        "uos" => Some("application/wps-office.uos"),
+        "uos3" => Some("application/wps-office.uos3"),
+        "uost3" => Some("application/wps-office.uost3"),
         "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
-        "dps" => Some("application/wps-office.dps"),
-        "dpt" => Some("application/wps-office.dpt"),
+        "pptm" => Some("application/vnd.ms-powerpoint.presentation.macroEnabled.12"),
+        "ppsx" => Some("application/vnd.openxmlformats-officedocument.presentationml.slideshow"),
+        "ppsm" => Some("application/vnd.ms-powerpoint.slideshow.macroEnabled.12"),
+        "potx" => Some("application/vnd.openxmlformats-officedocument.presentationml.template"),
+        "potm" => Some("application/vnd.ms-powerpoint.template.macroEnabled.12"),
+        "dps" | "dpsx" => Some("application/wps-office.dps"),
+        "dpss" => Some("application/wps-office.dpss"),
+        "dpt" | "dptx" => Some("application/wps-office.dpt"),
+        "dpso" => Some("application/wps-office.dpso"),
+        "uop" => Some("application/wps-office.uop"),
+        "uop3" => Some("application/wps-office.uop3"),
+        "uopt3" => Some("application/wps-office.uopt3"),
+        "wpp" => Some("application/wps-office.wpp"),
         "odt" => Some("application/vnd.oasis.opendocument.text"),
         "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
         "odp" => Some("application/vnd.oasis.opendocument.presentation"),
@@ -894,14 +1012,41 @@ fn ole_container_extension_mime(path: &Path) -> Option<&'static str> {
 
     match extension.as_str() {
         "doc" => Some("application/msword"),
-        "wps" => Some("application/wps-office.wps"),
-        "wpt" => Some("application/wps-office.wpt"),
+        "docm" => Some("application/vnd.ms-word.document.macroEnabled.12"),
+        "dot" => Some("application/msword-template"),
+        "dotm" => Some("application/vnd.ms-word.template.macroEnabled.12"),
+        "wps" | "wpsx" => Some("application/wps-office.wps"),
+        "wpss" => Some("application/wps-office.wpss"),
+        "wpt" | "wptx" => Some("application/wps-office.wpt"),
+        "wpso" => Some("application/wps-office.wpso"),
+        "uof" => Some("application/wps-office.uof"),
+        "uot" | "uot3" => Some("application/wps-office.uot3"),
+        "uott" | "uott3" => Some("application/wps-office.uott3"),
         "xls" => Some("application/vnd.ms-excel"),
-        "et" => Some("application/wps-office.et"),
-        "ett" => Some("application/wps-office.ett"),
+        "xlsm" => Some("application/vnd.ms-excel.sheet.macroEnabled.12"),
+        "xlt" => Some("application/vnd.ms-excel"),
+        "xltm" => Some("application/vnd.ms-excel.template.macroEnabled.12"),
+        "et" | "etx" => Some("application/wps-office.et"),
+        "ett" | "ettx" => Some("application/wps-office.ett"),
+        "ets" => Some("application/wps-office.ets"),
+        "eto" => Some("application/wps-office.eto"),
+        "uos" => Some("application/wps-office.uos"),
+        "uos3" => Some("application/wps-office.uos3"),
+        "uost3" => Some("application/wps-office.uost3"),
         "ppt" => Some("application/vnd.ms-powerpoint"),
-        "dps" => Some("application/wps-office.dps"),
-        "dpt" => Some("application/wps-office.dpt"),
+        "pptm" => Some("application/vnd.ms-powerpoint.presentation.macroEnabled.12"),
+        "pps" => Some("application/vnd.ms-powerpoint"),
+        "ppsm" => Some("application/vnd.ms-powerpoint.slideshow.macroEnabled.12"),
+        "pot" => Some("application/vnd.ms-powerpoint"),
+        "potm" => Some("application/vnd.ms-powerpoint.template.macroEnabled.12"),
+        "dps" | "dpsx" => Some("application/wps-office.dps"),
+        "dpss" => Some("application/wps-office.dpss"),
+        "dpt" | "dptx" => Some("application/wps-office.dpt"),
+        "dpso" => Some("application/wps-office.dpso"),
+        "uop" => Some("application/wps-office.uop"),
+        "uop3" => Some("application/wps-office.uop3"),
+        "uopt3" => Some("application/wps-office.uopt3"),
+        "wpp" => Some("application/wps-office.wpp"),
         _ => None,
     }
 }
@@ -1093,10 +1238,47 @@ mod tests {
             detect_name("a.docx").mime,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         );
+        assert_eq!(
+            detect_name("a.docm").mime,
+            "application/vnd.ms-word.document.macroEnabled.12"
+        );
         assert_eq!(detect_name("a.wps").mime, "application/wps-office.wps");
+        assert_eq!(detect_name("a.wpsx").mime, "application/wps-office.wps");
+        assert_eq!(detect_name("a.wpso").mime, "application/wps-office.wpso");
+        assert_eq!(detect_name("a.wpss").mime, "application/wps-office.wpss");
+        assert_eq!(detect_name("a.wptx").mime, "application/wps-office.wpt");
+        assert_eq!(detect_name("a.uof").mime, "application/wps-office.uof");
         assert_eq!(detect_name("a.et").mime, "application/wps-office.et");
+        assert_eq!(detect_name("a.etx").mime, "application/wps-office.et");
         assert_eq!(detect_name("a.dps").mime, "application/wps-office.dps");
+        assert_eq!(detect_name("a.dpsx").mime, "application/wps-office.dps");
+        assert_eq!(detect_name("a.wpp").mime, "application/wps-office.wpp");
+        assert_eq!(
+            detect_name("a.xlsx").mime,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        assert_eq!(
+            detect_name("a.xlsm").mime,
+            "application/vnd.ms-excel.sheet.macroEnabled.12"
+        );
+        assert_eq!(detect_name("a.ppt").mime, "application/vnd.ms-powerpoint");
+        assert_eq!(
+            detect_name("a.pptx").mime,
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        );
+        assert_eq!(
+            detect_name("a.ppsx").mime,
+            "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+        );
         assert_eq!(detect_name("a.wps").label, "Document");
+        assert_eq!(detect_name("a.xlsx").label, "Spreadsheet");
+        assert_eq!(detect_name("a.wpp").label, "Presentation");
+        assert_eq!(label_for_mime("application/wps-office.wpsx"), "Document");
+        assert_eq!(label_for_mime("application/wps-office.etx"), "Spreadsheet");
+        assert_eq!(
+            label_for_mime("application/wps-office.dpsx"),
+            "Presentation"
+        );
         assert_eq!(detect_name("a.pdf").label, "PDF Document");
         assert_eq!(detect_name("a.webp").mime, "image/webp");
         assert_eq!(detect_name("a.desktop").mime, "application/x-desktop");
@@ -1126,6 +1308,18 @@ mod tests {
         assert_eq!(
             detect_bytes("a.wps", bytes).mime,
             "application/wps-office.wps"
+        );
+        assert_eq!(
+            detect_bytes("a.xlsx", bytes).mime,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        assert_eq!(
+            detect_bytes("a.pptx", bytes).mime,
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        );
+        assert_eq!(
+            detect_bytes("a.wpp", bytes).mime,
+            "application/wps-office.wpp"
         );
     }
 
@@ -1183,6 +1377,14 @@ mod tests {
             detect_bytes("a.dps", &bytes).mime,
             "application/wps-office.dps"
         );
+        assert_eq!(
+            detect_bytes("a.wpp", &bytes).mime,
+            "application/wps-office.wpp"
+        );
+        assert_eq!(
+            detect_bytes("a.ppsx", &bytes).mime,
+            "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+        );
         assert_eq!(detect_bytes("a.zip", &bytes).mime, "application/zip");
     }
 
@@ -1201,6 +1403,10 @@ mod tests {
         assert_eq!(
             detect_bytes("a.dps", bytes).mime,
             "application/wps-office.dps"
+        );
+        assert_eq!(
+            detect_bytes("a.wpp", bytes).mime,
+            "application/wps-office.wpp"
         );
         assert_eq!(
             detect_bytes("a.bin", bytes).mime,

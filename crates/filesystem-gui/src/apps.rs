@@ -5,7 +5,7 @@ use std::env;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::thread;
 
 pub(crate) fn load_app_registry() -> AppRegistry {
@@ -103,9 +103,35 @@ pub(crate) fn default_app_for_mime(registry: &AppRegistry, mime: &str) -> Option
 }
 
 pub(crate) fn open_file_with_app(path: PathBuf, app: DesktopApp) -> Result<String, String> {
-    let command = build_exec_command(&app, &path)?;
+    let commands = build_exec_commands(&app, &path)?;
+    let mut last_error = None;
+
+    for command in &commands {
+        match spawn_open_command(&path, command) {
+            Ok(mut child) => {
+                thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(app.name);
+            }
+            Err(error) => {
+                last_error = Some(error);
+            }
+        }
+    }
+
+    let error = last_error
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "no executable command".to_string());
+    Err(format!("Failed to open with {}: {error}", app.name))
+}
+
+fn spawn_open_command(path: &Path, command: &[String]) -> std::io::Result<Child> {
     let Some((program, args)) = command.split_first() else {
-        return Err(format!("{} has no executable command", app.name));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "empty executable command",
+        ));
     };
 
     let mut child = Command::new(program);
@@ -114,14 +140,7 @@ pub(crate) fn open_file_with_app(path: PathBuf, app: DesktopApp) -> Result<Strin
         child.current_dir(parent);
     }
 
-    let mut child = child
-        .spawn()
-        .map_err(|error| format!("Failed to open with {}: {error}", app.name))?;
-    thread::spawn(move || {
-        let _ = child.wait();
-    });
-
-    Ok(app.name)
+    child.spawn()
 }
 
 pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
@@ -429,35 +448,82 @@ fn office_mime_family(mime: &str) -> Option<&'static [&'static str]> {
 
 const WPS_WRITER_MIME_FAMILY: &[&str] = &[
     "application/msword",
+    "application/msword-template",
+    "application/rtf",
+    "application/vnd.ms-word.document.macroEnabled.12",
+    "application/vnd.ms-word.template.macroEnabled.12",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    "application/vnd.ms-word",
+    "application/x-msword",
     "application/wps-office.doc",
     "application/wps-office.docx",
     "application/wps-office.dot",
     "application/wps-office.dotx",
+    "application/wps-office.uof",
+    "application/wps-office.uot",
+    "application/wps-office.uot3",
+    "application/wps-office.uott",
+    "application/wps-office.uott3",
     "application/wps-office.wps",
+    "application/wps-office.wpsx",
+    "application/wps-office.wpss",
     "application/wps-office.wpt",
+    "application/wps-office.wptx",
+    "application/wps-office.wpso",
 ];
 
 const WPS_SPREADSHEET_MIME_FAMILY: &[&str] = &[
+    "application/msexcel",
     "application/vnd.ms-excel",
+    "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "application/vnd.ms-excel.template.macroEnabled.12",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+    "application/x-msexcel",
     "application/wps-office.xls",
     "application/wps-office.xlsx",
     "application/wps-office.xlt",
     "application/wps-office.xltx",
     "application/wps-office.et",
+    "application/wps-office.etx",
+    "application/wps-office.eto",
+    "application/wps-office.ets",
     "application/wps-office.ett",
+    "application/wps-office.ettx",
+    "application/wps-office.uos",
+    "application/wps-office.uos3",
+    "application/wps-office.uost",
+    "application/wps-office.uost3",
 ];
 
 const WPS_PRESENTATION_MIME_FAMILY: &[&str] = &[
+    "application/mspowerpoint",
+    "application/powerpoint",
     "application/vnd.ms-powerpoint",
+    "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+    "application/vnd.ms-powerpoint.slideshow.macroEnabled.12",
+    "application/vnd.ms-powerpoint.template.macroEnabled.12",
+    "application/vnd.mspowerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+    "application/vnd.openxmlformats-officedocument.presentationml.template",
+    "application/x-mspowerpoint",
     "application/wps-office.ppt",
     "application/wps-office.pptx",
     "application/wps-office.pot",
     "application/wps-office.potx",
     "application/wps-office.dps",
+    "application/wps-office.dpsx",
+    "application/wps-office.dpso",
+    "application/wps-office.dpss",
     "application/wps-office.dpt",
+    "application/wps-office.dptx",
+    "application/wps-office.uop",
+    "application/wps-office.uop3",
+    "application/wps-office.uopt",
+    "application/wps-office.uopt3",
+    "application/wps-office.wpp",
 ];
 
 fn wps_app_mime_match_score(app: &DesktopApp, mime: &str) -> Option<u8> {
@@ -873,7 +939,25 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
     }
 }
 
+#[cfg(test)]
 fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, String> {
+    build_exec_commands(app, path).map(|mut commands| commands.remove(0))
+}
+
+fn build_exec_commands(app: &DesktopApp, path: &Path) -> Result<Vec<Vec<String>>, String> {
+    let desktop_command = build_desktop_exec_command(app, path)?;
+    let Some(wps_command) = wps_prometheus_command(app, path, &desktop_command) else {
+        return Ok(vec![desktop_command]);
+    };
+
+    if wps_command == desktop_command {
+        return Ok(vec![desktop_command]);
+    }
+
+    Ok(vec![wps_command, desktop_command])
+}
+
+fn build_desktop_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, String> {
     let path_value = path.to_string_lossy();
     let uri_value = if wps_app_mime_family(app).is_some() {
         path_value.as_ref().to_string()
@@ -902,6 +986,46 @@ fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, Stri
     }
 
     Ok(command)
+}
+
+fn wps_prometheus_command(
+    app: &DesktopApp,
+    path: &Path,
+    desktop_command: &[String],
+) -> Option<Vec<String>> {
+    let executable = wps_prometheus_executable(app, desktop_command)?;
+    Some(vec![
+        executable.to_string_lossy().into_owned(),
+        "/prometheus".to_string(),
+        path.to_string_lossy().into_owned(),
+    ])
+}
+
+fn wps_prometheus_executable(app: &DesktopApp, desktop_command: &[String]) -> Option<PathBuf> {
+    wps_app_mime_family(app)?;
+
+    let program = desktop_command.first()?;
+    let program_path = Path::new(program);
+    let program_name = program_path
+        .file_name()
+        .and_then(|name| name.to_str())?
+        .to_ascii_lowercase();
+
+    if !matches!(program_name.as_str(), "wps" | "et" | "wpp") {
+        return None;
+    }
+
+    if program_path.is_absolute()
+        && program_path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "office6")
+    {
+        return program_path.parent().map(|parent| parent.join("wpsoffice"));
+    }
+
+    Some(PathBuf::from("/opt/kingsoft/wps-office/office6/wpsoffice"))
 }
 
 fn expand_exec_token(
@@ -1067,7 +1191,7 @@ mod tests {
     }
 
     #[test]
-    fn build_exec_command_uses_local_paths_for_wps_uri_field_codes() {
+    fn build_exec_command_prefers_prometheus_entry_for_wps_launcher() {
         let app = DesktopApp {
             id: "wps-office-wps.desktop".to_string(),
             name: "WPS Writer".to_string(),
@@ -1079,7 +1203,115 @@ mod tests {
 
         let command = build_exec_command(&app, Path::new("/tmp/a file.wps")).unwrap();
 
-        assert_eq!(command, vec!["/usr/bin/wps", "/tmp/a file.wps"]);
+        assert_eq!(
+            command,
+            vec![
+                "/opt/kingsoft/wps-office/office6/wpsoffice",
+                "/prometheus",
+                "/tmp/a file.wps"
+            ]
+        );
+    }
+
+    #[test]
+    fn build_exec_commands_keep_desktop_wps_launcher_as_fallback() {
+        let app = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "/usr/bin/wps %U".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let commands = build_exec_commands(&app, Path::new("/tmp/a file.wps")).unwrap();
+
+        assert_eq!(
+            commands,
+            vec![
+                vec![
+                    "/opt/kingsoft/wps-office/office6/wpsoffice",
+                    "/prometheus",
+                    "/tmp/a file.wps",
+                ],
+                vec!["/usr/bin/wps", "/tmp/a file.wps"],
+            ]
+        );
+    }
+
+    #[test]
+    fn build_exec_command_uses_sibling_prometheus_entry_for_office6_wps_launcher() {
+        let app = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "/custom/wps-office/office6/wps %f".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let command = build_exec_command(&app, Path::new("/tmp/a file.wps")).unwrap();
+
+        assert_eq!(
+            command,
+            vec![
+                "/custom/wps-office/office6/wpsoffice",
+                "/prometheus",
+                "/tmp/a file.wps"
+            ]
+        );
+    }
+
+    #[test]
+    fn build_exec_command_prefers_prometheus_entry_for_wps_spreadsheets_launcher() {
+        let app = DesktopApp {
+            id: "wps-office-et.desktop".to_string(),
+            name: "WPS Spreadsheets".to_string(),
+            exec: "/usr/bin/et %F".to_string(),
+            mime_types: vec!["application/wps-office.xlsx".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let commands = build_exec_commands(&app, Path::new("/tmp/a file.xlsx")).unwrap();
+
+        assert_eq!(
+            commands,
+            vec![
+                vec![
+                    "/opt/kingsoft/wps-office/office6/wpsoffice",
+                    "/prometheus",
+                    "/tmp/a file.xlsx",
+                ],
+                vec!["/usr/bin/et", "/tmp/a file.xlsx"],
+            ]
+        );
+    }
+
+    #[test]
+    fn build_exec_command_prefers_prometheus_entry_for_wps_presentation_launcher() {
+        let app = DesktopApp {
+            id: "wps-office-wpp.desktop".to_string(),
+            name: "WPS Presentation".to_string(),
+            exec: "/usr/bin/wpp %F".to_string(),
+            mime_types: vec!["application/wps-office.dps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let commands = build_exec_commands(&app, Path::new("/tmp/a file.dps")).unwrap();
+
+        assert_eq!(
+            commands,
+            vec![
+                vec![
+                    "/opt/kingsoft/wps-office/office6/wpsoffice",
+                    "/prometheus",
+                    "/tmp/a file.dps",
+                ],
+                vec!["/usr/bin/wpp", "/tmp/a file.dps"],
+            ]
+        );
     }
 
     #[test]
@@ -1451,6 +1683,49 @@ mod tests {
     }
 
     #[test]
+    fn wps_component_name_fallback_handles_missing_mime_declarations() {
+        let spreadsheet = DesktopApp {
+            id: "wps-office-et.desktop".to_string(),
+            name: "WPS Spreadsheets".to_string(),
+            exec: "/usr/bin/et %f".to_string(),
+            mime_types: Vec::new(),
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let presentation = DesktopApp {
+            id: "wps-office-wpp.desktop".to_string(),
+            name: "WPS Presentation".to_string(),
+            exec: "/usr/bin/wpp %f".to_string(),
+            mime_types: Vec::new(),
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let registry = AppRegistry {
+            apps: vec![spreadsheet, presentation],
+            defaults: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            apps_for_mime(
+                &registry,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            .first()
+            .map(|app| app.id.as_str()),
+            Some("wps-office-et.desktop")
+        );
+        assert_eq!(
+            apps_for_mime(
+                &registry,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+            .first()
+            .map(|app| app.id.as_str()),
+            Some("wps-office-wpp.desktop")
+        );
+    }
+
+    #[test]
     fn desktop_specific_mimeapps_ignores_added_and_removed_associations() {
         let mut mimeapps = MimeApps::default();
         merge_mimeapps_contents(
@@ -1496,6 +1771,15 @@ mod tests {
                 assert!(candidates.contains(mime));
             }
         }
+
+        assert!(mimes_are_equivalent(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/wps-office.ets",
+        ));
+        assert!(mimes_are_equivalent(
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/wps-office.wpp",
+        ));
     }
 
     #[test]
