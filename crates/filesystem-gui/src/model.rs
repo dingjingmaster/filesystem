@@ -19,14 +19,16 @@ pub(crate) enum Message {
     PathSubmit,
     SelectEntry(PathBuf),
     SelectionModifiersChanged(SelectionModifiers),
-    BrowserPointerMoved(Point),
-    BrowserPressed,
-    BrowserReleased,
-    BrowserRightPressed,
-    BrowserScrolled(f32),
+    BrowserPointerMoved(u64, Point),
+    BrowserPressed(u64),
+    BrowserReleased(u64),
+    BrowserRightPressed(u64),
+    BrowserScrolled(u64, f32),
     WindowResized(Size),
     ContextNewFile,
     ContextNewFolder,
+    ContextToggleTemplateSubmenu,
+    ContextNewTemplateFile(usize),
     ContextPaste,
     ContextSelectAll,
     ContextOpenTerminal,
@@ -54,12 +56,14 @@ pub(crate) enum Message {
     ConfirmDelete(Vec<PathBuf>),
     DeleteFinished(DeleteEntriesOutcome),
     ApplicationsLoaded(AppRegistry),
+    TemplateFilesLoaded(Vec<TemplateFile>),
     OpenWithSelect(String),
     OpenWithSetDefault(bool),
     OpenWithCancel,
     OpenWithOpen,
     OpenFileFinished(Result<OpenFileOutcome, String>),
     CreateFinished(NewEntryKind, Result<PathBuf, FsError>),
+    TemplateCreateFinished(Result<PathBuf, FsError>),
     RenameEditorAction(text_editor::Action),
     RenameSubmit,
     RenameFinished(Result<PathBuf, FsError>),
@@ -119,6 +123,12 @@ pub(crate) enum ViewMode {
 pub(crate) enum NewEntryKind {
     File,
     Folder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TemplateFile {
+    pub(crate) label: String,
+    pub(crate) path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -322,7 +332,7 @@ pub(crate) struct DirectoryRequest {
 
 #[derive(Debug, Clone)]
 pub(crate) enum DirectoryLoadEvent {
-    Started(PathBuf),
+    Started,
     Batch(Vec<DisplayEntry>),
     Finished { total: usize },
     Failed(FsError),

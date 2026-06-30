@@ -150,6 +150,10 @@ pub(crate) fn context_menu(theme: &Theme) -> container_style::Style {
     menu_panel(theme)
 }
 
+pub(crate) fn entry_tooltip(theme: &Theme) -> container_style::Style {
+    menu_panel(theme)
+}
+
 pub(crate) fn file_operation_panel(_theme: &Theme) -> container_style::Style {
     container_style::Style::default()
         .background(Color::from_rgb(0.12, 0.12, 0.14))

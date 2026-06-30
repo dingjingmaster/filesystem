@@ -57,7 +57,7 @@ pub struct DirectoryListing {
     pub entries: Vec<FileEntry>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ScanOptions {
     pub show_hidden: bool,
 }
@@ -171,12 +171,6 @@ pub struct FileProperties {
 pub struct ChildPathLimits {
     pub name_bytes: Option<usize>,
     pub path_bytes: Option<usize>,
-}
-
-impl Default for ScanOptions {
-    fn default() -> Self {
-        Self { show_hidden: false }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -376,6 +370,56 @@ pub fn create_folder(
     let path = unique_child_path(parent, preferred_name.as_ref())?;
 
     fs::create_dir(&path).map_err(|error| FsError::from_io(&path, error))?;
+
+    Ok(path)
+}
+
+pub fn create_file_from_template(
+    parent: impl AsRef<Path>,
+    template: impl AsRef<Path>,
+) -> Result<PathBuf, FsError> {
+    let parent = parent.as_ref();
+    let template = template.as_ref();
+    ensure_directory(parent)?;
+
+    let metadata = fs::metadata(template).map_err(|error| FsError::from_io(template, error))?;
+    if !metadata.is_file() {
+        return Err(FsError::from_message(
+            template,
+            io::ErrorKind::InvalidInput,
+            "template is not a file",
+        ));
+    }
+
+    let name = template
+        .file_name()
+        .ok_or_else(|| {
+            FsError::from_message(
+                template,
+                io::ErrorKind::InvalidInput,
+                "missing template name",
+            )
+        })?
+        .to_string_lossy();
+    let path = unique_child_path(parent, &name)?;
+    let mut reader = File::open(template).map_err(|error| FsError::from_io(template, error))?;
+    let mut writer = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| FsError::from_io(&path, error))?;
+
+    if let Err(error) = io::copy(&mut reader, &mut writer) {
+        drop(writer);
+        cleanup_partial_target(&path);
+        return Err(FsError::from_io(&path, error));
+    }
+    drop(writer);
+
+    if let Err(error) = fs::set_permissions(&path, metadata.permissions()) {
+        cleanup_partial_target(&path);
+        return Err(FsError::from_io(&path, error));
+    }
 
     Ok(path)
 }
@@ -1199,7 +1243,7 @@ fn free_space(path: &Path) -> Result<u64, FsError> {
     }
 
     let stats = unsafe { stats.assume_init() };
-    Ok(stats.f_bavail as u64 * stats.f_frsize as u64)
+    Ok(stats.f_bavail * stats.f_frsize)
 }
 
 fn pathconf_limit(path: &CString, name: libc::c_int) -> Option<usize> {
@@ -1466,6 +1510,37 @@ mod tests {
             Some("新建文件夹 1")
         );
         assert!(folder.is_dir());
+    }
+
+    #[test]
+    fn create_file_from_template_copies_content_and_uses_unique_name() {
+        let fixture = TempDir::new("create-template");
+        let templates = fixture.path().join("Templates");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&templates).unwrap();
+        fs::create_dir(&destination).unwrap();
+        let template = templates.join("Report.txt");
+        fs::write(&template, b"template content").unwrap();
+        fs::write(destination.join("Report.txt"), b"existing").unwrap();
+
+        let created = create_file_from_template(&destination, &template).unwrap();
+
+        assert_eq!(
+            created.file_name().and_then(OsStr::to_str),
+            Some("Report 1.txt")
+        );
+        assert_eq!(fs::read(created).unwrap(), b"template content");
+    }
+
+    #[test]
+    fn create_file_from_template_rejects_directories() {
+        let fixture = TempDir::new("create-template-directory");
+        let template = fixture.path().join("Folder Template");
+        fs::create_dir(&template).unwrap();
+
+        let error = create_file_from_template(fixture.path(), &template).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]

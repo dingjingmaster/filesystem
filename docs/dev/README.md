@@ -61,3 +61,5 @@
 | 24 | 2026-06-29 | L2 | task | [24-task-open-with-default-app.md](24-task-open-with-default-app.md) | 已完成 | 打开方式弹窗支持勾选设为默认打开方式，写入当前桌面优先的用户级 MIME apps 配置并同步当前进程默认应用。 |
 | 25 | 2026-06-29 | L3 | fix | [25-fix-wps-docx-open.md](25-fix-wps-docx-open.md) | 已完成 | 远端 GUI 双击和 strace 取证修复 WPS 默认打开差异：支持无 MimeType 默认应用、按 GIO 规则处理 desktop-specific mimeapps、保留 WPS 扩展名 MIME、WPS `%U` 传本地路径并回收外部应用 wrapper 子进程。 |
 | 26 | 2026-06-29 | L2 | fix | [26-fix-wps-sandbox-prometheus-open.md](26-fix-wps-sandbox-prometheus-open.md) | 已完成 | 修复沙盒内 WPS Writer/表格/演示配置缺少 Prometheus 模式时无法打开文档的问题，对 `wps`/`et`/`wpp` 优先直接启动 `wpsoffice /prometheus` 并保留 `.desktop` 命令 fallback。 |
+| 27 | 2026-06-29 | L2 | task | [27-task-template-file-menu.md](27-task-template-file-menu.md) | 已完成 | 空白处右键菜单支持按 XDG 模板目录显示“新建模板文件”子菜单，选择模板后复制到当前目录并进入重命名。 |
+| 28 | 2026-06-29 | L2 | fix | [28-fix-file-view-refresh-name-template.md](28-fix-file-view-refresh-name-template.md) | 已完成 | 修复目录切换回退残影、长文件名中间省略和模板子菜单去扩展名显示。 |

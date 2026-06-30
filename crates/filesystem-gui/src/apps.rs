@@ -85,13 +85,13 @@ pub(crate) fn best_app_for_mime(registry: &AppRegistry, mime: &str) -> Option<De
 }
 
 pub(crate) fn default_app_for_mime(registry: &AppRegistry, mime: &str) -> Option<DesktopApp> {
-    for candidate_mime in default_mime_candidates(&mime) {
+    for candidate_mime in default_mime_candidates(mime) {
         if let Some(defaults) = registry.defaults.get(candidate_mime) {
             for id in defaults {
                 if let Some(app) = registry
                     .apps
                     .iter()
-                    .find(|app| &app.id == id && app_supports_mime(app, mime))
+                    .find(|app| app.id.as_str() == id.as_str() && app_supports_mime(app, mime))
                 {
                     return Some(app.clone());
                 }

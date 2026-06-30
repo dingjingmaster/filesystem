@@ -15,7 +15,7 @@ use filesystem_mime::{detect_name, MimeInfo};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, checkbox, column, container, mouse_area, operation, progress_bar, row, scrollable,
-    space, stack, text, text_editor, text_input,
+    space, stack, text, text_editor, text_input, tooltip,
 };
 use iced::{
     event, keyboard, mouse, window, Element, Fill, Length, Padding, Point, Rectangle, Size,
@@ -23,10 +23,11 @@ use iced::{
 };
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const CURRENT_FOLDER_REFRESH_DELAY: Duration = Duration::from_millis(200);
+const TEMPLATE_SUBMENU_WIDTH: f32 = 220.0;
 
 pub(crate) struct FileManager {
     cwd: PathBuf,
@@ -40,6 +41,7 @@ pub(crate) struct FileManager {
     view_mode: ViewMode,
     menu_open: bool,
     view_submenu_open: bool,
+    template_submenu_open: bool,
     context_menu: Option<ContextMenuState>,
     clipboard: Option<ClipboardState>,
     file_operations: BTreeMap<u64, FileOperationState>,
@@ -57,8 +59,11 @@ pub(crate) struct FileManager {
     selection_anchor: Option<PathBuf>,
     selection_modifiers: SelectionModifiers,
     selection_drag: Option<SelectionDrag>,
+    browser_generation: u64,
     browser_pointer: Option<Point>,
     browser_scroll_y: f32,
+    browser_scroll_id: iced::widget::Id,
+    browser_content_id: iced::widget::Id,
     browser_width: f32,
     window_size: Size,
     next_request_id: u64,
@@ -68,6 +73,7 @@ pub(crate) struct FileManager {
     forward_history: Vec<PathBuf>,
     home: Option<PathBuf>,
     home_shortcuts: Vec<HomeShortcut>,
+    template_files: Vec<TemplateFile>,
     app_registry: AppRegistry,
     open_with_dialog: Option<OpenWithDialog>,
 }
@@ -82,6 +88,7 @@ impl FileManager {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let shortcuts_task = load_home_shortcuts(home.clone());
+        let template_files_task = load_template_files_task(home.clone());
         let app_registry_task = load_app_registry_task();
         let mut manager = Self {
             cwd,
@@ -95,6 +102,7 @@ impl FileManager {
             view_mode: ViewMode::Icons,
             menu_open: false,
             view_submenu_open: false,
+            template_submenu_open: false,
             context_menu: None,
             clipboard: None,
             file_operations: BTreeMap::new(),
@@ -112,8 +120,11 @@ impl FileManager {
             selection_anchor: None,
             selection_modifiers: SelectionModifiers::default(),
             selection_drag: None,
+            browser_generation: 0,
             browser_pointer: None,
             browser_scroll_y: 0.0,
+            browser_scroll_id: iced::widget::Id::new("browser-scroll"),
+            browser_content_id: iced::widget::Id::new("browser-content"),
             browser_width: browser_width_from_window(WINDOW_INITIAL_WIDTH),
             window_size: Size::new(WINDOW_INITIAL_WIDTH, WINDOW_INITIAL_HEIGHT),
             next_request_id: 0,
@@ -123,13 +134,14 @@ impl FileManager {
             forward_history: Vec::new(),
             home,
             home_shortcuts: Vec::new(),
+            template_files: Vec::new(),
             app_registry: AppRegistry::default(),
             open_with_dialog: None,
         };
         let task = manager.reload();
         (
             manager,
-            Task::batch([task, shortcuts_task, app_registry_task]),
+            Task::batch([task, shortcuts_task, template_files_task, app_registry_task]),
         )
     }
 
@@ -190,7 +202,11 @@ impl FileManager {
                 self.selection_modifiers = modifiers;
                 Task::none()
             }
-            Message::BrowserPointerMoved(position) => {
+            Message::BrowserPointerMoved(generation, position) => {
+                if generation != self.browser_generation {
+                    return Task::none();
+                }
+
                 self.browser_pointer = Some(position);
                 if let Some(drag) = &mut self.selection_drag {
                     drag.current = position;
@@ -198,7 +214,11 @@ impl FileManager {
                 }
                 Task::none()
             }
-            Message::BrowserPressed => {
+            Message::BrowserPressed(generation) => {
+                if generation != self.browser_generation {
+                    return Task::none();
+                }
+
                 if self.rename_state.is_some() {
                     return self.submit_rename();
                 }
@@ -213,19 +233,28 @@ impl FileManager {
                 }
                 Task::none()
             }
-            Message::BrowserReleased => {
+            Message::BrowserReleased(generation) => {
+                if generation != self.browser_generation {
+                    return Task::none();
+                }
+
                 if self.selection_drag.is_some() {
                     self.select_entries_in_drag_rect();
                     self.selection_drag = None;
                 }
                 Task::none()
             }
-            Message::BrowserRightPressed => {
+            Message::BrowserRightPressed(generation) => {
+                if generation != self.browser_generation {
+                    return Task::none();
+                }
+
                 if self.rename_state.is_some() {
                     return self.submit_rename();
                 }
                 self.menu_open = false;
                 self.view_submenu_open = false;
+                self.template_submenu_open = false;
                 self.selection_drag = None;
 
                 self.context_menu = self.browser_pointer.and_then(|position| {
@@ -244,9 +273,17 @@ impl FileManager {
                     }
                 });
 
-                Task::none()
+                if matches!(self.context_menu, Some(ContextMenuState::Blank(_))) {
+                    load_template_files_task(self.home.clone())
+                } else {
+                    Task::none()
+                }
             }
-            Message::BrowserScrolled(offset_y) => {
+            Message::BrowserScrolled(generation, offset_y) => {
+                if generation != self.browser_generation {
+                    return Task::none();
+                }
+
                 self.browser_scroll_y = offset_y;
                 if self.selection_drag.is_some() {
                     self.select_entries_in_drag_rect();
@@ -277,6 +314,22 @@ impl FileManager {
                 self.close_menu();
                 self.status = "Creating folder...".to_string();
                 create_entry_task(self.cwd.clone(), NewEntryKind::Folder)
+            }
+            Message::ContextToggleTemplateSubmenu => {
+                self.template_submenu_open = !self.template_submenu_open;
+                Task::none()
+            }
+            Message::ContextNewTemplateFile(index) => {
+                if self.rename_state.is_some() {
+                    return self.submit_rename();
+                }
+                let Some(template) = self.template_files.get(index).cloned() else {
+                    self.status = "Template file is unavailable".to_string();
+                    return Task::none();
+                };
+                self.close_menu();
+                self.status = format!("Creating {}...", template.label);
+                create_template_file_task(self.cwd.clone(), template.path)
             }
             Message::ContextPaste => {
                 if self.rename_state.is_some() {
@@ -566,6 +619,13 @@ impl FileManager {
                 self.app_registry = registry;
                 Task::none()
             }
+            Message::TemplateFilesLoaded(files) => {
+                self.template_files = files;
+                if self.template_files.is_empty() {
+                    self.template_submenu_open = false;
+                }
+                Task::none()
+            }
             Message::OpenWithSelect(app_id) => {
                 if let Some(dialog) = &mut self.open_with_dialog {
                     dialog.selected_app_id = Some(app_id);
@@ -637,6 +697,25 @@ impl FileManager {
                         NewEntryKind::File => "File created; enter a new name".to_string(),
                         NewEntryKind::Folder => "Folder created; enter a new name".to_string(),
                     };
+                    self.reload()
+                }
+                Err(error) => {
+                    self.status = error.to_string();
+                    Task::none()
+                }
+            },
+            Message::TemplateCreateFinished(result) => match result {
+                Ok(path) => {
+                    let value = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let limits = path
+                        .parent()
+                        .and_then(|parent| child_path_limits(parent).ok())
+                        .unwrap_or_default();
+                    self.rename_state = Some(RenameState::new(path.clone(), value, limits));
+                    self.status = "Template file created; enter a new name".to_string();
                     self.reload()
                 }
                 Err(error) => {
@@ -1396,29 +1475,34 @@ impl FileManager {
     }
 
     fn browser_view(&self) -> Element<'_, Message> {
+        let generation = self.browser_generation;
         let content = match self.view_mode {
             ViewMode::Icons => self.grid(),
             ViewMode::List => self.list(),
         };
 
         let content = mouse_area(content)
-            .on_move(Message::BrowserPointerMoved)
-            .on_press(Message::BrowserPressed)
-            .on_release(Message::BrowserReleased)
-            .on_right_press(Message::BrowserRightPressed);
+            .on_move(move |position| Message::BrowserPointerMoved(generation, position))
+            .on_press(Message::BrowserPressed(generation))
+            .on_release(Message::BrowserReleased(generation))
+            .on_right_press(Message::BrowserRightPressed(generation));
 
-        stack([
-            content.into(),
-            self.selection_overlay(),
-            self.rename_overlay(),
-            self.context_menu_overlay(),
-        ])
-        .height(Fill)
-        .width(Fill)
+        container(
+            stack([
+                content.into(),
+                self.selection_overlay(),
+                self.rename_overlay(),
+                self.context_menu_overlay(),
+            ])
+            .height(Fill)
+            .width(Fill),
+        )
+        .id(self.browser_content_id())
         .into()
     }
 
     fn grid(&self) -> Element<'_, Message> {
+        let generation = self.browser_generation;
         let columns = self.icon_grid_columns();
         let mut rows = column![]
             .spacing(0)
@@ -1484,7 +1568,10 @@ impl FileManager {
 
         let view = column![
             scrollable(rows)
-                .on_scroll(|viewport| Message::BrowserScrolled(viewport.absolute_offset().y))
+                .id(self.browser_scroll_id())
+                .on_scroll(move |viewport| {
+                    Message::BrowserScrolled(generation, viewport.absolute_offset().y)
+                })
                 .height(Fill)
                 .width(Fill),
             footer
@@ -1500,6 +1587,7 @@ impl FileManager {
     }
 
     fn list(&self) -> Element<'_, Message> {
+        let generation = self.browser_generation;
         let mut rows = column![self.list_header()].spacing(0).padding(
             Padding::default()
                 .top(LIST_PADDING_TOP)
@@ -1553,7 +1641,10 @@ impl FileManager {
 
         let view = column![
             scrollable(rows)
-                .on_scroll(|viewport| Message::BrowserScrolled(viewport.absolute_offset().y))
+                .id(self.browser_scroll_id())
+                .on_scroll(move |viewport| {
+                    Message::BrowserScrolled(generation, viewport.absolute_offset().y)
+                })
                 .height(Fill)
                 .width(Fill),
             footer
@@ -1592,9 +1683,11 @@ impl FileManager {
         let size = entry_size(&entry.file);
         let owner = entry_owner(&entry.file);
         let modified = format_modified(entry.file.modified);
+        let display_name = self.entry_display_name(entry);
+        let short_display_name = short_list_text(&display_name);
         let name_cell = list_name_cell(
             entry,
-            short_list_text(&self.entry_display_name(entry)),
+            short_display_name.clone(),
             Length::FillPortion(5),
             cut,
         );
@@ -1615,17 +1708,20 @@ impl FileManager {
             .padding([0, 14])
             .style(move |_| style::list_row_container(selected, cut));
 
-        mouse_area(row)
+        let item = mouse_area(row)
             .interaction(mouse::Interaction::Pointer)
             .on_press(Message::SelectEntry(entry.file.path.clone()))
-            .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind))
-            .into()
+            .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind));
+
+        entry_name_tooltip(item, display_name, short_display_name)
     }
 
     fn tile(&self, entry: &DisplayEntry) -> Element<'_, Message> {
         let selected = self.is_selected(entry);
         let cut = self.is_cut_path(&entry.file.path);
-        let name: Element<'_, Message> = text(short_name(&entry.file.name))
+        let display_name = entry.file.name.clone();
+        let short_display_name = short_name(&display_name);
+        let name: Element<'_, Message> = text(short_display_name.clone())
             .size(15)
             .width(TILE_WIDTH)
             .align_x(Horizontal::Center)
@@ -1657,11 +1753,12 @@ impl FileManager {
             .padding(8)
             .style(move |_| style::tile_container(selected, cut));
 
-        mouse_area(tile)
+        let item = mouse_area(tile)
             .interaction(mouse::Interaction::Pointer)
             .on_press(Message::SelectEntry(entry.file.path.clone()))
-            .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind))
-            .into()
+            .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind));
+
+        entry_name_tooltip(item, display_name, short_display_name)
     }
 
     fn nav_item(
@@ -1884,6 +1981,7 @@ impl FileManager {
             previous,
         };
 
+        self.clear_for_new_directory(&request);
         self.active_request_id = Some(id);
         self.status = format!("Loading {}...", path.display());
 
@@ -1900,9 +1998,9 @@ impl FileManager {
         }
 
         match event {
-            DirectoryLoadEvent::Started(path) => {
-                self.directory_started(request, path);
-                Task::none()
+            DirectoryLoadEvent::Started => {
+                self.directory_started(request);
+                self.reset_browser_scroll()
             }
             DirectoryLoadEvent::Batch(entries) => {
                 let files = entries
@@ -1936,7 +2034,7 @@ impl FileManager {
         }
     }
 
-    fn directory_started(&mut self, request: DirectoryRequest, path: PathBuf) {
+    fn directory_started(&mut self, request: DirectoryRequest) {
         match request.mode {
             DirectoryLoadMode::Replace => {}
             DirectoryLoadMode::Visit => {
@@ -1962,15 +2060,37 @@ impl FileManager {
                 }
             }
         }
+    }
 
-        self.cwd = path;
+    fn clear_for_new_directory(&mut self, request: &DirectoryRequest) {
+        self.cwd = request.path.clone();
         self.entries.clear();
         self.path_input = self.cwd.display().to_string();
+        self.menu_open = false;
+        self.view_submenu_open = false;
+        self.template_submenu_open = false;
+        self.context_menu = None;
+        self.open_with_dialog = None;
+        self.properties_dialog = None;
+        self.properties_drag = None;
+        self.properties_pointer = None;
+        self.delete_confirm = None;
+        self.alert_dialog = None;
         self.search_query = None;
         self.search_root = None;
         self.current_folder_refresh_pending = None;
         self.clear_selection_state();
-        self.status = "Loading entries...".to_string();
+        self.browser_scroll_y = 0.0;
+        self.browser_pointer = None;
+        self.browser_generation = self.browser_generation.wrapping_add(1);
+        self.browser_scroll_id = iced::widget::Id::unique();
+        self.browser_content_id = iced::widget::Id::unique();
+        self.status = match request.mode {
+            DirectoryLoadMode::Replace => "Reloading entries...".to_string(),
+            DirectoryLoadMode::Visit => "Loading entries...".to_string(),
+            DirectoryLoadMode::Back => "Loading previous path...".to_string(),
+            DirectoryLoadMode::Forward => "Loading next path...".to_string(),
+        };
     }
 
     fn search_finished(
@@ -2336,8 +2456,12 @@ impl FileManager {
     }
 
     fn context_menu_position(&self, position: Point) -> Point {
+        self.context_menu_position_for_width(position, CONTEXT_MENU_WIDTH)
+    }
+
+    fn context_menu_position_for_width(&self, position: Point, width: f32) -> Point {
         Point::new(
-            self.clamped_overlay_x(position.x, CONTEXT_MENU_WIDTH),
+            self.clamped_overlay_x(position.x, width),
             position.y.max(0.0),
         )
     }
@@ -2372,10 +2496,13 @@ impl FileManager {
         };
 
         let (position, menu): (Point, Element<'_, Message>) = match menu_state {
-            ContextMenuState::Blank(position) => (
-                self.context_menu_position(*position),
-                self.blank_context_menu(),
-            ),
+            ContextMenuState::Blank(position) => {
+                let width = self.blank_context_menu_width();
+                (
+                    self.context_menu_position_for_width(*position, width),
+                    self.blank_context_menu(),
+                )
+            }
             ContextMenuState::Folder { position, path } => (
                 self.context_menu_position(*position),
                 self.folder_context_menu(path.clone()),
@@ -2407,20 +2534,49 @@ impl FileManager {
         .into()
     }
 
+    fn blank_context_menu_width(&self) -> f32 {
+        if self.template_submenu_open && !self.template_files.is_empty() {
+            CONTEXT_MENU_WIDTH + 6.0 + TEMPLATE_SUBMENU_WIDTH
+        } else {
+            CONTEXT_MENU_WIDTH
+        }
+    }
+
     fn blank_context_menu(&self) -> Element<'_, Message> {
+        let mut panels = row![self.blank_context_menu_panel()]
+            .spacing(6)
+            .align_y(iced::Alignment::Start);
+
+        if self.template_submenu_open && !self.template_files.is_empty() {
+            panels = panels.push(self.template_context_submenu());
+        }
+
+        panels.into()
+    }
+
+    fn blank_context_menu_panel(&self) -> Element<'_, Message> {
         let mut menu = column![
             context_menu_item("新建文件", Message::ContextNewFile),
             context_menu_item("新建文件夹", Message::ContextNewFolder),
-            context_menu_separator(),
-            context_menu_item("粘贴", Message::ContextPaste),
-            context_menu_item("全选", Message::ContextSelectAll),
-            context_menu_separator(),
-            context_menu_item("在终端打开", Message::ContextOpenTerminal),
-            context_menu_separator(),
         ]
         .spacing(2)
         .align_x(iced::Alignment::Start)
         .padding(6);
+
+        if !self.template_files.is_empty() {
+            menu = menu.push(self.template_menu_item());
+        }
+
+        menu = menu
+            .push(context_menu_separator())
+            .push(context_menu_item("粘贴", Message::ContextPaste))
+            .push(context_menu_item("全选", Message::ContextSelectAll))
+            .push(context_menu_separator())
+            .push(context_menu_item(
+                "在终端打开",
+                Message::ContextOpenTerminal,
+            ))
+            .push(context_menu_separator());
 
         for (index, command) in self.runtime_config.blank_menu_commands.iter().enumerate() {
             menu = menu.push(context_menu_item_owned(
@@ -2437,6 +2593,47 @@ impl FileManager {
 
         container(menu)
             .width(CONTEXT_MENU_WIDTH)
+            .style(style::context_menu)
+            .into()
+    }
+
+    fn template_menu_item(&self) -> Element<'_, Message> {
+        let content = container(
+            row![
+                text("新建模板文件").size(14).style(style::primary_text),
+                space().width(Fill),
+                text("›").size(17).style(style::muted_text),
+            ]
+            .align_y(iced::Center)
+            .width(Fill),
+        )
+        .height(Fill)
+        .width(Fill)
+        .align_y(Vertical::Center);
+
+        button(content)
+            .height(32)
+            .width(Fill)
+            .padding([0, 10])
+            .style(move |theme, status| {
+                style::menu_button(theme, status, self.template_submenu_open)
+            })
+            .on_press(Message::ContextToggleTemplateSubmenu)
+            .into()
+    }
+
+    fn template_context_submenu(&self) -> Element<'_, Message> {
+        let mut menu = column![].spacing(2).padding(6);
+
+        for (index, template) in self.template_files.iter().enumerate() {
+            menu = menu.push(context_menu_item_owned(
+                template.label.clone(),
+                Message::ContextNewTemplateFile(index),
+            ));
+        }
+
+        container(menu)
+            .width(TEMPLATE_SUBMENU_WIDTH)
             .style(style::context_menu)
             .into()
     }
@@ -2849,7 +3046,7 @@ impl FileManager {
             .into()
     }
 
-    fn properties_loading(&self, path: &PathBuf) -> Element<'_, Message> {
+    fn properties_loading(&self, path: &Path) -> Element<'_, Message> {
         container(
             column![
                 text(path.display().to_string())
@@ -3140,7 +3337,7 @@ impl FileManager {
             return;
         }
 
-        let current_mode = dialog.permissions_mode.or_else(|| match &dialog.state {
+        let current_mode = dialog.permissions_mode.or(match &dialog.state {
             PropertiesState::Loaded(properties) => properties.mode,
             _ => None,
         });
@@ -3315,11 +3512,11 @@ impl FileManager {
 
     fn entry_is_broken_symlink(entry: &DisplayEntry) -> bool {
         matches!(entry.file.kind, EntryKind::Symlink)
-            && !entry
+            && entry
                 .file
                 .symlink_target
                 .as_ref()
-                .is_some_and(|target| !target.broken)
+                .is_none_or(|target| target.broken)
     }
 
     fn entry_open_path(entry: &DisplayEntry) -> PathBuf {
@@ -3606,7 +3803,7 @@ impl FileManager {
     ) -> Task<Message> {
         self.active_file_operation_ids.remove(&operation_id);
 
-        if self.file_operations.get(&operation_id).is_none()
+        if !self.file_operations.contains_key(&operation_id)
             && self.dismissed_file_operations.remove(&operation_id)
         {
             return Task::batch(vec![self.reload(), self.start_queued_file_operations()]);
@@ -3773,6 +3970,19 @@ impl FileManager {
         operation::focus(rename_input_id())
     }
 
+    fn reset_browser_scroll(&mut self) -> Task<Message> {
+        self.browser_scroll_y = 0.0;
+        operation::snap_to(self.browser_scroll_id(), operation::RelativeOffset::START)
+    }
+
+    fn browser_scroll_id(&self) -> iced::widget::Id {
+        self.browser_scroll_id.clone()
+    }
+
+    fn browser_content_id(&self) -> iced::widget::Id {
+        self.browser_content_id.clone()
+    }
+
     fn pointer_over_entry(&self, position: Point) -> bool {
         self.entry_at_position(position).is_some()
     }
@@ -3822,6 +4032,7 @@ impl FileManager {
     fn close_menu(&mut self) {
         self.menu_open = false;
         self.view_submenu_open = false;
+        self.template_submenu_open = false;
         self.context_menu = None;
     }
 }
@@ -3954,6 +4165,31 @@ fn selected_paths_label(paths: &[PathBuf]) -> String {
     } else {
         format!("{} item(s)", paths.len())
     }
+}
+
+fn entry_name_tooltip<'a>(
+    item: impl Into<Element<'a, Message>>,
+    full_name: String,
+    visible_name: String,
+) -> Element<'a, Message> {
+    if full_name == visible_name {
+        return item.into();
+    }
+
+    let tip = container(
+        text(full_name)
+            .size(13)
+            .width(Length::Fixed(360.0))
+            .wrapping(iced::advanced::text::Wrapping::WordOrGlyph)
+            .style(style::primary_text),
+    )
+    .padding(8);
+
+    tooltip(item, tip, tooltip::Position::Bottom)
+        .gap(8)
+        .delay(Duration::from_millis(350))
+        .style(style::entry_tooltip)
+        .into()
 }
 
 fn paste_action_label(action: PasteAction) -> &'static str {
@@ -4385,6 +4621,121 @@ mod tests {
     }
 
     #[test]
+    fn directory_started_updates_navigation() {
+        let mut manager = manager_with_entries(&["old-1.txt", "old-2.txt"]);
+        manager.cwd = PathBuf::from("/tmp/many");
+        manager.back_history = vec![PathBuf::from("/tmp/few")];
+        manager.browser_scroll_y = 2400.0;
+        manager.active_request_id = Some(42);
+
+        let request = DirectoryRequest {
+            id: 42,
+            path: PathBuf::from("/tmp/few"),
+            mode: DirectoryLoadMode::Back,
+            previous: Some(PathBuf::from("/tmp/many")),
+        };
+
+        let _ = manager.directory_event(request, DirectoryLoadEvent::Started);
+
+        assert_eq!(manager.cwd, PathBuf::from("/tmp/many"));
+        assert!(manager.back_history.is_empty());
+        assert_eq!(manager.forward_history.len(), 1);
+        assert_eq!(manager.forward_history[0], PathBuf::from("/tmp/many"));
+    }
+
+    #[test]
+    fn load_path_clears_old_directory_state() {
+        let mut manager = manager_with_entries(&["old-1.txt", "old-2.txt"]);
+        manager.cwd = PathBuf::from("/tmp/many");
+        manager.browser_generation = 3;
+        let previous_generation = manager.browser_generation;
+        manager.search_query = Some("old".to_string());
+        manager.search_root = Some(PathBuf::from("/tmp"));
+        manager.current_folder_refresh_pending = Some(PathBuf::from("/tmp/many"));
+        manager
+            .selected_paths
+            .insert(PathBuf::from("/tmp/old-1.txt"));
+        manager.browser_scroll_y = 2400.0;
+        manager.selection_anchor = Some(PathBuf::from("/tmp/old-2.txt"));
+        manager.selection_drag = Some(SelectionDrag {
+            origin: Point::new(12.0, 34.0),
+            current: Point::new(1.0, 2.0),
+        });
+
+        let _ = manager.load_path(
+            PathBuf::from("/tmp/few"),
+            DirectoryLoadMode::Back,
+            Some(PathBuf::from("/tmp/many")),
+        );
+
+        assert!(manager.entries.is_empty());
+        assert_eq!(manager.cwd, PathBuf::from("/tmp/few"));
+        assert_eq!(manager.browser_generation, previous_generation + 1);
+        assert!(manager.search_query.is_none());
+        assert!(manager.search_root.is_none());
+        assert!(manager.current_folder_refresh_pending.is_none());
+        assert!(manager.selected_paths.is_empty());
+        assert!(manager.selection_anchor.is_none());
+        assert!(manager.selection_drag.is_none());
+        assert_eq!(manager.browser_scroll_y, 0.0);
+    }
+
+    #[test]
+    fn stale_browser_scroll_event_is_ignored() {
+        let (mut manager, _) = FileManager::new();
+        manager.browser_generation = 5;
+        let stale_generation = manager.browser_generation + 1;
+
+        let _ = manager.update(Message::BrowserScrolled(stale_generation, 2400.0));
+
+        assert_eq!(manager.browser_scroll_y, 0.0);
+
+        let _ = manager.update(Message::BrowserScrolled(5, 120.0));
+        assert_eq!(manager.browser_scroll_y, 120.0);
+    }
+
+    #[test]
+    fn template_files_loaded_closes_empty_template_submenu() {
+        let (mut manager, _) = FileManager::new();
+        manager.template_submenu_open = true;
+
+        let _ = manager.update(Message::TemplateFilesLoaded(Vec::new()));
+
+        assert!(manager.template_files.is_empty());
+        assert!(!manager.template_submenu_open);
+    }
+
+    #[test]
+    fn blank_context_menu_width_includes_template_submenu() {
+        let (mut manager, _) = FileManager::new();
+        manager.template_files = vec![TemplateFile {
+            label: "Report".to_string(),
+            path: PathBuf::from("/home/user/Templates/Report.txt"),
+        }];
+
+        assert_eq!(manager.blank_context_menu_width(), CONTEXT_MENU_WIDTH);
+
+        manager.template_submenu_open = true;
+
+        assert_eq!(
+            manager.blank_context_menu_width(),
+            CONTEXT_MENU_WIDTH + 6.0 + TEMPLATE_SUBMENU_WIDTH
+        );
+    }
+
+    #[test]
+    fn template_create_finished_starts_rename() {
+        let (mut manager, _) = FileManager::new();
+        let path = PathBuf::from("/tmp/Report.txt");
+
+        let _ = manager.update(Message::TemplateCreateFinished(Ok(path.clone())));
+
+        let rename = manager.rename_state.as_ref().unwrap();
+        assert_eq!(rename.path, path);
+        assert_eq!(rename.value, "Report.txt");
+    }
+
+    #[test]
     fn delete_finished_clears_deleted_selection_and_clipboard() {
         let (mut manager, _) = FileManager::new();
         let first = PathBuf::from("/tmp/alpha.txt");
@@ -4403,7 +4754,7 @@ mod tests {
         }));
 
         assert!(!manager.selected_paths.contains(&first));
-        assert!(manager.selected_paths.contains(&second));
+        assert!(!manager.selected_paths.contains(&second));
         assert!(manager.clipboard.is_none());
     }
 

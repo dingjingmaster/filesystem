@@ -79,24 +79,42 @@ pub(crate) fn display_name_for_path(path: &std::path::Path) -> String {
 
 pub(crate) fn short_name(name: &str) -> String {
     const MAX_CHARS: usize = 18;
-    if name.chars().count() <= MAX_CHARS {
-        return name.to_string();
-    }
-
-    let mut short = name.chars().take(MAX_CHARS - 1).collect::<String>();
-    short.push('…');
-    short
+    middle_ellipsis(name, MAX_CHARS)
 }
 
 pub(crate) fn short_list_text(value: &str) -> String {
     const MAX_CHARS: usize = 58;
-    if value.chars().count() <= MAX_CHARS {
+    middle_ellipsis(value, MAX_CHARS)
+}
+
+pub(crate) fn middle_ellipsis(value: &str, max_chars: usize) -> String {
+    let char_count = value.chars().count();
+    if char_count <= max_chars {
         return value.to_string();
     }
 
-    let mut short = value.chars().take(MAX_CHARS - 1).collect::<String>();
-    short.push('…');
-    short
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    if max_chars == 1 {
+        return "…".to_string();
+    }
+
+    let keep = max_chars - 1;
+    let head = keep / 2;
+    let tail = keep - head;
+    let prefix = value.chars().take(head).collect::<String>();
+    let suffix = value
+        .chars()
+        .rev()
+        .take(tail)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+
+    format!("{prefix}…{suffix}")
 }
 
 pub(crate) fn entry_meta(entry: &FileEntry) -> String {
@@ -272,6 +290,17 @@ mod tests {
         assert!(should_show_blank_context_menu(false, false));
         assert!(should_show_blank_context_menu(true, false));
         assert!(!should_show_blank_context_menu(true, true));
+    }
+
+    #[test]
+    fn middle_ellipsis_keeps_name_start_and_end() {
+        assert_eq!(middle_ellipsis("short.txt", 18), "short.txt");
+        assert_eq!(
+            middle_ellipsis("very-long-document-name.docx", 18),
+            "very-lon…name.docx"
+        );
+        assert_eq!(middle_ellipsis("abcdef", 1), "…");
+        assert_eq!(middle_ellipsis("abcdef", 0), "");
     }
 
     #[test]

@@ -4,10 +4,12 @@ use crate::icons::{basic_entries, decorate_entry_batch};
 use crate::model::{
     DefaultAppAssignment, DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest,
     DisplaySearchResults, FileOperationEvent, HomeShortcut, Message, NewEntryKind, OpenFileOutcome,
+    TemplateFile,
 };
 use filesystem_core::{
-    create_file, create_folder, delete_entry, paste_paths_with_progress, search_file_names,
-    DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction, ScanOptions,
+    create_file, create_file_from_template, create_folder, delete_entry, paste_paths_with_progress,
+    search_file_names, DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction,
+    ScanOptions,
 };
 use iced::{
     futures::channel::mpsc as iced_mpsc, futures::SinkExt, stream, window, Subscription, Task,
@@ -28,6 +30,11 @@ const DIRECTORY_BATCH_SIZE: usize = 128;
 const DIRECTORY_STREAM_BUFFER: usize = 1024;
 const CURRENT_FOLDER_WATCH_BUFFER: usize = 128;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CurrentFolderState {
+    path: PathBuf,
+}
+
 pub(crate) fn load_home_shortcuts(home: Option<PathBuf>) -> Task<Message> {
     Task::perform(
         async move { detect_home_shortcuts(home) },
@@ -39,12 +46,19 @@ pub(crate) fn load_app_registry_task() -> Task<Message> {
     Task::perform(async { load_app_registry() }, Message::ApplicationsLoaded)
 }
 
-pub(crate) fn watch_current_folder(path: PathBuf) -> Subscription<Message> {
-    Subscription::run_with(path, current_folder_events)
+pub(crate) fn load_template_files_task(home: Option<PathBuf>) -> Task<Message> {
+    Task::perform(
+        async move { detect_template_files(home) },
+        Message::TemplateFilesLoaded,
+    )
 }
 
-fn current_folder_events(path: &PathBuf) -> impl iced::futures::Stream<Item = Message> {
-    let path = path.clone();
+pub(crate) fn watch_current_folder(path: PathBuf) -> Subscription<Message> {
+    Subscription::run_with(CurrentFolderState { path }, current_folder_events)
+}
+
+fn current_folder_events(state: &CurrentFolderState) -> impl iced::futures::Stream<Item = Message> {
+    let path = state.path.clone();
 
     stream::channel(
         CURRENT_FOLDER_WATCH_BUFFER,
@@ -164,6 +178,159 @@ fn detect_home_shortcuts(home: Option<PathBuf>) -> Vec<HomeShortcut> {
     shortcuts
 }
 
+fn detect_template_files(home: Option<PathBuf>) -> Vec<TemplateFile> {
+    let Some(home) = home else {
+        return Vec::new();
+    };
+
+    template_files_in_dirs(template_directories(&home))
+}
+
+fn template_directories(home: &Path) -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    let user_dirs_config = user_dirs_config_path(home);
+
+    if let Ok(contents) = fs::read_to_string(user_dirs_config) {
+        if let Some(path) = parse_user_dirs_templates_dir(&contents, home) {
+            push_template_directory(&mut directories, home, path);
+        }
+    }
+
+    for name in ["Templates", "Template", "模板"] {
+        push_template_directory(&mut directories, home, home.join(name));
+    }
+
+    directories
+}
+
+fn user_dirs_config_path(home: &Path) -> PathBuf {
+    env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| home.join(".config"))
+        .join("user-dirs.dirs")
+}
+
+fn parse_user_dirs_templates_dir(contents: &str, home: &Path) -> Option<PathBuf> {
+    contents.lines().find_map(|line| {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return None;
+        }
+
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == "XDG_TEMPLATES_DIR")
+            .then(|| parse_user_dirs_value(value))
+            .flatten()
+            .and_then(|value| expand_user_dir_value(&value, home))
+    })
+}
+
+fn parse_user_dirs_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = value.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(rest[..end].replace("\\\"", "\"").replace("\\\\", "\\"));
+    }
+
+    if let Some(rest) = value.strip_prefix('\'') {
+        let end = rest.find('\'')?;
+        return Some(rest[..end].to_string());
+    }
+
+    value
+        .split_whitespace()
+        .next()
+        .map(|value| value.trim_end_matches(';').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn expand_user_dir_value(value: &str, home: &Path) -> Option<PathBuf> {
+    if value == "$HOME" || value == "$HOME/" || value == "${HOME}" || value == "${HOME}/" {
+        return Some(home.to_path_buf());
+    }
+
+    if let Some(rest) = value.strip_prefix("$HOME/") {
+        return Some(home.join(rest));
+    }
+
+    if let Some(rest) = value.strip_prefix("${HOME}/") {
+        return Some(home.join(rest));
+    }
+
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+fn push_template_directory(directories: &mut Vec<PathBuf>, home: &Path, path: PathBuf) {
+    if path == home || directories.iter().any(|existing| existing == &path) {
+        return;
+    }
+
+    if path.is_dir() {
+        directories.push(path);
+    }
+}
+
+fn template_files_in_dirs(directories: Vec<PathBuf>) -> Vec<TemplateFile> {
+    let mut templates = Vec::new();
+
+    for directory in directories {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if templates
+                .iter()
+                .any(|template: &TemplateFile| template.path == path)
+            {
+                continue;
+            }
+
+            let label = entry.file_name().to_string_lossy().into_owned();
+            if label.starts_with('.') {
+                continue;
+            }
+
+            if fs::metadata(&path)
+                .map(|metadata| metadata.is_file())
+                .unwrap_or(false)
+            {
+                templates.push(TemplateFile {
+                    label: template_file_label(&path, &label),
+                    path,
+                });
+            }
+        }
+    }
+
+    templates.sort_by(|left, right| {
+        left.label
+            .to_lowercase()
+            .cmp(&right.label.to_lowercase())
+            .then_with(|| left.label.cmp(&right.label))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    templates
+}
+
+fn template_file_label(path: &Path, fallback: &str) -> String {
+    path.file_stem()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 pub(crate) fn load_directory_stream(
     request: DirectoryRequest,
     path: PathBuf,
@@ -188,7 +355,7 @@ pub(crate) fn load_directory_stream(
             if output
                 .send(Message::DirectoryEvent(
                     request.clone(),
-                    DirectoryLoadEvent::Started(scanner.path().to_path_buf()),
+                    DirectoryLoadEvent::Started,
                 ))
                 .await
                 .is_err()
@@ -264,6 +431,13 @@ pub(crate) fn create_entry_task(parent: PathBuf, kind: NewEntryKind) -> Task<Mes
             }
         },
         move |result| Message::CreateFinished(kind, result),
+    )
+}
+
+pub(crate) fn create_template_file_task(parent: PathBuf, template: PathBuf) -> Task<Message> {
+    Task::perform(
+        async move { create_file_from_template(parent, template) },
+        Message::TemplateCreateFinished,
     )
 }
 
@@ -456,9 +630,46 @@ fn find_executable_in_path(name: &str) -> Option<PathBuf> {
         })
 }
 
+pub(crate) fn latest_window_task(
+    action: impl Fn(window::Id) -> Task<Message> + Send + 'static,
+) -> Task<Message> {
+    window::latest().then(move |id| match id {
+        Some(id) => action(id),
+        None => Task::none(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> TempDir {
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            env::temp_dir().join(format!("filesystem-gui-{name}-{}-{id}", std::process::id()));
+        fs::create_dir_all(&path).unwrap();
+        TempDir { path }
+    }
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     #[test]
     fn command_args_replace_cwd_placeholder() {
@@ -474,13 +685,76 @@ mod tests {
             vec!["start", "--cwd", "/tmp/example", "path=/tmp/example"]
         );
     }
-}
 
-pub(crate) fn latest_window_task(
-    action: impl Fn(window::Id) -> Task<Message> + Send + 'static,
-) -> Task<Message> {
-    window::latest().then(move |id| match id {
-        Some(id) => action(id),
-        None => Task::none(),
-    })
+    #[test]
+    fn parse_user_dirs_templates_dir_expands_home() {
+        let home = Path::new("/home/dingjing");
+        let contents = r#"
+            XDG_DESKTOP_DIR="$HOME/Desktop"
+            XDG_TEMPLATES_DIR="$HOME/模板"
+        "#;
+
+        assert_eq!(
+            parse_user_dirs_templates_dir(contents, home),
+            Some(home.join("模板"))
+        );
+    }
+
+    #[test]
+    fn parse_user_dirs_templates_dir_accepts_absolute_paths() {
+        let home = Path::new("/home/dingjing");
+
+        assert_eq!(
+            parse_user_dirs_templates_dir(r#"XDG_TEMPLATES_DIR="/data/templates""#, home),
+            Some(PathBuf::from("/data/templates"))
+        );
+    }
+
+    #[test]
+    fn template_files_in_dirs_lists_regular_visible_files_sorted() {
+        let fixture = temp_dir("template-files");
+        let first = fixture.path().join("Templates");
+        let second = fixture.path().join("模板");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        fs::write(first.join("B.txt"), b"b").unwrap();
+        fs::write(first.join(".hidden.txt"), b"hidden").unwrap();
+        fs::create_dir(first.join("Folder")).unwrap();
+        fs::write(second.join("a.txt"), b"a").unwrap();
+
+        let templates = template_files_in_dirs(vec![first.clone(), second.clone()]);
+
+        assert_eq!(
+            templates,
+            vec![
+                TemplateFile {
+                    label: "a".to_string(),
+                    path: second.join("a.txt"),
+                },
+                TemplateFile {
+                    label: "B".to_string(),
+                    path: first.join("B.txt"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn template_file_label_removes_only_last_extension() {
+        assert_eq!(
+            template_file_label(Path::new("/home/user/Templates/Report.docx"), "Report.docx"),
+            "Report"
+        );
+        assert_eq!(
+            template_file_label(
+                Path::new("/home/user/Templates/archive.tar.gz"),
+                "archive.tar.gz"
+            ),
+            "archive.tar"
+        );
+        assert_eq!(
+            template_file_label(Path::new("/home/user/Templates/Makefile"), "Makefile"),
+            "Makefile"
+        );
+    }
 }

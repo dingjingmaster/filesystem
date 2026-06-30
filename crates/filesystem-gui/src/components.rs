@@ -306,7 +306,7 @@ pub(crate) fn rename_limit_error(rename: &RenameState, value: &str) -> Option<St
         return None;
     }
 
-    let name_bytes = name.as_bytes().len();
+    let name_bytes = name.len();
     if let Some(limit) = rename.limits.name_bytes {
         if name_bytes > limit {
             return Some(format!("File name is too long; limit is {limit} bytes"));
