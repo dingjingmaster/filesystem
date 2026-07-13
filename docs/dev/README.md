@@ -63,3 +63,5 @@
 | 26 | 2026-06-29 | L2 | fix | [26-fix-wps-sandbox-prometheus-open.md](26-fix-wps-sandbox-prometheus-open.md) | 已完成 | 修复沙盒内 WPS Writer/表格/演示配置缺少 Prometheus 模式时无法打开文档的问题，对 `wps`/`et`/`wpp` 优先直接启动 `wpsoffice /prometheus` 并保留 `.desktop` 命令 fallback。 |
 | 27 | 2026-06-29 | L2 | task | [27-task-template-file-menu.md](27-task-template-file-menu.md) | 已完成 | 空白处右键菜单支持按 XDG 模板目录显示“新建模板文件”子菜单，选择模板后复制到当前目录并进入重命名。 |
 | 28 | 2026-06-29 | L2 | fix | [28-fix-file-view-refresh-name-template.md](28-fix-file-view-refresh-name-template.md) | 已完成 | 修复目录切换回退残影、长文件名中间省略和模板子菜单去扩展名显示。 |
+| 29 | 2026-07-03 | L2 | task | [29-task-remote-arm-build.md](29-task-remote-arm-build.md) | 已完成 | 在 192.168.8.246 Ubuntu 18.04 aarch64 测试机使用用户级 Rust/Cargo 完成文件管理器 ARM release 构建，并验证 ELF 架构、动态依赖和本地副本哈希。 |
+| 30 | 2026-07-13 | L1 | summary | [30-summary-context-menu-bottom-clamp.md](30-summary-context-menu-bottom-clamp.md) | 已完成 | 修复文件管理器底部右键菜单被浏览区域裁剪的问题，按菜单高度在主文件区内纵向钳制显示。 |

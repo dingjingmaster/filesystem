@@ -2455,14 +2455,22 @@ impl FileManager {
         clamped_overlay_x_for_width(self.browser_width, x, width)
     }
 
-    fn context_menu_position(&self, position: Point) -> Point {
-        self.context_menu_position_for_width(position, CONTEXT_MENU_WIDTH)
+    fn browser_height(&self) -> f32 {
+        (self.window_size.height - TOOLBAR_HEIGHT).max(0.0)
     }
 
-    fn context_menu_position_for_width(&self, position: Point, width: f32) -> Point {
+    fn clamped_overlay_y(&self, y: f32, height: f32) -> f32 {
+        clamped_overlay_y_for_height(self.browser_height(), y, height)
+    }
+
+    fn context_menu_position(&self, position: Point, height: f32) -> Point {
+        self.context_menu_position_for_size(position, CONTEXT_MENU_WIDTH, height)
+    }
+
+    fn context_menu_position_for_size(&self, position: Point, width: f32, height: f32) -> Point {
         Point::new(
             self.clamped_overlay_x(position.x, width),
-            position.y.max(0.0),
+            self.clamped_overlay_y(position.y, height),
         )
     }
 
@@ -2498,21 +2506,22 @@ impl FileManager {
         let (position, menu): (Point, Element<'_, Message>) = match menu_state {
             ContextMenuState::Blank(position) => {
                 let width = self.blank_context_menu_width();
+                let height = self.blank_context_menu_height();
                 (
-                    self.context_menu_position_for_width(*position, width),
+                    self.context_menu_position_for_size(*position, width, height),
                     self.blank_context_menu(),
                 )
             }
             ContextMenuState::Folder { position, path } => (
-                self.context_menu_position(*position),
+                self.context_menu_position(*position, self.folder_context_menu_height()),
                 self.folder_context_menu(path.clone()),
             ),
             ContextMenuState::File { position, path } => (
-                self.context_menu_position(*position),
+                self.context_menu_position(*position, self.file_context_menu_height()),
                 self.file_context_menu(path.clone()),
             ),
             ContextMenuState::Selection { position } => (
-                self.context_menu_position(*position),
+                self.context_menu_position(*position, self.selection_context_menu_height()),
                 self.selection_context_menu(),
             ),
         };
@@ -2536,15 +2545,45 @@ impl FileManager {
 
     fn blank_context_menu_width(&self) -> f32 {
         if self.template_submenu_open && !self.template_files.is_empty() {
-            CONTEXT_MENU_WIDTH + 6.0 + TEMPLATE_SUBMENU_WIDTH
+            CONTEXT_MENU_WIDTH + CONTEXT_MENU_SUBMENU_GAP + TEMPLATE_SUBMENU_WIDTH
         } else {
             CONTEXT_MENU_WIDTH
         }
     }
 
+    fn blank_context_menu_height(&self) -> f32 {
+        let has_templates = !self.template_files.is_empty();
+        let custom_commands = self.runtime_config.blank_menu_commands.len();
+        let items = 6 + usize::from(has_templates) + custom_commands;
+        let separators = 3 + usize::from(custom_commands > 0);
+        let panel_height = context_menu_panel_height(items, separators);
+
+        if self.template_submenu_open && has_templates {
+            panel_height.max(self.template_context_submenu_height())
+        } else {
+            panel_height
+        }
+    }
+
+    fn template_context_submenu_height(&self) -> f32 {
+        context_menu_panel_height(self.template_files.len(), 0)
+    }
+
+    fn folder_context_menu_height(&self) -> f32 {
+        context_menu_panel_height(7, 4)
+    }
+
+    fn file_context_menu_height(&self) -> f32 {
+        context_menu_panel_height(7, 3)
+    }
+
+    fn selection_context_menu_height(&self) -> f32 {
+        context_menu_panel_height(3, 0)
+    }
+
     fn blank_context_menu(&self) -> Element<'_, Message> {
         let mut panels = row![self.blank_context_menu_panel()]
-            .spacing(6)
+            .spacing(CONTEXT_MENU_SUBMENU_GAP)
             .align_y(iced::Alignment::Start);
 
         if self.template_submenu_open && !self.template_files.is_empty() {
@@ -2559,9 +2598,9 @@ impl FileManager {
             context_menu_item("新建文件", Message::ContextNewFile),
             context_menu_item("新建文件夹", Message::ContextNewFolder),
         ]
-        .spacing(2)
+        .spacing(CONTEXT_MENU_ITEM_SPACING)
         .align_x(iced::Alignment::Start)
-        .padding(6);
+        .padding(CONTEXT_MENU_PANEL_PADDING);
 
         if !self.template_files.is_empty() {
             menu = menu.push(self.template_menu_item());
@@ -2612,7 +2651,7 @@ impl FileManager {
         .align_y(Vertical::Center);
 
         button(content)
-            .height(32)
+            .height(CONTEXT_MENU_ITEM_HEIGHT)
             .width(Fill)
             .padding([0, 10])
             .style(move |theme, status| {
@@ -2623,7 +2662,9 @@ impl FileManager {
     }
 
     fn template_context_submenu(&self) -> Element<'_, Message> {
-        let mut menu = column![].spacing(2).padding(6);
+        let mut menu = column![]
+            .spacing(CONTEXT_MENU_ITEM_SPACING)
+            .padding(CONTEXT_MENU_PANEL_PADDING);
 
         for (index, template) in self.template_files.iter().enumerate() {
             menu = menu.push(context_menu_item_owned(
@@ -2653,9 +2694,9 @@ impl FileManager {
                 context_menu_separator(),
                 context_menu_item("属性", Message::FolderProperties(path)),
             ]
-            .spacing(2)
+            .spacing(CONTEXT_MENU_ITEM_SPACING)
             .align_x(iced::Alignment::Start)
-            .padding(6),
+            .padding(CONTEXT_MENU_PANEL_PADDING),
         )
         .width(CONTEXT_MENU_WIDTH)
         .style(style::context_menu)
@@ -2681,9 +2722,9 @@ impl FileManager {
                 context_menu_separator(),
                 context_menu_item("属性", Message::FileProperties(path)),
             ]
-            .spacing(2)
+            .spacing(CONTEXT_MENU_ITEM_SPACING)
             .align_x(iced::Alignment::Start)
-            .padding(6),
+            .padding(CONTEXT_MENU_PANEL_PADDING),
         )
         .width(CONTEXT_MENU_WIDTH)
         .style(style::context_menu)
@@ -2697,9 +2738,9 @@ impl FileManager {
                 context_menu_item("剪切", Message::SelectionCut),
                 context_menu_item("删除", Message::SelectionDelete),
             ]
-            .spacing(2)
+            .spacing(CONTEXT_MENU_ITEM_SPACING)
             .align_x(iced::Alignment::Start)
-            .padding(6),
+            .padding(CONTEXT_MENU_PANEL_PADDING),
         )
         .width(CONTEXT_MENU_WIDTH)
         .style(style::context_menu)
@@ -4037,6 +4078,15 @@ impl FileManager {
     }
 }
 
+fn context_menu_panel_height(items: usize, separators: usize) -> f32 {
+    let children = items + separators;
+    let content_height = items as f32 * CONTEXT_MENU_ITEM_HEIGHT as f32
+        + separators as f32 * CONTEXT_MENU_SEPARATOR_HEIGHT as f32;
+    let spacing = children.saturating_sub(1) as f32 * CONTEXT_MENU_ITEM_SPACING as f32;
+
+    content_height + spacing + CONTEXT_MENU_PANEL_PADDING as f32 * 2.0
+}
+
 fn keyboard_shortcut_event(
     event: iced::Event,
     status: event::Status,
@@ -4719,7 +4769,36 @@ mod tests {
 
         assert_eq!(
             manager.blank_context_menu_width(),
-            CONTEXT_MENU_WIDTH + 6.0 + TEMPLATE_SUBMENU_WIDTH
+            CONTEXT_MENU_WIDTH + CONTEXT_MENU_SUBMENU_GAP + TEMPLATE_SUBMENU_WIDTH
+        );
+    }
+
+    #[test]
+    fn context_menu_position_clamps_to_browser_bottom() {
+        let (mut manager, _) = FileManager::new();
+        manager.window_size = Size::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
+        let height = manager.selection_context_menu_height();
+        let position = manager.context_menu_position(Point::new(40.0, 520.0), height);
+
+        assert_eq!(height, 112.0);
+        assert_eq!(position.x, 40.0);
+        assert_eq!(position.y, WINDOW_MIN_HEIGHT - TOOLBAR_HEIGHT - height);
+    }
+
+    #[test]
+    fn blank_context_menu_height_uses_taller_template_submenu() {
+        let (mut manager, _) = FileManager::new();
+        manager.template_files = (0..12)
+            .map(|index| TemplateFile {
+                label: format!("Template {index}"),
+                path: PathBuf::from(format!("/home/user/Templates/{index}.txt")),
+            })
+            .collect();
+        manager.template_submenu_open = true;
+
+        assert_eq!(
+            manager.blank_context_menu_height(),
+            manager.template_context_submenu_height()
         );
     }
 

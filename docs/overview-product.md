@@ -2,9 +2,9 @@
 
 > 文档元数据
 > - 文档版本：v1.0.0
-> - 最后更新：2026-06-29
+> - 最后更新：2026-07-13
 > - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md、docs/dev/24-task-open-with-default-app.md、docs/dev/25-fix-wps-docx-open.md、docs/dev/26-fix-wps-sandbox-prometheus-open.md、docs/dev/27-task-template-file-menu.md
-> - 本次更新来源：docs/dev/28-fix-file-view-refresh-name-template.md
+> - 本次更新来源：docs/dev/30-summary-context-menu-bottom-clamp.md
 
 ## 1. 产品定位
 
@@ -57,7 +57,7 @@
 - 启动配置规则：启动时检查可执行文件同级目录的 `filesystem.ini`；该 INI 文件中非空 `name=xxx` 会覆盖左侧拖拽标题栏显示，非空 `terminal=xxx` 会让“在终端打开”执行该终端路径并把当前目录或目标文件夹设为进程当前工作目录；`[blank-menu.*]` section 可通过 `label`、`command` 和多个 `arg` 为空白处右键菜单新增自定义命令，参数中的 `{cwd}` 会替换为当前目录；未配置时保持默认左侧标题 `文件` 和 `terminator`、`mate-terminal`、`gnome-terminal` PATH fallback，且不显示额外空白菜单项。
 - 当前文件夹自动刷新规则：GUI 只监听当前打开文件夹本身的直接子项变化；切换目录后监听目标随当前目录变化；自动刷新复用现有目录扫描和搜索重跑逻辑；不递归监听子目录内部变化，不保证网络文件系统、伪文件系统或纯读取访问产生刷新。
 - 软链接规则：文件夹软链接按有效目标显示文件夹图标并加 `icons/symbol.svg` 角标，文件软链接按有效目标显示文件图标并加 `icons/symbol.svg` 角标；断链或目标不可访问时使用 `icons/symbol-disconnect.svg` 角标；双击有效文件夹软链接进入解析后的目标目录，双击有效文件软链接打开目标文件，双击断链或对断链执行打开入口时弹窗提示“软连接 xxx 损坏”。
-- 右键菜单规则：当前没有选中任何文件/文件夹时，在图标视图或列表视图条目上右键等价于空白处右键；只有单个文件夹或单个非文件夹条目已选中且右键命中该条目时才显示对应目标菜单；选中多个文件/文件夹时右键显示只包含“复制”“剪切”“删除”的多选菜单；右键菜单固定宽度并在主文件区内钳制显示，不因靠近右边界而压缩，菜单项水平左对齐、垂直居中。
+- 右键菜单规则：当前没有选中任何文件/文件夹时，在图标视图或列表视图条目上右键等价于空白处右键；只有单个文件夹或单个非文件夹条目已选中且右键命中该条目时才显示对应目标菜单；选中多个文件/文件夹时右键显示只包含“复制”“剪切”“删除”的多选菜单；右键菜单固定宽度并在主文件区内钳制显示，靠近右边界时不压缩，靠近底部时向上显示以避免遮挡，菜单项水平左对齐、垂直居中。
 - 打开方式列表规则：每个 APP 行左侧显示 APP 图标和名称，内容水平左对齐、垂直居中；选中对钩水平右对齐；候选应用由 `.desktop` `MimeType`、`mimeapps.list` 的 `[Default Applications]`、通用 `mimeapps.list` 的 `[Added Associations]` 和内置兼容规则共同决定，默认应用可补充无 `MimeType` 的 `.desktop` 支持 MIME，并按通用 `mimeapps.list` 的 `[Removed Associations]` 移除用户或系统取消的关联；默认应用排在最前，若没有默认应用则按精确 MIME、同类 WPS/标准 Office MIME 互认、`text/plain` 文本兜底、`TextEditor` 分类兜底、类型通配、全局通配和名称排序；WPS 原生 MIME 的精确匹配优先于同家族 alias；勾选“设为默认打开方式”后确认打开，有当前桌面名时把所选应用写入桌面专用 MIME apps 配置文件的 `[Default Applications]`，并写入通用 `mimeapps.list` 的 `[Added Associations]`；无桌面名时写入通用 `mimeapps.list` 的两个 section；APP 图标按 `.desktop` 的 `Icon` 字段查找本地图标，找不到时使用 `icons/app.svg`。
 - 外框圆角策略：只接受窗口管理器原生支持的外框圆角；当前 Linux iced/winit 未提供可用接口时，不使用透明窗口或内容裁剪模拟圆角。
 
@@ -141,3 +141,4 @@
 | 2026-06-29 | 记录无 `MimeType` 默认应用、desktop-specific mimeapps 规则、WPS 原生扩展名识别、WPS `%u/%U` 本地路径兼容，以及 WPS Writer/表格/演示 MIME 家族与标准 Office MIME 在打开候选中互认 | 更新打开文件兼容行为 | docs/dev/25-fix-wps-docx-open.md |
 | 2026-06-29 | 记录 WPS Writer/表格/演示的 `wps`/`et`/`wpp` 启动器优先走 `wpsoffice /prometheus` 并保留原 `.desktop` 命令 fallback | 更新打开文件兼容行为 | docs/dev/26-fix-wps-sandbox-prometheus-open.md |
 | 2026-06-29 | 记录空白处右键菜单“新建模板文件”子菜单，按 XDG 模板目录复制模板文件并进入重命名 | 更新空白菜单用户可见行为 | docs/dev/27-task-template-file-menu.md |
+| 2026-07-13 | 记录右键菜单靠近底部时按菜单高度向上显示，避免菜单项被浏览区域裁剪 | 更新右键菜单用户可见行为 | docs/dev/30-summary-context-menu-bottom-clamp.md |

@@ -20,6 +20,11 @@ pub(crate) fn clamped_overlay_x_for_width(browser_width: f32, x: f32, width: f32
     x.clamp(0.0, max_x)
 }
 
+pub(crate) fn clamped_overlay_y_for_height(browser_height: f32, y: f32, height: f32) -> f32 {
+    let max_y = (browser_height - height).max(0.0);
+    y.clamp(0.0, max_y)
+}
+
 pub(crate) fn clamp_properties_position(window_size: Size, position: Point) -> Point {
     Point::new(
         position
@@ -282,6 +287,17 @@ mod tests {
     #[test]
     fn context_menu_x_clamps_to_zero_when_menu_is_wider_than_browser() {
         assert_eq!(clamped_overlay_x_for_width(120.0, 80.0, 184.0), 0.0);
+    }
+
+    #[test]
+    fn context_menu_y_clamps_to_fixed_height_inside_browser() {
+        assert_eq!(clamped_overlay_y_for_height(546.0, 520.0, 112.0), 434.0);
+        assert_eq!(clamped_overlay_y_for_height(546.0, -12.0, 112.0), 0.0);
+    }
+
+    #[test]
+    fn context_menu_y_clamps_to_zero_when_menu_is_taller_than_browser() {
+        assert_eq!(clamped_overlay_y_for_height(80.0, 40.0, 112.0), 0.0);
     }
 
     #[test]

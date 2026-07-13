@@ -398,7 +398,7 @@ pub(crate) fn context_menu_item_owned<'a>(label: String, message: Message) -> El
         .align_y(Vertical::Center);
 
     button(content)
-        .height(32)
+        .height(CONTEXT_MENU_ITEM_HEIGHT)
         .width(Fill)
         .padding([0, 10])
         .style(move |theme, status| style::menu_button(theme, status, false))
@@ -408,7 +408,7 @@ pub(crate) fn context_menu_item_owned<'a>(label: String, message: Message) -> El
 
 pub(crate) fn context_menu_separator<'a>() -> Element<'a, Message> {
     container(space())
-        .height(1)
+        .height(CONTEXT_MENU_SEPARATOR_HEIGHT)
         .width(Fill)
         .style(|_| container_style::Style::default().background(style::BORDER))
         .into()
