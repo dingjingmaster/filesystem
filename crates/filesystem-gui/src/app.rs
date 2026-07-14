@@ -2639,7 +2639,7 @@ impl FileManager {
     fn template_menu_item(&self) -> Element<'_, Message> {
         let content = container(
             row![
-                text("新建模板文件").size(14).style(style::primary_text),
+                text("新建文档").size(14).style(style::primary_text),
                 space().width(Fill),
                 text("›").size(17).style(style::muted_text),
             ]
