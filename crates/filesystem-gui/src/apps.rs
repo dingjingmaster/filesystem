@@ -2,11 +2,15 @@ use crate::icons::resolve_app_icon;
 use crate::model::{AppRegistry, DesktopApp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::thread;
+
+const FCITX_DBUS_DAEMON_CONFIG: &[u8] = b"/usr/share/fcitx/dbus/daemon.conf";
 
 pub(crate) fn load_app_registry() -> AppRegistry {
     let mut apps = Vec::new();
@@ -104,6 +108,7 @@ pub(crate) fn default_app_for_mime(registry: &AppRegistry, mime: &str) -> Option
 
 pub(crate) fn open_file_with_app(path: PathBuf, app: DesktopApp) -> Result<String, String> {
     let commands = build_exec_commands(&app, &path)?;
+    cleanup_before_opening_app(&app, &commands);
     let mut last_error = None;
 
     for command in &commands {
@@ -126,6 +131,160 @@ pub(crate) fn open_file_with_app(path: PathBuf, app: DesktopApp) -> Result<Strin
     Err(format!("Failed to open with {}: {error}", app.name))
 }
 
+fn cleanup_before_opening_app(app: &DesktopApp, commands: &[Vec<String>]) {
+    if should_clean_deepin_editor_state(app, commands) {
+        let home = env::var_os("HOME").map(PathBuf::from);
+        let _ = clear_deepin_editor_restore_history(home.clone());
+        let _ = remove_deepin_editor_auto_backup_files(home);
+    }
+}
+
+fn should_clean_deepin_editor_state(app: &DesktopApp, commands: &[Vec<String>]) -> bool {
+    app.id == "deepin-editor.desktop"
+        || app.id == "deepin-editor"
+        || commands
+            .iter()
+            .filter_map(|command| command.first())
+            .any(|program| program_name_is(program, "deepin-editor"))
+}
+
+fn program_name_is(program: &str, expected: &str) -> bool {
+    Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == expected)
+}
+
+fn remove_deepin_editor_auto_backup_files(home: Option<PathBuf>) -> std::io::Result<()> {
+    let Some(path) = deepin_editor_auto_backup_path(home) else {
+        return Ok(());
+    };
+
+    remove_existing_path_without_following_root_symlink(&path)
+}
+
+fn clear_deepin_editor_restore_history(home: Option<PathBuf>) -> std::io::Result<()> {
+    let Some(path) = deepin_editor_config_path(home) else {
+        return Ok(());
+    };
+
+    clear_deepin_editor_restore_history_at(&path)
+}
+
+fn deepin_editor_auto_backup_path(home: Option<PathBuf>) -> Option<PathBuf> {
+    let home = home.filter(|path| !path.as_os_str().is_empty())?;
+    Some(
+        home.join(".local")
+            .join("share")
+            .join("deepin")
+            .join("deepin-editor")
+            .join("autoBackup-files"),
+    )
+}
+
+fn deepin_editor_config_path(home: Option<PathBuf>) -> Option<PathBuf> {
+    let home = home.filter(|path| !path.as_os_str().is_empty())?;
+    Some(
+        home.join(".config")
+            .join("deepin")
+            .join("deepin-editor")
+            .join("config.conf"),
+    )
+}
+
+fn clear_deepin_editor_restore_history_at(path: &Path) -> std::io::Result<()> {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let updated = clear_deepin_editor_restore_history_contents(&contents);
+
+    if updated != contents {
+        fs::write(path, updated)?;
+    }
+
+    Ok(())
+}
+
+fn clear_deepin_editor_restore_history_contents(contents: &str) -> String {
+    clear_ini_section_key(
+        contents,
+        "advance.editor.browsing_history_temfile",
+        "value",
+        "@Invalid()",
+    )
+}
+
+fn clear_ini_section_key(contents: &str, section: &str, key: &str, value: &str) -> String {
+    let section_header = format!("[{section}]");
+    let mut lines = Vec::new();
+    let mut found_section = false;
+    let mut in_target_section = false;
+    let mut inserted_key = false;
+
+    for raw_line in contents.lines() {
+        let trimmed = raw_line.trim();
+        let is_section_header = trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if is_section_header {
+            if in_target_section && !inserted_key {
+                lines.push(format!("{key}={value}"));
+            }
+
+            in_target_section = trimmed == section_header;
+            if in_target_section {
+                found_section = true;
+                inserted_key = false;
+            }
+            lines.push(raw_line.to_string());
+            continue;
+        }
+
+        if in_target_section {
+            if let Some((line_key, _)) = trimmed.split_once('=') {
+                if line_key.trim() == key {
+                    if !inserted_key {
+                        lines.push(format!("{key}={value}"));
+                        inserted_key = true;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        lines.push(raw_line.to_string());
+    }
+
+    if in_target_section && !inserted_key {
+        lines.push(format!("{key}={value}"));
+    }
+
+    if !found_section {
+        return contents.to_string();
+    }
+
+    let mut updated = lines.join("\n");
+    if contents.ends_with('\n') || !updated.is_empty() {
+        updated.push('\n');
+    }
+    updated
+}
+
+fn remove_existing_path_without_following_root_symlink(path: &Path) -> std::io::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+}
+
 fn spawn_open_command(path: &Path, command: &[String]) -> std::io::Result<Child> {
     let Some((program, args)) = command.split_first() else {
         return Err(std::io::Error::new(
@@ -139,8 +298,151 @@ fn spawn_open_command(path: &Path, command: &[String]) -> std::io::Result<Child>
     if let Some(parent) = path.parent() {
         child.current_dir(parent);
     }
+    configure_open_command_environment(&mut child, program);
 
     child.spawn()
+}
+
+fn configure_open_command_environment(command: &mut Command, program: &str) {
+    if program_name_is(program, "deepin-editor") {
+        configure_deepin_editor_open_environment(command);
+    }
+}
+
+fn configure_deepin_editor_open_environment(command: &mut Command) {
+    for (key, value) in deepin_editor_environment_overrides(
+        |key| env::var_os(key),
+        discover_fcitx_dbus_address_for_current_namespace,
+    ) {
+        command.env(key, value);
+    }
+}
+
+fn deepin_editor_environment_overrides<F, G>(
+    mut env_var: F,
+    discover_dbus_address: G,
+) -> Vec<(&'static str, OsString)>
+where
+    F: FnMut(&str) -> Option<OsString>,
+    G: FnOnce() -> Option<String>,
+{
+    if env_var("DBUS_SESSION_BUS_ADDRESS").is_some_and(|value| !value.as_os_str().is_empty()) {
+        return Vec::new();
+    }
+
+    discover_dbus_address()
+        .map(|address| vec![("DBUS_SESSION_BUS_ADDRESS", OsString::from(address))])
+        .unwrap_or_default()
+}
+
+fn discover_fcitx_dbus_address_for_current_namespace() -> Option<String> {
+    discover_dbus_daemon_address(Path::new("/proc"), |cmdline| {
+        cmdline_contains(cmdline, b"dbus-daemon")
+            && cmdline_contains(cmdline, FCITX_DBUS_DAEMON_CONFIG)
+    })
+}
+
+fn discover_dbus_daemon_address<F>(proc_root: &Path, is_target_daemon: F) -> Option<String>
+where
+    F: Fn(&[u8]) -> bool,
+{
+    let self_mnt_namespace = fs::read_link(proc_root.join("self/ns/mnt")).ok();
+    let self_uid = fs::metadata(proc_root.join("self"))
+        .ok()
+        .map(|meta| meta.uid());
+    let socket_paths =
+        listening_unix_socket_paths(&fs::read_to_string(proc_root.join("net/unix")).ok()?);
+
+    for entry in fs::read_dir(proc_root).ok()?.flatten() {
+        let pid = entry.file_name();
+        if !pid.as_bytes().iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+
+        let pid_root = entry.path();
+        let Ok(cmdline) = fs::read(pid_root.join("cmdline")) else {
+            continue;
+        };
+        if !is_target_daemon(&cmdline) {
+            continue;
+        }
+        if let Some(self_mnt_namespace) = self_mnt_namespace.as_ref() {
+            if fs::read_link(pid_root.join("ns/mnt")).ok().as_ref() != Some(self_mnt_namespace) {
+                continue;
+            }
+        }
+        if let Some(self_uid) = self_uid {
+            if fs::metadata(&pid_root)
+                .ok()
+                .is_some_and(|meta| meta.uid() != self_uid)
+            {
+                continue;
+            }
+        }
+
+        if let Some(address) = dbus_address_for_process_fds(&pid_root.join("fd"), &socket_paths) {
+            return Some(address);
+        }
+    }
+
+    None
+}
+
+fn cmdline_contains(cmdline: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && cmdline.windows(needle.len()).any(|window| window == needle)
+}
+
+fn dbus_address_for_process_fds(
+    fd_directory: &Path,
+    socket_paths: &BTreeMap<String, String>,
+) -> Option<String> {
+    for entry in fs::read_dir(fd_directory).ok()?.flatten() {
+        let Ok(target) = fs::read_link(entry.path()) else {
+            continue;
+        };
+        let Some(inode) = socket_inode_from_fd_target(&target) else {
+            continue;
+        };
+        let Some(path) = socket_paths.get(inode) else {
+            continue;
+        };
+        if let Some(address) = dbus_address_from_unix_socket_path(path) {
+            return Some(address);
+        }
+    }
+
+    None
+}
+
+fn socket_inode_from_fd_target(target: &Path) -> Option<&str> {
+    let target = target.to_str()?;
+    target
+        .strip_prefix("socket:[")
+        .and_then(|value| value.strip_suffix(']'))
+}
+
+fn listening_unix_socket_paths(contents: &str) -> BTreeMap<String, String> {
+    let mut sockets = BTreeMap::new();
+
+    for line in contents.lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.len() < 8 || fields[5] != "01" {
+            continue;
+        }
+        sockets.insert(fields[6].to_string(), fields[7].to_string());
+    }
+
+    sockets
+}
+
+fn dbus_address_from_unix_socket_path(path: &str) -> Option<String> {
+    if let Some(path) = path.strip_prefix('@') {
+        Some(format!("unix:abstract={path}"))
+    } else if path.starts_with('/') {
+        Some(format!("unix:path={path}"))
+    } else {
+        None
+    }
 }
 
 pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
@@ -1132,6 +1434,7 @@ fn split_exec(value: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::symlink;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -1140,6 +1443,265 @@ mod tests {
             .unwrap()
             .as_nanos();
         env::temp_dir().join(format!("filesystem-gui-{name}-{}-{id}", std::process::id()))
+    }
+
+    fn desktop_app(id: &str, name: &str, exec: &str) -> DesktopApp {
+        DesktopApp {
+            id: id.to_string(),
+            name: name.to_string(),
+            exec: exec.to_string(),
+            mime_types: vec!["text/plain".to_string()],
+            text_editor: true,
+            icon: resolve_app_icon(None),
+        }
+    }
+
+    #[test]
+    fn deepin_editor_auto_backup_path_uses_fixed_home_location() {
+        assert_eq!(
+            deepin_editor_auto_backup_path(Some(PathBuf::from("/home/test"))),
+            Some(PathBuf::from(
+                "/home/test/.local/share/deepin/deepin-editor/autoBackup-files"
+            ))
+        );
+        assert_eq!(deepin_editor_auto_backup_path(None), None);
+        assert_eq!(deepin_editor_auto_backup_path(Some(PathBuf::new())), None);
+    }
+
+    #[test]
+    fn deepin_editor_cleanup_detects_editor_by_id_or_program() {
+        let by_id = desktop_app("deepin-editor.desktop", "Deepin Editor", "custom %f");
+        assert!(should_clean_deepin_editor_state(
+            &by_id,
+            &[vec!["custom".to_string(), "/tmp/a.txt".to_string()]]
+        ));
+
+        let by_program = desktop_app("text-editor.desktop", "Text Editor", "/usr/bin/editor %f");
+        assert!(should_clean_deepin_editor_state(
+            &by_program,
+            &[vec![
+                "/usr/bin/deepin-editor".to_string(),
+                "/tmp/a.txt".to_string()
+            ]]
+        ));
+
+        let generic = desktop_app("editor.desktop", "Editor", "editor %f");
+        assert!(!should_clean_deepin_editor_state(
+            &generic,
+            &[vec!["editor".to_string(), "/tmp/deepin-editor".to_string()]]
+        ));
+    }
+
+    #[test]
+    fn deepin_editor_environment_uses_discovered_bus_when_session_bus_missing() {
+        assert_eq!(
+            deepin_editor_environment_overrides(
+                |_| None,
+                || Some("unix:abstract=/tmp/dbus-fcitx".to_string())
+            ),
+            vec![(
+                "DBUS_SESSION_BUS_ADDRESS",
+                OsString::from("unix:abstract=/tmp/dbus-fcitx")
+            )]
+        );
+    }
+
+    #[test]
+    fn deepin_editor_environment_uses_discovered_bus_when_session_bus_empty() {
+        assert_eq!(
+            deepin_editor_environment_overrides(
+                |key| (key == "DBUS_SESSION_BUS_ADDRESS").then(OsString::new),
+                || Some("unix:abstract=/tmp/dbus-fcitx".to_string())
+            ),
+            vec![(
+                "DBUS_SESSION_BUS_ADDRESS",
+                OsString::from("unix:abstract=/tmp/dbus-fcitx")
+            )]
+        );
+    }
+
+    #[test]
+    fn deepin_editor_environment_keeps_existing_session_bus() {
+        assert!(deepin_editor_environment_overrides(
+            |key| (key == "DBUS_SESSION_BUS_ADDRESS")
+                .then(|| OsString::from("unix:path=/run/user/1000/bus")),
+            || Some("unix:abstract=/tmp/dbus-fcitx".to_string())
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn deepin_editor_environment_ignores_missing_fcitx_bus() {
+        assert!(deepin_editor_environment_overrides(|_| None, || None).is_empty());
+    }
+
+    #[test]
+    fn cmdline_contains_matches_embedded_arguments() {
+        assert!(cmdline_contains(
+            b"/usr/bin/dbus-daemon\0--config-file\0/usr/share/fcitx/dbus/daemon.conf\0",
+            FCITX_DBUS_DAEMON_CONFIG
+        ));
+        assert!(!cmdline_contains(
+            b"/usr/bin/dbus-daemon\0--session\0",
+            b"fcitx"
+        ));
+    }
+
+    #[test]
+    fn listening_unix_socket_paths_keeps_only_listening_sockets() {
+        let sockets = listening_unix_socket_paths(
+            "Num RefCount Protocol Flags Type St Inode Path\n\
+             ffff: 00000002 00000000 00010000 0001 01 83101 @/tmp/dbus-fcitx\n\
+             fffe: 00000003 00000000 00000000 0001 03 83102 @/tmp/dbus-client\n",
+        );
+
+        assert_eq!(sockets.get("83101"), Some(&"@/tmp/dbus-fcitx".to_string()));
+        assert!(!sockets.contains_key("83102"));
+    }
+
+    #[test]
+    fn dbus_address_from_unix_socket_path_handles_abstract_and_path_sockets() {
+        assert_eq!(
+            dbus_address_from_unix_socket_path("@/tmp/dbus-fcitx"),
+            Some("unix:abstract=/tmp/dbus-fcitx".to_string())
+        );
+        assert_eq!(
+            dbus_address_from_unix_socket_path("/run/user/1000/bus"),
+            Some("unix:path=/run/user/1000/bus".to_string())
+        );
+        assert_eq!(dbus_address_from_unix_socket_path("relative"), None);
+    }
+
+    #[test]
+    fn dbus_address_for_process_fds_uses_socket_inode() {
+        let root = temp_dir("deepin-editor-fcitx-dbus-fd");
+        let fd_dir = root.join("fd");
+        fs::create_dir_all(&fd_dir).unwrap();
+        symlink("socket:[83101]", fd_dir.join("6")).unwrap();
+        symlink("anon_inode:[eventfd]", fd_dir.join("7")).unwrap();
+
+        let socket_paths = BTreeMap::from([("83101".to_string(), "@/tmp/dbus-fcitx".to_string())]);
+
+        assert_eq!(
+            dbus_address_for_process_fds(&fd_dir, &socket_paths),
+            Some("unix:abstract=/tmp/dbus-fcitx".to_string())
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deepin_editor_config_path_uses_fixed_home_location() {
+        assert_eq!(
+            deepin_editor_config_path(Some(PathBuf::from("/home/test"))),
+            Some(PathBuf::from(
+                "/home/test/.config/deepin/deepin-editor/config.conf"
+            ))
+        );
+        assert_eq!(deepin_editor_config_path(None), None);
+        assert_eq!(deepin_editor_config_path(Some(PathBuf::new())), None);
+    }
+
+    #[test]
+    fn deepin_editor_restore_history_contents_clear_target_value_only() {
+        let contents = "[advance.editor.bookmark]\nvalue=@Invalid()\n\n[advance.editor.browsing_history_temfile]\nvalue=\"{\\\"modify\\\":true,\\\"temFilePath\\\":\\\"/tmp/a\\\"}\"\n\n[advance.editor.theme]\nvalue=/usr/share/deepin-editor/themes/deepin_dark.theme\n";
+
+        let updated = clear_deepin_editor_restore_history_contents(contents);
+
+        assert_eq!(
+            updated,
+            "[advance.editor.bookmark]\nvalue=@Invalid()\n\n[advance.editor.browsing_history_temfile]\nvalue=@Invalid()\n\n[advance.editor.theme]\nvalue=/usr/share/deepin-editor/themes/deepin_dark.theme\n"
+        );
+    }
+
+    #[test]
+    fn deepin_editor_restore_history_contents_insert_missing_value_in_target_section() {
+        let contents = "[advance.editor.browsing_history_temfile]\n# stale section\n\n[advance.window.window_width]\nvalue=1000\n";
+
+        let updated = clear_deepin_editor_restore_history_contents(contents);
+
+        assert_eq!(
+            updated,
+            "[advance.editor.browsing_history_temfile]\n# stale section\n\nvalue=@Invalid()\n[advance.window.window_width]\nvalue=1000\n"
+        );
+    }
+
+    #[test]
+    fn deepin_editor_restore_history_contents_ignore_missing_target_section() {
+        let contents =
+            "[advance.editor.theme]\nvalue=/usr/share/deepin-editor/themes/deepin_dark.theme\n";
+
+        assert_eq!(
+            clear_deepin_editor_restore_history_contents(contents),
+            contents
+        );
+    }
+
+    #[test]
+    fn deepin_editor_restore_history_file_is_updated_in_place() {
+        let root = temp_dir("deepin-editor-config-clear");
+        let home = root.join("home");
+        let config = deepin_editor_config_path(Some(home.clone())).unwrap();
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(
+            &config,
+            "[advance.editor.browsing_history_temfile]\nvalue=\"{\\\"modify\\\":true}\"\n\n[advance.window.window_height]\nvalue=600\n",
+        )
+        .unwrap();
+
+        clear_deepin_editor_restore_history(Some(home)).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&config).unwrap(),
+            "[advance.editor.browsing_history_temfile]\nvalue=@Invalid()\n\n[advance.window.window_height]\nvalue=600\n"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deepin_editor_cleanup_removes_auto_backup_directory() {
+        let root = temp_dir("deepin-editor-clean");
+        let home = root.join("home");
+        let backup = deepin_editor_auto_backup_path(Some(home.clone())).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("draft.txt"), "unsaved").unwrap();
+
+        remove_deepin_editor_auto_backup_files(Some(home)).unwrap();
+
+        assert!(!backup.exists());
+        assert!(backup.parent().unwrap().exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deepin_editor_cleanup_ignores_missing_auto_backup_directory() {
+        let root = temp_dir("deepin-editor-clean-missing");
+        let home = root.join("home");
+
+        remove_deepin_editor_auto_backup_files(Some(home)).unwrap();
+
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn deepin_editor_cleanup_removes_root_symlink_without_target_directory() {
+        let root = temp_dir("deepin-editor-clean-symlink");
+        let home = root.join("home");
+        let backup = deepin_editor_auto_backup_path(Some(home.clone())).unwrap();
+        let target = root.join("target");
+        fs::create_dir_all(backup.parent().unwrap()).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep").unwrap();
+        symlink(&target, &backup).unwrap();
+
+        remove_deepin_editor_auto_backup_files(Some(home)).unwrap();
+
+        assert!(fs::symlink_metadata(&backup).is_err());
+        assert!(target.join("keep.txt").exists());
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
