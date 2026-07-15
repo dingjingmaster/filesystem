@@ -2,15 +2,11 @@ use crate::icons::resolve_app_icon;
 use crate::model::{AppRegistry, DesktopApp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::thread;
-
-const FCITX_DBUS_DAEMON_CONFIG: &[u8] = b"/usr/share/fcitx/dbus/daemon.conf";
 
 pub(crate) fn load_app_registry() -> AppRegistry {
     let mut apps = Vec::new();
@@ -298,151 +294,8 @@ fn spawn_open_command(path: &Path, command: &[String]) -> std::io::Result<Child>
     if let Some(parent) = path.parent() {
         child.current_dir(parent);
     }
-    configure_open_command_environment(&mut child, program);
 
     child.spawn()
-}
-
-fn configure_open_command_environment(command: &mut Command, program: &str) {
-    if program_name_is(program, "deepin-editor") {
-        configure_deepin_editor_open_environment(command);
-    }
-}
-
-fn configure_deepin_editor_open_environment(command: &mut Command) {
-    for (key, value) in deepin_editor_environment_overrides(
-        |key| env::var_os(key),
-        discover_fcitx_dbus_address_for_current_namespace,
-    ) {
-        command.env(key, value);
-    }
-}
-
-fn deepin_editor_environment_overrides<F, G>(
-    mut env_var: F,
-    discover_dbus_address: G,
-) -> Vec<(&'static str, OsString)>
-where
-    F: FnMut(&str) -> Option<OsString>,
-    G: FnOnce() -> Option<String>,
-{
-    if env_var("DBUS_SESSION_BUS_ADDRESS").is_some_and(|value| !value.as_os_str().is_empty()) {
-        return Vec::new();
-    }
-
-    discover_dbus_address()
-        .map(|address| vec![("DBUS_SESSION_BUS_ADDRESS", OsString::from(address))])
-        .unwrap_or_default()
-}
-
-fn discover_fcitx_dbus_address_for_current_namespace() -> Option<String> {
-    discover_dbus_daemon_address(Path::new("/proc"), |cmdline| {
-        cmdline_contains(cmdline, b"dbus-daemon")
-            && cmdline_contains(cmdline, FCITX_DBUS_DAEMON_CONFIG)
-    })
-}
-
-fn discover_dbus_daemon_address<F>(proc_root: &Path, is_target_daemon: F) -> Option<String>
-where
-    F: Fn(&[u8]) -> bool,
-{
-    let self_mnt_namespace = fs::read_link(proc_root.join("self/ns/mnt")).ok();
-    let self_uid = fs::metadata(proc_root.join("self"))
-        .ok()
-        .map(|meta| meta.uid());
-    let socket_paths =
-        listening_unix_socket_paths(&fs::read_to_string(proc_root.join("net/unix")).ok()?);
-
-    for entry in fs::read_dir(proc_root).ok()?.flatten() {
-        let pid = entry.file_name();
-        if !pid.as_bytes().iter().all(u8::is_ascii_digit) {
-            continue;
-        }
-
-        let pid_root = entry.path();
-        let Ok(cmdline) = fs::read(pid_root.join("cmdline")) else {
-            continue;
-        };
-        if !is_target_daemon(&cmdline) {
-            continue;
-        }
-        if let Some(self_mnt_namespace) = self_mnt_namespace.as_ref() {
-            if fs::read_link(pid_root.join("ns/mnt")).ok().as_ref() != Some(self_mnt_namespace) {
-                continue;
-            }
-        }
-        if let Some(self_uid) = self_uid {
-            if fs::metadata(&pid_root)
-                .ok()
-                .is_some_and(|meta| meta.uid() != self_uid)
-            {
-                continue;
-            }
-        }
-
-        if let Some(address) = dbus_address_for_process_fds(&pid_root.join("fd"), &socket_paths) {
-            return Some(address);
-        }
-    }
-
-    None
-}
-
-fn cmdline_contains(cmdline: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty() && cmdline.windows(needle.len()).any(|window| window == needle)
-}
-
-fn dbus_address_for_process_fds(
-    fd_directory: &Path,
-    socket_paths: &BTreeMap<String, String>,
-) -> Option<String> {
-    for entry in fs::read_dir(fd_directory).ok()?.flatten() {
-        let Ok(target) = fs::read_link(entry.path()) else {
-            continue;
-        };
-        let Some(inode) = socket_inode_from_fd_target(&target) else {
-            continue;
-        };
-        let Some(path) = socket_paths.get(inode) else {
-            continue;
-        };
-        if let Some(address) = dbus_address_from_unix_socket_path(path) {
-            return Some(address);
-        }
-    }
-
-    None
-}
-
-fn socket_inode_from_fd_target(target: &Path) -> Option<&str> {
-    let target = target.to_str()?;
-    target
-        .strip_prefix("socket:[")
-        .and_then(|value| value.strip_suffix(']'))
-}
-
-fn listening_unix_socket_paths(contents: &str) -> BTreeMap<String, String> {
-    let mut sockets = BTreeMap::new();
-
-    for line in contents.lines() {
-        let fields = line.split_whitespace().collect::<Vec<_>>();
-        if fields.len() < 8 || fields[5] != "01" {
-            continue;
-        }
-        sockets.insert(fields[6].to_string(), fields[7].to_string());
-    }
-
-    sockets
-}
-
-fn dbus_address_from_unix_socket_path(path: &str) -> Option<String> {
-    if let Some(path) = path.strip_prefix('@') {
-        Some(format!("unix:abstract={path}"))
-    } else if path.starts_with('/') {
-        Some(format!("unix:path={path}"))
-    } else {
-        None
-    }
 }
 
 pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
@@ -1490,104 +1343,6 @@ mod tests {
             &generic,
             &[vec!["editor".to_string(), "/tmp/deepin-editor".to_string()]]
         ));
-    }
-
-    #[test]
-    fn deepin_editor_environment_uses_discovered_bus_when_session_bus_missing() {
-        assert_eq!(
-            deepin_editor_environment_overrides(
-                |_| None,
-                || Some("unix:abstract=/tmp/dbus-fcitx".to_string())
-            ),
-            vec![(
-                "DBUS_SESSION_BUS_ADDRESS",
-                OsString::from("unix:abstract=/tmp/dbus-fcitx")
-            )]
-        );
-    }
-
-    #[test]
-    fn deepin_editor_environment_uses_discovered_bus_when_session_bus_empty() {
-        assert_eq!(
-            deepin_editor_environment_overrides(
-                |key| (key == "DBUS_SESSION_BUS_ADDRESS").then(OsString::new),
-                || Some("unix:abstract=/tmp/dbus-fcitx".to_string())
-            ),
-            vec![(
-                "DBUS_SESSION_BUS_ADDRESS",
-                OsString::from("unix:abstract=/tmp/dbus-fcitx")
-            )]
-        );
-    }
-
-    #[test]
-    fn deepin_editor_environment_keeps_existing_session_bus() {
-        assert!(deepin_editor_environment_overrides(
-            |key| (key == "DBUS_SESSION_BUS_ADDRESS")
-                .then(|| OsString::from("unix:path=/run/user/1000/bus")),
-            || Some("unix:abstract=/tmp/dbus-fcitx".to_string())
-        )
-        .is_empty());
-    }
-
-    #[test]
-    fn deepin_editor_environment_ignores_missing_fcitx_bus() {
-        assert!(deepin_editor_environment_overrides(|_| None, || None).is_empty());
-    }
-
-    #[test]
-    fn cmdline_contains_matches_embedded_arguments() {
-        assert!(cmdline_contains(
-            b"/usr/bin/dbus-daemon\0--config-file\0/usr/share/fcitx/dbus/daemon.conf\0",
-            FCITX_DBUS_DAEMON_CONFIG
-        ));
-        assert!(!cmdline_contains(
-            b"/usr/bin/dbus-daemon\0--session\0",
-            b"fcitx"
-        ));
-    }
-
-    #[test]
-    fn listening_unix_socket_paths_keeps_only_listening_sockets() {
-        let sockets = listening_unix_socket_paths(
-            "Num RefCount Protocol Flags Type St Inode Path\n\
-             ffff: 00000002 00000000 00010000 0001 01 83101 @/tmp/dbus-fcitx\n\
-             fffe: 00000003 00000000 00000000 0001 03 83102 @/tmp/dbus-client\n",
-        );
-
-        assert_eq!(sockets.get("83101"), Some(&"@/tmp/dbus-fcitx".to_string()));
-        assert!(!sockets.contains_key("83102"));
-    }
-
-    #[test]
-    fn dbus_address_from_unix_socket_path_handles_abstract_and_path_sockets() {
-        assert_eq!(
-            dbus_address_from_unix_socket_path("@/tmp/dbus-fcitx"),
-            Some("unix:abstract=/tmp/dbus-fcitx".to_string())
-        );
-        assert_eq!(
-            dbus_address_from_unix_socket_path("/run/user/1000/bus"),
-            Some("unix:path=/run/user/1000/bus".to_string())
-        );
-        assert_eq!(dbus_address_from_unix_socket_path("relative"), None);
-    }
-
-    #[test]
-    fn dbus_address_for_process_fds_uses_socket_inode() {
-        let root = temp_dir("deepin-editor-fcitx-dbus-fd");
-        let fd_dir = root.join("fd");
-        fs::create_dir_all(&fd_dir).unwrap();
-        symlink("socket:[83101]", fd_dir.join("6")).unwrap();
-        symlink("anon_inode:[eventfd]", fd_dir.join("7")).unwrap();
-
-        let socket_paths = BTreeMap::from([("83101".to_string(), "@/tmp/dbus-fcitx".to_string())]);
-
-        assert_eq!(
-            dbus_address_for_process_fds(&fd_dir, &socket_paths),
-            Some("unix:abstract=/tmp/dbus-fcitx".to_string())
-        );
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

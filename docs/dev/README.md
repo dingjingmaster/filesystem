@@ -75,5 +75,5 @@
 | 36 | 2026-07-15 | L1 | summary | [36-summary-properties-owner-group-name.md](36-summary-properties-owner-group-name.md) | 已完成 | 属性权限页所有者显示为 `用户名(UID)`，用户组显示为 `组名(GID)`，未知名称时保留 UID/GID 兜底。 |
 | 37 | 2026-07-15 | L2 | fix | [37-fix-properties-group-name.md](37-fix-properties-group-name.md) | 已完成 | 修复属性权限页用户组名称解析不完整，优先通过系统 GID 查询组名并显示为 `组名(GID)`。 |
 | 38 | 2026-07-15 | L2 | fix | [38-fix-new-file-duplicate-entries.md](38-fix-new-file-duplicate-entries.md) | 已完成 | 修复新建文件后目录 reload 与自动刷新快照交错导致同一路径重复显示的问题。 |
-| 39 | 2026-07-15 | L2 | task | [39-task-deepin-editor-clean-autobackup.md](39-task-deepin-editor-clean-autobackup.md) | 已完成 | 打开 deepin-editor 前清理自动备份和恢复历史，并在沙盒缺失 session D-Bus 时使用同 namespace 的 fcitx bus，规避 DDE Dock 自动激活导致的 18-25 秒等待。 |
-| 40 | 2026-07-15 | L1 | summary | [40-summary-icon-name-two-lines.md](40-summary-icon-name-two-lines.md) | 已完成 | 图标视图文件名改为按显示宽度缩略，长中文/混合文件名保留首尾和扩展名，避免溢出到第 3 行。 |
+| 39 | 2026-07-15 | L2 | task | [39-task-deepin-editor-clean-autobackup.md](39-task-deepin-editor-clean-autobackup.md) | 已完成 | 打开 deepin-editor 前清理自动备份和恢复历史；旧的 fcitx bus/D-Bus 专项兜底已从 filesystem 移除，session D-Bus 改由 sandbox 私有 bus 提供。 |
+| 40 | 2026-07-15 | L1 | summary | [40-summary-icon-name-two-lines.md](40-summary-icon-name-two-lines.md) | 已完成 | 文件名显示按 Iced paragraph 实测排版缩略：列表视图固定侧列、名称单行按列宽中间省略并降低 resize 测量成本，图标视图最多两行且偏向保留末尾扩展名。 |
