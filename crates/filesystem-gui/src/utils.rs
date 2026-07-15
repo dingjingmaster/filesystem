@@ -91,8 +91,8 @@ pub(crate) fn display_name_for_path(path: &std::path::Path) -> String {
 }
 
 pub(crate) fn short_name(name: &str) -> String {
-    const MAX_DISPLAY_WIDTH: usize = 28;
-    middle_ellipsis_by_display_width(name, MAX_DISPLAY_WIDTH)
+    const MAX_CHARS: usize = 18;
+    middle_ellipsis(name, MAX_CHARS)
 }
 
 pub(crate) fn short_list_text(value: &str) -> String {
@@ -128,73 +128,6 @@ pub(crate) fn middle_ellipsis(value: &str, max_chars: usize) -> String {
         .collect::<String>();
 
     format!("{prefix}…{suffix}")
-}
-
-fn middle_ellipsis_by_display_width(value: &str, max_width: usize) -> String {
-    if display_width(value) <= max_width {
-        return value.to_string();
-    }
-
-    if max_width == 0 {
-        return String::new();
-    }
-
-    let ellipsis_width = display_char_width('…');
-    if max_width <= ellipsis_width {
-        return "…".to_string();
-    }
-
-    let keep_width = max_width - ellipsis_width;
-    let head_width = keep_width / 2;
-    let tail_width = keep_width - head_width;
-    let prefix = take_prefix_by_display_width(value, head_width);
-    let suffix = take_suffix_by_display_width(value, tail_width);
-
-    format!("{prefix}…{suffix}")
-}
-
-fn take_prefix_by_display_width(value: &str, max_width: usize) -> String {
-    let mut width = 0;
-    let mut prefix = String::new();
-
-    for ch in value.chars() {
-        let next_width = width + display_char_width(ch);
-        if next_width > max_width {
-            break;
-        }
-        width = next_width;
-        prefix.push(ch);
-    }
-
-    prefix
-}
-
-fn take_suffix_by_display_width(value: &str, max_width: usize) -> String {
-    let mut width = 0;
-    let mut suffix = Vec::new();
-
-    for ch in value.chars().rev() {
-        let next_width = width + display_char_width(ch);
-        if next_width > max_width {
-            break;
-        }
-        width = next_width;
-        suffix.push(ch);
-    }
-
-    suffix.into_iter().rev().collect()
-}
-
-fn display_width(value: &str) -> usize {
-    value.chars().map(display_char_width).sum()
-}
-
-fn display_char_width(ch: char) -> usize {
-    if ch.is_ascii() {
-        1
-    } else {
-        2
-    }
 }
 
 pub(crate) fn entry_meta(entry: &FileEntry) -> String {
@@ -585,22 +518,6 @@ mod tests {
         );
         assert_eq!(middle_ellipsis("abcdef", 1), "…");
         assert_eq!(middle_ellipsis("abcdef", 0), "");
-    }
-
-    #[test]
-    fn short_name_limits_cjk_icon_titles_to_two_line_width() {
-        let name = "安得电子文档安全专项测试报告.docx";
-        let shortened = short_name(name);
-
-        assert_eq!(shortened, "安得电子文档…测试报告.docx");
-        assert!(display_width(&shortened) <= 28);
-        assert!(shortened.starts_with("安得电子文档"));
-        assert!(shortened.ends_with("测试报告.docx"));
-    }
-
-    #[test]
-    fn short_name_keeps_short_icon_titles() {
-        assert_eq!(short_name("报告.docx"), "报告.docx");
     }
 
     #[test]

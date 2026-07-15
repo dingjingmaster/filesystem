@@ -1676,10 +1676,10 @@ impl FileManager {
     fn list_header(&self) -> Element<'_, Message> {
         container(
             row![
-                list_header_cell("名称", Length::FillPortion(5)),
-                list_header_cell("大小", Length::FillPortion(2)),
-                list_header_cell("所有者", Length::FillPortion(2)),
-                list_header_cell("修改时间", Length::FillPortion(3)),
+                list_header_cell("名称", Length::Fill),
+                list_header_cell("大小", Length::Fixed(LIST_SIZE_COLUMN_WIDTH)),
+                list_header_cell("所有者", Length::Fixed(LIST_OWNER_COLUMN_WIDTH)),
+                list_header_cell("修改时间", Length::Fixed(LIST_MODIFIED_COLUMN_WIDTH)),
             ]
             .spacing(12)
             .align_y(iced::Center)
@@ -1698,19 +1698,19 @@ impl FileManager {
         let owner = entry_owner(&entry.file);
         let modified = format_modified(entry.file.modified);
         let display_name = self.entry_display_name(entry);
-        let short_display_name = short_list_text(&display_name);
-        let name_cell = list_name_cell(
-            entry,
-            short_display_name.clone(),
-            Length::FillPortion(5),
-            cut,
-        );
+        let tooltip_name = short_list_text(&display_name);
+        let name_cell = list_name_cell(entry, display_name.clone(), Length::Fill, cut);
 
         let content = row![
             name_cell,
-            list_value_cell(size, Length::FillPortion(2), false, cut),
-            list_value_cell(owner, Length::FillPortion(2), false, cut),
-            list_value_cell(modified, Length::FillPortion(3), false, cut),
+            list_value_cell(size, Length::Fixed(LIST_SIZE_COLUMN_WIDTH), false, cut),
+            list_value_cell(owner, Length::Fixed(LIST_OWNER_COLUMN_WIDTH), false, cut),
+            list_value_cell(
+                modified,
+                Length::Fixed(LIST_MODIFIED_COLUMN_WIDTH),
+                false,
+                cut,
+            ),
         ]
         .spacing(12)
         .align_y(iced::Center)
@@ -1727,7 +1727,7 @@ impl FileManager {
             .on_press(Message::SelectEntry(entry.file.path.clone()))
             .on_double_click(Message::Open(entry.file.path.clone(), entry.file.kind));
 
-        entry_name_tooltip(item, display_name, short_display_name)
+        entry_name_tooltip(item, display_name, tooltip_name)
     }
 
     fn tile(&self, entry: &DisplayEntry) -> Element<'_, Message> {
@@ -1735,21 +1735,11 @@ impl FileManager {
         let cut = self.is_cut_path(&entry.file.path);
         let display_name = entry.file.name.clone();
         let short_display_name = short_name(&display_name);
-        let name: Element<'_, Message> = text(short_display_name.clone())
-            .size(15)
-            .width(TILE_WIDTH)
-            .height(Length::Fixed(38.0))
-            .align_x(Horizontal::Center)
-            .style(if cut {
-                style::disabled_text
-            } else {
-                style::primary_text
-            })
-            .into();
+        let name = icon_title(display_name.clone(), cut);
 
         let meta = text(self.entry_subtitle(entry))
             .size(12)
-            .width(TILE_WIDTH)
+            .width(Fill)
             .align_x(Horizontal::Center)
             .style(if cut {
                 style::disabled_text
@@ -1760,7 +1750,7 @@ impl FileManager {
         let content = column![badged_entry_icon(entry, 78.0), name, meta]
             .spacing(8)
             .align_x(iced::Center)
-            .width(TILE_WIDTH);
+            .width(Fill);
 
         let tile = container(content)
             .height(TILE_HEIGHT)

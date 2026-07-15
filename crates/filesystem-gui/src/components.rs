@@ -2,11 +2,29 @@ use crate::config::*;
 use crate::model::{DisplayEntry, EntryIcon, IconBadge, Message, PermissionClass, RenameState};
 use crate::style;
 use crate::utils::directory_permission;
+use iced::advanced::text::{Paragraph as _, Renderer as _};
+use iced::advanced::widget::{text as advanced_widget_text, tree, Tree};
+use iced::advanced::{layout, renderer, text as advanced_text, Layout, Widget};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, container, mouse_area, row, space, stack, svg, text, text_editor};
 use iced::widget::{container as container_style, svg as svg_style};
-use iced::{mouse, window, Element, Fill, Length, Padding};
+use iced::{mouse, window, Element, Fill, Length, Padding, Rectangle, Renderer, Size, Theme};
 use std::os::unix::ffi::OsStrExt;
+
+const ICON_TITLE_TEXT_SIZE: f32 = 15.0;
+const ICON_TITLE_HEIGHT: f32 = 38.0;
+const ICON_TITLE_MEASURE_HEIGHT: f32 = 4096.0;
+const ICON_TITLE_LINE_HEIGHT: f32 = 1.2;
+const ICON_TITLE_HEIGHT_TOLERANCE: f32 = 0.5;
+const LIST_NAME_ICON_SIZE: f32 = 24.0;
+const LIST_NAME_ICON_SPACING: f32 = 10.0;
+const LIST_NAME_TEXT_SIZE: f32 = 14.0;
+const LIST_NAME_LINE_HEIGHT: f32 = 1.25;
+const LIST_NAME_WIDTH_BUCKET: f32 = 8.0;
+const TEXT_WIDTH_TOLERANCE: f32 = 0.5;
+
+type UiTextFont = <Renderer as advanced_text::Renderer>::Font;
+type UiParagraph = <Renderer as advanced_text::Renderer>::Paragraph;
 
 pub(crate) fn toolbar_icon<'a>(bytes: &'static [u8], enabled: bool) -> Element<'a, Message> {
     let color = if enabled {
@@ -71,6 +89,238 @@ pub(crate) fn badged_entry_icon(entry: &DisplayEntry, size: f32) -> Element<'sta
     .width(size)
     .height(size)
     .into()
+}
+
+pub(crate) fn icon_title<'a>(name: String, dimmed: bool) -> Element<'a, Message> {
+    Element::new(IconTitle { name, dimmed })
+}
+
+struct IconTitle {
+    name: String,
+    dimmed: bool,
+}
+
+#[derive(Default)]
+struct IconTitleState {
+    source_name: String,
+    available_width: f32,
+    visible_name: String,
+    paragraph: advanced_widget_text::State<UiParagraph>,
+}
+
+impl Widget<Message, Theme, Renderer> for IconTitle {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<IconTitleState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(IconTitleState::default())
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fixed(ICON_TITLE_HEIGHT))
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let state = tree.state.downcast_mut::<IconTitleState>();
+        let available_width = limits.max().width.max(0.0);
+        let width_changed = (state.available_width - available_width).abs() > TEXT_WIDTH_TOLERANCE;
+
+        if state.source_name != self.name || width_changed {
+            state.visible_name = fit_icon_title(&self.name, renderer, available_width);
+            self.name.clone_into(&mut state.source_name);
+            state.available_width = available_width;
+        }
+
+        advanced_widget_text::layout(
+            &mut state.paragraph,
+            renderer,
+            limits,
+            &state.visible_name,
+            icon_title_format(),
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        defaults: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor_position: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let Some(clip_bounds) = bounds.intersection(viewport) else {
+            return;
+        };
+        let state = tree.state.downcast_ref::<IconTitleState>();
+        let color = if self.dimmed {
+            style::DISABLED
+        } else {
+            style::TEXT
+        };
+
+        advanced_widget_text::draw(
+            renderer,
+            defaults,
+            bounds,
+            state.paragraph.raw(),
+            advanced_widget_text::Style { color: Some(color) },
+            &clip_bounds,
+        );
+    }
+}
+
+fn icon_title_format() -> advanced_widget_text::Format<UiTextFont> {
+    advanced_widget_text::Format {
+        width: Length::Fill,
+        height: Length::Fixed(ICON_TITLE_HEIGHT),
+        size: Some(ICON_TITLE_TEXT_SIZE.into()),
+        font: None,
+        line_height: advanced_text::LineHeight::Relative(ICON_TITLE_LINE_HEIGHT),
+        align_x: advanced_text::Alignment::Center,
+        align_y: Vertical::Top,
+        shaping: advanced_text::Shaping::default(),
+        wrapping: advanced_text::Wrapping::WordOrGlyph,
+    }
+}
+
+fn fit_icon_title(name: &str, renderer: &Renderer, available_width: f32) -> String {
+    if available_width <= TEXT_WIDTH_TOLERANCE {
+        return String::new();
+    }
+
+    if icon_title_fits(name, renderer, available_width) {
+        return name.to_string();
+    }
+
+    let char_count = name.chars().count();
+    let mut low = 0;
+    let mut high = char_count.saturating_sub(1);
+
+    while low < high {
+        let middle = (low + high + 1) / 2;
+        let candidate = middle_ellipsis_by_kept_chars(name, middle);
+
+        if icon_title_fits(&candidate, renderer, available_width) {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+
+    middle_ellipsis_by_kept_chars(name, low)
+}
+
+fn icon_title_fits(name: &str, renderer: &Renderer, available_width: f32) -> bool {
+    let paragraph = UiParagraph::with_text(icon_title_text(
+        name,
+        renderer,
+        Size::new(available_width, ICON_TITLE_MEASURE_HEIGHT),
+    ));
+
+    paragraph.min_height() <= ICON_TITLE_HEIGHT + ICON_TITLE_HEIGHT_TOLERANCE
+}
+
+fn icon_title_text<'a>(
+    name: &'a str,
+    renderer: &Renderer,
+    bounds: Size,
+) -> advanced_text::Text<&'a str, UiTextFont> {
+    advanced_text::Text {
+        content: name,
+        bounds,
+        size: ICON_TITLE_TEXT_SIZE.into(),
+        line_height: advanced_text::LineHeight::Relative(ICON_TITLE_LINE_HEIGHT),
+        font: renderer.default_font(),
+        align_x: advanced_text::Alignment::Center,
+        align_y: Vertical::Top,
+        shaping: advanced_text::Shaping::default(),
+        wrapping: advanced_text::Wrapping::WordOrGlyph,
+    }
+}
+
+fn middle_ellipsis_by_kept_chars(value: &str, kept_chars: usize) -> String {
+    let char_count = value.chars().count();
+    if char_count <= kept_chars {
+        return value.to_string();
+    }
+
+    if kept_chars == 0 {
+        return "…".to_string();
+    }
+
+    let balanced_tail = kept_chars - kept_chars / 2;
+    let extension_tail = trailing_extension_chars(value)
+        .unwrap_or(0)
+        .min(kept_chars.saturating_sub(1));
+    let tail = balanced_tail.max(extension_tail);
+    let head = kept_chars - tail;
+    let prefix: String = value.chars().take(head).collect();
+    let suffix: String = value
+        .chars()
+        .rev()
+        .take(tail)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+
+    format!("{prefix}…{suffix}")
+}
+
+fn trailing_extension_chars(value: &str) -> Option<usize> {
+    let char_count = value.chars().count();
+    let dot_byte = value
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| (ch == '.').then_some(index))?;
+
+    if dot_byte == 0 {
+        return None;
+    }
+
+    let extension_chars = value[dot_byte..].chars().count();
+    (extension_chars < char_count).then_some(extension_chars)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::middle_ellipsis_by_kept_chars;
+
+    #[test]
+    fn icon_title_ellipsis_keeps_name_start_and_end() {
+        let shortened = middle_ellipsis_by_kept_chars("安得电子文档安全专项测试报告.docx", 14);
+
+        assert_eq!(shortened, "安得电子文档安…报告.docx");
+    }
+
+    #[test]
+    fn icon_title_ellipsis_handles_zero_kept_chars() {
+        assert_eq!(middle_ellipsis_by_kept_chars("abcdef", 0), "…");
+    }
+
+    #[test]
+    fn icon_title_ellipsis_preserves_extension_with_small_budget() {
+        let shortened = middle_ellipsis_by_kept_chars("安得电子文档安全专项测试报告.docx", 8);
+
+        assert_eq!(shortened, "安得电….docx");
+    }
+
+    #[test]
+    fn list_name_measure_width_uses_floor_bucket() {
+        assert_eq!(super::list_name_measure_width(0.0), 0.0);
+        assert_eq!(super::list_name_measure_width(7.0), 7.0);
+        assert_eq!(super::list_name_measure_width(15.9), 8.0);
+        assert_eq!(super::list_name_measure_width(24.0), 24.0);
+    }
 }
 
 pub(crate) fn sidebar_icon<'a>(bytes: &'static [u8]) -> Element<'a, Message> {
@@ -260,21 +510,185 @@ pub(crate) fn list_name_cell<'a>(
     dimmed: bool,
 ) -> Element<'a, Message> {
     let content = row![
-        badged_entry_icon(entry, 24.0),
-        text(value).size(14).style(if dimmed {
-            style::disabled_text
-        } else {
-            style::primary_text
-        }),
+        badged_entry_icon(entry, LIST_NAME_ICON_SIZE),
+        list_name_label(value, dimmed),
     ]
-    .spacing(10)
-    .align_y(iced::Center);
+    .spacing(LIST_NAME_ICON_SPACING)
+    .align_y(iced::Center)
+    .width(Fill)
+    .height(Fill);
 
     container(content)
         .width(width)
         .height(Fill)
         .align_y(Vertical::Center)
         .into()
+}
+
+fn list_name_label<'a>(name: String, dimmed: bool) -> Element<'a, Message> {
+    Element::new(ListNameLabel { name, dimmed })
+}
+
+struct ListNameLabel {
+    name: String,
+    dimmed: bool,
+}
+
+#[derive(Default)]
+struct ListNameLabelState {
+    source_name: String,
+    measured_width: f32,
+    visible_name: String,
+    paragraph: advanced_widget_text::State<UiParagraph>,
+}
+
+impl Widget<Message, Theme, Renderer> for ListNameLabel {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<ListNameLabelState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(ListNameLabelState::default())
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let state = tree.state.downcast_mut::<ListNameLabelState>();
+        let available_width = limits.max().width.max(0.0);
+        let measured_width = list_name_measure_width(available_width);
+        let width_changed = (state.measured_width - measured_width).abs() > TEXT_WIDTH_TOLERANCE;
+
+        if state.source_name != self.name || width_changed {
+            state.visible_name = fit_list_name(&self.name, renderer, measured_width);
+            self.name.clone_into(&mut state.source_name);
+            state.measured_width = measured_width;
+        }
+
+        advanced_widget_text::layout(
+            &mut state.paragraph,
+            renderer,
+            limits,
+            &state.visible_name,
+            list_name_format(),
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        defaults: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor_position: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let Some(clip_bounds) = bounds.intersection(viewport) else {
+            return;
+        };
+        let state = tree.state.downcast_ref::<ListNameLabelState>();
+        let color = if self.dimmed {
+            style::DISABLED
+        } else {
+            style::TEXT
+        };
+
+        advanced_widget_text::draw(
+            renderer,
+            defaults,
+            bounds,
+            state.paragraph.raw(),
+            advanced_widget_text::Style { color: Some(color) },
+            &clip_bounds,
+        );
+    }
+}
+
+fn list_name_format() -> advanced_widget_text::Format<UiTextFont> {
+    advanced_widget_text::Format {
+        width: Length::Fill,
+        height: Length::Fill,
+        size: Some(LIST_NAME_TEXT_SIZE.into()),
+        font: None,
+        line_height: advanced_text::LineHeight::Relative(LIST_NAME_LINE_HEIGHT),
+        align_x: advanced_text::Alignment::Default,
+        align_y: Vertical::Center,
+        shaping: advanced_text::Shaping::default(),
+        wrapping: advanced_text::Wrapping::None,
+    }
+}
+
+fn fit_list_name(name: &str, renderer: &Renderer, available_width: f32) -> String {
+    if available_width <= TEXT_WIDTH_TOLERANCE {
+        return String::new();
+    }
+
+    if list_name_fits(name, renderer, available_width) {
+        return name.to_string();
+    }
+
+    let char_count = name.chars().count();
+    let mut low = 0;
+    let mut high = char_count.saturating_sub(1);
+
+    while low < high {
+        let middle = (low + high + 1) / 2;
+        let candidate = middle_ellipsis_by_kept_chars(name, middle);
+
+        if list_name_fits(&candidate, renderer, available_width) {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+
+    middle_ellipsis_by_kept_chars(name, low)
+}
+
+fn list_name_measure_width(available_width: f32) -> f32 {
+    let available_width = available_width.max(0.0);
+    if available_width < LIST_NAME_WIDTH_BUCKET {
+        available_width
+    } else {
+        (available_width / LIST_NAME_WIDTH_BUCKET).floor() * LIST_NAME_WIDTH_BUCKET
+    }
+}
+
+fn list_name_fits(name: &str, renderer: &Renderer, available_width: f32) -> bool {
+    let paragraph = UiParagraph::with_text(list_name_text(
+        name,
+        renderer,
+        Size::new(available_width, LIST_ROW_HEIGHT),
+    ));
+
+    paragraph.min_width() <= available_width + TEXT_WIDTH_TOLERANCE
+}
+
+fn list_name_text<'a>(
+    name: &'a str,
+    renderer: &Renderer,
+    bounds: Size,
+) -> advanced_text::Text<&'a str, UiTextFont> {
+    advanced_text::Text {
+        content: name,
+        bounds,
+        size: LIST_NAME_TEXT_SIZE.into(),
+        line_height: advanced_text::LineHeight::Relative(LIST_NAME_LINE_HEIGHT),
+        font: renderer.default_font(),
+        align_x: advanced_text::Alignment::Default,
+        align_y: Vertical::Center,
+        shaping: advanced_text::Shaping::default(),
+        wrapping: advanced_text::Wrapping::None,
+    }
 }
 
 pub(crate) fn rename_editor<'a>(
@@ -481,17 +895,20 @@ pub(crate) fn list_value_cell<'a>(
     primary: bool,
     dimmed: bool,
 ) -> Element<'a, Message> {
-    let text = if dimmed {
+    let label = if dimmed {
         text(value).size(13).style(style::disabled_text)
     } else if primary {
         text(value).size(14).style(style::primary_text)
     } else {
         text(value).size(13).style(style::muted_text)
-    };
+    }
+    .width(Fill)
+    .wrapping(advanced_text::Wrapping::None);
 
-    container(text)
+    container(label)
         .width(width)
         .height(Fill)
         .align_y(Vertical::Center)
+        .clip(true)
         .into()
 }
