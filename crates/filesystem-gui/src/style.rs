@@ -18,6 +18,7 @@ pub(crate) const MUTED: Color = Color::from_rgb(0.60, 0.60, 0.64);
 pub(crate) const DISABLED: Color = Color::from_rgb(0.42, 0.42, 0.46);
 pub(crate) const BORDER: Color = Color::from_rgb(0.22, 0.22, 0.25);
 const SELECTION: Color = Color::from_rgb(0.31, 0.43, 0.62);
+const CHECK_ACCENT: Color = Color::from_rgb(0.44, 0.62, 0.91);
 
 pub(crate) fn app_background(_theme: &Theme) -> container_style::Style {
     container_style::Style::default().background(CONTENT)
@@ -376,14 +377,37 @@ pub(crate) fn sidebar_button(
 }
 
 pub(crate) fn checkbox(_theme: &Theme, status: checkbox_widget::Status) -> checkbox_widget::Style {
-    let active = matches!(status, checkbox_widget::Status::Active { is_checked: true });
+    let (checked, hovered, disabled) = match status {
+        checkbox_widget::Status::Active { is_checked } => (is_checked, false, false),
+        checkbox_widget::Status::Hovered { is_checked } => (is_checked, true, false),
+        checkbox_widget::Status::Disabled { is_checked } => (is_checked, false, true),
+    };
+
+    let background = if checked {
+        CHECK_ACCENT
+    } else if hovered {
+        SURFACE_HOVER
+    } else {
+        SURFACE
+    };
+    let border_color = if checked { CHECK_ACCENT } else { BORDER };
 
     checkbox_widget::Style {
-        background: Background::Color(if active { SURFACE_HOVER } else { SURFACE }),
-        icon_color: TEXT,
-        border: Border::default().rounded(4).color(BORDER).width(1),
-        text_color: Some(MUTED),
+        background: Background::Color(background),
+        icon_color: if disabled { DISABLED } else { TEXT },
+        border: Border::default().rounded(4).color(border_color).width(1),
+        text_color: Some(if disabled { DISABLED } else { MUTED }),
     }
+}
+
+pub(crate) fn check_indicator(checked: bool) -> container_style::Style {
+    let background = if checked { CHECK_ACCENT } else { SURFACE };
+    let border_color = if checked { CHECK_ACCENT } else { BORDER };
+
+    container_style::Style::default()
+        .background(background)
+        .color(TEXT)
+        .border(Border::default().rounded(4).color(border_color).width(1))
 }
 
 pub(crate) fn primary_text(_theme: &Theme) -> iced::widget::text::Style {

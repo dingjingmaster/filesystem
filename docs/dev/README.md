@@ -71,3 +71,4 @@
 | 32 | 2026-07-14 | L1 | summary | [32-summary-icon-title-residue.md](32-summary-icon-title-residue.md) | 已完成 | 修复图标视图标题超过一行时切换目录出现残留的问题，保留标题换行、预留两行标题区域并为普通 tile 绘制不透明背景。 |
 | 33 | 2026-07-14 | L1 | summary | [33-summary-list-owner-username.md](33-summary-list-owner-username.md) | 已完成 | 列表视图所有者列优先显示本机用户名，无法解析时保留 UID 兜底。 |
 | 34 | 2026-07-14 | L2 | fix | [34-fix-local-time-format.md](34-fix-local-time-format.md) | 已完成 | 修复文件管理器时间显示按 UTC 格式化的问题，列表修改时间和属性弹窗时间统一按系统本地时区显示。 |
+| 35 | 2026-07-15 | L1 | summary | [35-summary-open-with-check-refresh.md](35-summary-open-with-check-refresh.md) | 已完成 | 修复打开方式弹窗“设为默认打开方式”和应用选中对钩更新不明显、取消后残留的问题，改为固定实色勾选指示器。 |

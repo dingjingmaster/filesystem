@@ -15,7 +15,7 @@ use filesystem_mime::{detect_name, MimeInfo};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, checkbox, column, container, mouse_area, operation, progress_bar, row, scrollable,
-    space, stack, text, text_editor, text_input, tooltip,
+    space, stack, svg, text, text_editor, text_input, tooltip,
 };
 use iced::{
     event, keyboard, mouse, window, Element, Fill, Length, Padding, Point, Rectangle, Size,
@@ -28,6 +28,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const TEMPLATE_SUBMENU_WIDTH: f32 = 220.0;
+const CHECK_MARK_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+<path d="M3.2 8.2 6.4 11.4 12.8 4.6" fill="none" stroke="#f3f6ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"##;
 
 pub(crate) struct FileManager {
     cwd: PathBuf,
@@ -3083,6 +3086,7 @@ impl FileManager {
         let Some(dialog) = &self.open_with_dialog else {
             return container(space()).height(Fill).width(Fill).into();
         };
+        let set_as_default = dialog.set_as_default;
 
         let apps: Element<'_, Message> = if dialog.apps.is_empty() {
             container(text("没有可用应用").size(14).style(style::muted_text))
@@ -3120,17 +3124,24 @@ impl FileManager {
                 .height(54)
                 .width(Fill)
                 .align_y(Vertical::Center),
-                container(
-                    checkbox(dialog.set_as_default)
-                        .label("设为默认打开方式")
-                        .on_toggle(Message::OpenWithSetDefault)
-                        .size(16)
-                        .text_size(13)
-                        .style(style::checkbox),
+                button(
+                    container(
+                        row![
+                            Self::open_with_check_indicator(set_as_default, 18.0),
+                            text("设为默认打开方式").size(13).style(style::muted_text),
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Center),
+                    )
+                    .height(Fill)
+                    .width(Fill)
+                    .align_y(Vertical::Center),
                 )
                 .height(32)
                 .width(Fill)
-                .align_y(Vertical::Center),
+                .padding([0, 2])
+                .style(move |theme, status| style::menu_button(theme, status, set_as_default))
+                .on_press(Message::OpenWithSetDefault(!set_as_default)),
                 row![
                     button(
                         container(text("取消(C)").size(14).style(style::primary_text))
@@ -3184,7 +3195,6 @@ impl FileManager {
             .as_ref()
             .and_then(|dialog| dialog.selected_app_id.as_ref())
             == Some(&app.id);
-        let marker = if active { "✓" } else { "" };
 
         button(
             container(
@@ -3192,10 +3202,7 @@ impl FileManager {
                     entry_icon(&app.icon, 24.0),
                     text(app.name.clone()).size(14).style(style::primary_text),
                     space().width(Fill),
-                    container(text(marker).size(13).style(style::primary_text))
-                        .width(24)
-                        .align_x(Horizontal::Center)
-                        .align_y(Vertical::Center),
+                    Self::open_with_check_indicator(active, 18.0),
                 ]
                 .spacing(10)
                 .align_y(iced::Center)
@@ -3212,6 +3219,25 @@ impl FileManager {
         .style(move |theme, status| style::menu_button(theme, status, active))
         .on_press(Message::OpenWithSelect(app.id.clone()))
         .into()
+    }
+
+    fn open_with_check_indicator(checked: bool, size: f32) -> Element<'static, Message> {
+        let mark: Element<'static, Message> = if checked {
+            svg(svg::Handle::from_memory(CHECK_MARK_SVG))
+                .width(size - 4.0)
+                .height(size - 4.0)
+                .into()
+        } else {
+            space().width(size - 4.0).height(size - 4.0).into()
+        };
+
+        container(mark)
+            .width(size)
+            .height(size)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .style(move |_| style::check_indicator(checked))
+            .into()
     }
 
     fn properties_overlay(&self) -> Element<'_, Message> {
@@ -5088,6 +5114,13 @@ mod tests {
             .open_with_dialog
             .as_ref()
             .is_some_and(|dialog| dialog.set_as_default));
+
+        let _ = manager.update(Message::OpenWithSetDefault(false));
+
+        assert!(manager
+            .open_with_dialog
+            .as_ref()
+            .is_some_and(|dialog| !dialog.set_as_default));
     }
 
     #[test]
