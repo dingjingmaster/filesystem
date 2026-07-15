@@ -72,3 +72,5 @@
 | 33 | 2026-07-14 | L1 | summary | [33-summary-list-owner-username.md](33-summary-list-owner-username.md) | 已完成 | 列表视图所有者列优先显示本机用户名，无法解析时保留 UID 兜底。 |
 | 34 | 2026-07-14 | L2 | fix | [34-fix-local-time-format.md](34-fix-local-time-format.md) | 已完成 | 修复文件管理器时间显示按 UTC 格式化的问题，列表修改时间和属性弹窗时间统一按系统本地时区显示。 |
 | 35 | 2026-07-15 | L1 | summary | [35-summary-open-with-check-refresh.md](35-summary-open-with-check-refresh.md) | 已完成 | 修复打开方式弹窗“设为默认打开方式”和应用选中对钩更新不明显、取消后残留的问题，改为固定实色勾选指示器。 |
+| 36 | 2026-07-15 | L1 | summary | [36-summary-properties-owner-group-name.md](36-summary-properties-owner-group-name.md) | 已完成 | 属性权限页所有者显示为 `用户名(UID)`，用户组显示为 `组名(GID)`，未知名称时保留 UID/GID 兜底。 |
+| 37 | 2026-07-15 | L2 | fix | [37-fix-properties-group-name.md](37-fix-properties-group-name.md) | 已完成 | 修复属性权限页用户组名称解析不完整，优先通过系统 GID 查询组名并显示为 `组名(GID)`。 |

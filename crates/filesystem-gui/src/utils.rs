@@ -3,12 +3,14 @@ use crate::model::PermissionClass;
 use filesystem_core::{EntryKind, FileEntry, SymlinkTargetKind};
 use iced::{Point, Rectangle, Size};
 use std::collections::BTreeMap;
+use std::ffi::CStr;
 use std::fs;
 use std::mem::MaybeUninit;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PASSWD_PATH: &str = "/etc/passwd";
+const GROUP_PATH: &str = "/etc/group";
 
 pub(crate) fn browser_width_from_window(window_width: f32) -> f32 {
     (window_width - SIDEBAR_WIDTH).max(TILE_WIDTH + GRID_PADDING_LEFT * 2.0)
@@ -299,14 +301,116 @@ fn format_local_datetime(parts: LocalDateTimeParts) -> String {
 
 pub(crate) fn owner_label(owner: Option<u32>) -> String {
     owner
-        .map(|owner| format!("UID {owner}"))
+        .map(|owner| named_id_label(owner, user_names_by_uid(), "UID"))
         .unwrap_or_else(|| "-".to_string())
 }
 
 pub(crate) fn group_label(group: Option<u32>) -> String {
     group
-        .map(|group| format!("GID {group}"))
+        .map(|group| group_label_for_id(group, system_group_name(group), group_names_by_gid()))
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn named_id_label(id: u32, names: &BTreeMap<u32, String>, fallback_prefix: &str) -> String {
+    names
+        .get(&id)
+        .map(|name| format!("{name}({id})"))
+        .unwrap_or_else(|| format!("{fallback_prefix} {id}"))
+}
+
+fn group_label_for_id(
+    gid: u32,
+    system_name: Option<String>,
+    groups: &BTreeMap<u32, String>,
+) -> String {
+    system_name
+        .or_else(|| groups.get(&gid).cloned())
+        .map(|name| format!("{name}({gid})"))
+        .unwrap_or_else(|| format!("GID {gid}"))
+}
+
+fn group_names_by_gid() -> &'static BTreeMap<u32, String> {
+    static GROUPS: OnceLock<BTreeMap<u32, String>> = OnceLock::new();
+
+    GROUPS.get_or_init(|| {
+        fs::read_to_string(GROUP_PATH)
+            .map(|contents| parse_group_names(&contents))
+            .unwrap_or_default()
+    })
+}
+
+fn system_group_name(gid: u32) -> Option<String> {
+    const INITIAL_BUFFER_SIZE: usize = 4096;
+    const MAX_BUFFER_SIZE: usize = 1024 * 1024;
+
+    let gid = libc::gid_t::try_from(gid).ok()?;
+    let mut group = MaybeUninit::<libc::group>::uninit();
+    let mut result: *mut libc::group = std::ptr::null_mut();
+    let mut buffer = vec![0u8; INITIAL_BUFFER_SIZE];
+
+    loop {
+        // SAFETY: `group` points to writable storage, `buffer` is a valid
+        // scratch buffer for libc, and `result` is a valid out pointer.
+        let status = unsafe {
+            libc::getgrgid_r(
+                gid,
+                group.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+
+        if status == 0 {
+            if result.is_null() {
+                return None;
+            }
+
+            // SAFETY: `getgrgid_r` returned success and `result` points to
+            // `group`, whose string fields refer into `buffer`.
+            let name = unsafe { (*result).gr_name };
+            if name.is_null() {
+                return None;
+            }
+
+            // SAFETY: libc returns a NUL-terminated group name pointer on
+            // success, valid while `buffer` is alive in this scope.
+            return unsafe { CStr::from_ptr(name) }
+                .to_str()
+                .ok()
+                .map(str::to_string);
+        }
+
+        if status == libc::ERANGE && buffer.len() < MAX_BUFFER_SIZE {
+            buffer.resize((buffer.len() * 2).min(MAX_BUFFER_SIZE), 0);
+            continue;
+        }
+
+        return None;
+    }
+}
+
+fn parse_group_names(contents: &str) -> BTreeMap<u32, String> {
+    let mut groups = BTreeMap::new();
+
+    for line in contents.lines() {
+        let mut fields = line.split(':');
+        let Some(name) = fields.next() else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+
+        let _password = fields.next();
+        let Some(gid) = fields.next().and_then(|gid| gid.parse::<u32>().ok()) else {
+            continue;
+        };
+
+        groups.entry(gid).or_insert_with(|| name.to_string());
+    }
+
+    groups
 }
 
 pub(crate) fn permission_summary(mode: Option<u32>) -> String {
@@ -437,6 +541,49 @@ mod tests {
 
         assert_eq!(owner_display_name(1000, &users), "alice");
         assert_eq!(owner_display_name(42, &users), "42");
+    }
+
+    #[test]
+    fn group_names_parse_names_by_gid() {
+        let groups = parse_group_names(
+            "root:x:0:\n\
+             staff:x:50:alice,bob\n\
+             users:x:1000:alice\n\
+             duplicate:x:1000:duplicate\n\
+             broken:x:not-a-gid:broken\n\
+             :x:1001:noname\n",
+        );
+
+        assert_eq!(groups.get(&0).map(String::as_str), Some("root"));
+        assert_eq!(groups.get(&50).map(String::as_str), Some("staff"));
+        assert_eq!(groups.get(&1000).map(String::as_str), Some("users"));
+        assert!(!groups.contains_key(&1001));
+    }
+
+    #[test]
+    fn named_id_label_includes_name_and_id() {
+        let names = BTreeMap::from([(1000, "alice".to_string())]);
+
+        assert_eq!(named_id_label(1000, &names, "UID"), "alice(1000)");
+        assert_eq!(named_id_label(42, &names, "UID"), "UID 42");
+    }
+
+    #[test]
+    fn group_label_for_id_prefers_system_name() {
+        let groups = BTreeMap::from([(1000, "group-file".to_string())]);
+
+        assert_eq!(
+            group_label_for_id(1000, Some("system-group".to_string()), &groups),
+            "system-group(1000)"
+        );
+    }
+
+    #[test]
+    fn group_label_for_id_falls_back_to_group_file() {
+        let groups = BTreeMap::from([(1000, "group-file".to_string())]);
+
+        assert_eq!(group_label_for_id(1000, None, &groups), "group-file(1000)");
+        assert_eq!(group_label_for_id(42, None, &groups), "GID 42");
     }
 
     #[test]

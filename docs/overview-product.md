@@ -2,9 +2,9 @@
 
 > 文档元数据
 > - 文档版本：v1.0.0
-> - 最后更新：2026-07-14
+> - 最后更新：2026-07-15
 > - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md、docs/dev/24-task-open-with-default-app.md、docs/dev/25-fix-wps-docx-open.md、docs/dev/26-fix-wps-sandbox-prometheus-open.md、docs/dev/27-task-template-file-menu.md
-> - 本次更新来源：docs/dev/34-fix-local-time-format.md
+> - 本次更新来源：docs/dev/37-fix-properties-group-name.md
 
 ## 1. 产品定位
 
@@ -51,6 +51,7 @@
 - 状态流转：目录切换后重新扫描并退出搜索模式；搜索成功更新条目为搜索结果，扫描失败清空条目并展示错误；当前打开文件夹直接普通文件内容或元数据变化时只更新对应条目；直接子项新增、删除、重命名或不确定事件时后台快照校准目录列表且不清空旧界面。
 - 文件视图显示规则：目录加载开始时清空旧条目并把主文件区滚动位置复位到顶部；图标视图和列表视图中的长文件名使用中间省略，保留开头和结尾，鼠标悬停条目时显示完整名称。
 - 列表视图显示规则：列表列出名称、大小、所有者、修改时间；所有者列优先显示本机用户名，无法解析用户名时显示 UID；修改时间按系统本地时区显示。
+- 属性权限页显示规则：所有者值优先显示为 `用户名(UID)`，用户组值优先显示为 `组名(GID)`；无法解析名称时分别保留 `UID xxx` 或 `GID xxx` 兜底。
 - 时间显示规则：列表视图修改时间、文件夹属性修改/创建时间和普通文件属性访问/修改/创建时间统一按系统本地时区显示为 `YYYY-MM-DD HH:MM`；无法转换时显示 `-`。
 - 模板文件新建规则：空白菜单“新建文档”子菜单只显示模板文件名去掉最后一个扩展名后的名称；选择模板后复制创建的文件仍使用模板原始文件名和扩展名，并进入内联重命名。
 - 异常处理：缺失路径、不可读路径和 metadata 读取失败必须显式反馈。
@@ -100,6 +101,8 @@
   - docs/dev/31-summary-auto-refresh-model-view.md：自动刷新 model/view 优化实现总结。
   - docs/dev/33-summary-list-owner-username.md：列表视图所有者列用户名显示记录。
   - docs/dev/34-fix-local-time-format.md：文件时间按本地时区显示修复记录。
+  - docs/dev/36-summary-properties-owner-group-name.md：属性权限页所有者和用户组名称显示记录。
+  - docs/dev/37-fix-properties-group-name.md：属性权限页用户组名称解析补强记录。
 
 ## 8. 变更记录
 
@@ -150,3 +153,5 @@
 | 2026-07-14 | 当前文件夹自动刷新改为普通文件单项更新、结构变化后台快照合并，并忽略当前目录下子目录内部变化 | 更新目录浏览用户可见行为 | docs/dev/31-summary-auto-refresh-model-view.md |
 | 2026-07-14 | 记录列表视图所有者列优先显示本机用户名，未知时显示 UID | 更新列表视图用户可见行为 | docs/dev/33-summary-list-owner-username.md |
 | 2026-07-14 | 记录列表修改时间和属性弹窗文件时间统一按系统本地时区显示 | 更新文件时间显示规则 | docs/dev/34-fix-local-time-format.md |
+| 2026-07-15 | 记录属性权限页所有者显示为 `用户名(UID)`、用户组显示为 `组名(GID)`，未知名称保留 UID/GID 兜底 | 更新属性权限页用户可见行为 | docs/dev/36-summary-properties-owner-group-name.md |
+| 2026-07-15 | 修正属性权限页用户组名称解析，确保优先按系统 GID 解析组名后再显示 `组名(GID)` | 修复属性权限页用户组显示 | docs/dev/37-fix-properties-group-name.md |
