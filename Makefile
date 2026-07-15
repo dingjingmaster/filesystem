@@ -1,4 +1,4 @@
-.PHONY: all release debug test
+﻿.PHONY: all release debug test
 
 all: release
 
@@ -10,3 +10,5 @@ debug:
 
 test:
 	cargo test
+
+

@@ -17,5 +17,6 @@ iced = { version = "0.14", default-features = false, features = [
     "x11",
     "wayland",
 ] }
+libc = "0.2"
 notify = { version = "8.2", default-features = false }
 resvg = { version = "0.45", default-features = false }

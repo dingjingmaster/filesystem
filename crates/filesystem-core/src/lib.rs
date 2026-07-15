@@ -236,6 +236,17 @@ pub fn scan_dir(path: impl AsRef<Path>, options: ScanOptions) -> Result<Director
     })
 }
 
+pub fn entry_for_path(path: impl AsRef<Path>) -> Result<FileEntry, FsError> {
+    let path = path.as_ref();
+    let name = path
+        .file_name()
+        .ok_or_else(|| FsError::from_message(path, io::ErrorKind::InvalidInput, "missing name"))?
+        .to_string_lossy()
+        .into_owned();
+
+    file_entry_from_path(path.to_path_buf(), name)
+}
+
 pub struct DirectoryScanner {
     path: PathBuf,
     reader: fs::ReadDir,
@@ -975,8 +986,10 @@ fn is_cross_device_error(error: &io::Error) -> bool {
 }
 
 fn file_entry(item: fs::DirEntry) -> Result<FileEntry, FsError> {
-    let entry_path = item.path();
-    let name = item.file_name().to_string_lossy().into_owned();
+    file_entry_from_path(item.path(), item.file_name().to_string_lossy().into_owned())
+}
+
+fn file_entry_from_path(entry_path: PathBuf, name: String) -> Result<FileEntry, FsError> {
     let hidden = name.starts_with('.');
 
     let metadata =
@@ -1431,6 +1444,21 @@ mod tests {
 
         assert_eq!(error.path(), missing.as_path());
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn entry_for_path_reads_single_visible_entry() {
+        let fixture = TempDir::new("single-entry");
+        let path = fixture.path().join("item.txt");
+        fs::write(&path, b"content").unwrap();
+
+        let entry = entry_for_path(&path).unwrap();
+
+        assert_eq!(entry.name, "item.txt");
+        assert_eq!(entry.path, path);
+        assert_eq!(entry.kind, EntryKind::File);
+        assert_eq!(entry.size, Some(7));
+        assert!(!entry.hidden);
     }
 
     #[test]

@@ -2,7 +2,13 @@ use crate::config::*;
 use crate::model::PermissionClass;
 use filesystem_core::{EntryKind, FileEntry, SymlinkTargetKind};
 use iced::{Point, Rectangle, Size};
+use std::collections::BTreeMap;
+use std::fs;
+use std::mem::MaybeUninit;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const PASSWD_PATH: &str = "/etc/passwd";
 
 pub(crate) fn browser_width_from_window(window_width: f32) -> f32 {
     (window_width - SIDEBAR_WIDTH).max(TILE_WIDTH + GRID_PADDING_LEFT * 2.0)
@@ -156,8 +162,48 @@ pub(crate) fn entry_size(entry: &FileEntry) -> String {
 pub(crate) fn entry_owner(entry: &FileEntry) -> String {
     entry
         .owner
-        .map(|owner| owner.to_string())
+        .map(|owner| owner_display_name(owner, user_names_by_uid()))
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn owner_display_name(owner: u32, users: &BTreeMap<u32, String>) -> String {
+    users
+        .get(&owner)
+        .cloned()
+        .unwrap_or_else(|| owner.to_string())
+}
+
+fn user_names_by_uid() -> &'static BTreeMap<u32, String> {
+    static USERS: OnceLock<BTreeMap<u32, String>> = OnceLock::new();
+
+    USERS.get_or_init(|| {
+        fs::read_to_string(PASSWD_PATH)
+            .map(|contents| parse_passwd_users(&contents))
+            .unwrap_or_default()
+    })
+}
+
+fn parse_passwd_users(contents: &str) -> BTreeMap<u32, String> {
+    let mut users = BTreeMap::new();
+
+    for line in contents.lines() {
+        let mut fields = line.split(':');
+        let Some(name) = fields.next() else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+
+        let _password = fields.next();
+        let Some(uid) = fields.next().and_then(|uid| uid.parse::<u32>().ok()) else {
+            continue;
+        };
+
+        users.entry(uid).or_insert_with(|| name.to_string());
+    }
+
+    users
 }
 
 pub(crate) fn format_size(size: u64) -> String {
@@ -180,16 +226,73 @@ pub(crate) fn format_modified(modified: Option<SystemTime>) -> String {
     let Some(modified) = modified else {
         return "-".to_string();
     };
-    let Ok(duration) = modified.duration_since(UNIX_EPOCH) else {
+
+    let Some(seconds) = system_time_to_unix_seconds(modified) else {
         return "-".to_string();
     };
 
-    let seconds = duration.as_secs();
-    let days = (seconds / 86_400) as i64;
-    let seconds_of_day = seconds % 86_400;
-    let (year, month, day) = civil_from_days(days);
-    let hour = seconds_of_day / 3_600;
-    let minute = (seconds_of_day % 3_600) / 60;
+    format_unix_seconds(seconds)
+}
+
+fn system_time_to_unix_seconds(time: SystemTime) -> Option<i64> {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs()).ok(),
+        Err(error) => {
+            let duration = error.duration();
+            let seconds = i64::try_from(duration.as_secs()).ok()?;
+            if duration.subsec_nanos() == 0 {
+                seconds.checked_neg()
+            } else {
+                seconds.checked_add(1)?.checked_neg()
+            }
+        }
+    }
+}
+
+fn format_unix_seconds(seconds: i64) -> String {
+    format_unix_seconds_with(seconds, local_datetime_parts)
+}
+
+fn format_unix_seconds_with(
+    seconds: i64,
+    local_time: impl FnOnce(i64) -> Option<LocalDateTimeParts>,
+) -> String {
+    local_time(seconds)
+        .map(format_local_datetime)
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn local_datetime_parts(seconds: i64) -> Option<LocalDateTimeParts> {
+    let timestamp = libc::time_t::try_from(seconds).ok()?;
+    let mut local = MaybeUninit::<libc::tm>::uninit();
+
+    // SAFETY: `timestamp` is a valid time_t value and `local` points to
+    // writable uninitialized storage for `localtime_r` to fill.
+    let result = unsafe { libc::localtime_r(&timestamp, local.as_mut_ptr()) };
+    if result.is_null() {
+        return None;
+    }
+
+    // SAFETY: `localtime_r` returned non-null, so it initialized `local`.
+    let local = unsafe { local.assume_init() };
+
+    Some(LocalDateTimeParts {
+        year: local.tm_year + 1900,
+        month: local.tm_mon + 1,
+        day: local.tm_mday,
+        hour: local.tm_hour,
+        minute: local.tm_min,
+    })
+}
+
+fn format_local_datetime(parts: LocalDateTimeParts) -> String {
+    let LocalDateTimeParts {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+    } = parts;
 
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}")
 }
@@ -230,19 +333,13 @@ pub(crate) fn directory_permission(mode: u32, shift: u8) -> String {
     }
 }
 
-fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
-    let z = days_since_unix_epoch + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = mp + if mp < 10 { 3 } else { -9 };
-    let year = y + if month <= 2 { 1 } else { 0 };
-
-    (year as i32, month as u32, day as u32)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LocalDateTimeParts {
+    year: i32,
+    month: i32,
+    day: i32,
+    hour: i32,
+    minute: i32,
 }
 
 #[cfg(test)]
@@ -317,6 +414,54 @@ mod tests {
         );
         assert_eq!(middle_ellipsis("abcdef", 1), "…");
         assert_eq!(middle_ellipsis("abcdef", 0), "");
+    }
+
+    #[test]
+    fn passwd_users_parse_names_by_uid() {
+        let users = parse_passwd_users(
+            "root:x:0:0:root:/root:/bin/sh\n\
+             alice:x:1000:1000:Alice:/home/alice:/bin/bash\n\
+             duplicate:x:1000:1000:Duplicate:/home/duplicate:/bin/bash\n\
+             broken:x:not-a-uid:1000:Broken:/home/broken:/bin/bash\n\
+             :x:1001:1001:No Name:/home/noname:/bin/bash\n",
+        );
+
+        assert_eq!(users.get(&0).map(String::as_str), Some("root"));
+        assert_eq!(users.get(&1000).map(String::as_str), Some("alice"));
+        assert!(!users.contains_key(&1001));
+    }
+
+    #[test]
+    fn owner_display_name_falls_back_to_uid_when_unknown() {
+        let users = BTreeMap::from([(1000, "alice".to_string())]);
+
+        assert_eq!(owner_display_name(1000, &users), "alice");
+        assert_eq!(owner_display_name(42, &users), "42");
+    }
+
+    #[test]
+    fn system_time_to_unix_seconds_floors_before_epoch() {
+        assert_eq!(system_time_to_unix_seconds(UNIX_EPOCH), Some(0));
+        assert_eq!(
+            system_time_to_unix_seconds(UNIX_EPOCH - std::time::Duration::from_nanos(1)),
+            Some(-1)
+        );
+    }
+
+    #[test]
+    fn format_unix_seconds_uses_local_time_parts() {
+        let formatted = format_unix_seconds_with(0, |_| {
+            Some(LocalDateTimeParts {
+                year: 1970,
+                month: 1,
+                day: 1,
+                hour: 8,
+                minute: 5,
+            })
+        });
+
+        assert_eq!(formatted, "1970-01-01 08:05");
+        assert_eq!(format_unix_seconds_with(0, |_| None), "-");
     }
 
     #[test]

@@ -7,9 +7,9 @@ use crate::tasks::*;
 use crate::utils::*;
 use filesystem_core::{
     child_path_limits, file_properties, folder_properties, parse_clipboard_paths, rename_entry,
-    set_permissions, ClipboardPaths, EntryKind, FileOperationCancelToken, FileProperties,
-    FolderProperties, FsError, PasteAction, PasteProgress, PasteProgressEvent, PasteProgressPhase,
-    ScanOptions, SymlinkTargetKind,
+    set_permissions, ClipboardPaths, EntryKind, FileEntry, FileOperationCancelToken,
+    FileProperties, FolderProperties, FsError, PasteAction, PasteProgress, PasteProgressEvent,
+    PasteProgressPhase, ScanOptions, SymlinkTargetKind,
 };
 use filesystem_mime::{detect_name, MimeInfo};
 use iced::alignment::{Horizontal, Vertical};
@@ -23,10 +23,10 @@ use iced::{
 };
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-const CURRENT_FOLDER_REFRESH_DELAY: Duration = Duration::from_millis(200);
 const TEMPLATE_SUBMENU_WIDTH: f32 = 220.0;
 
 pub(crate) struct FileManager {
@@ -68,7 +68,8 @@ pub(crate) struct FileManager {
     window_size: Size,
     next_request_id: u64,
     active_request_id: Option<u64>,
-    current_folder_refresh_pending: Option<PathBuf>,
+    auto_refresh_snapshot_id: Option<u64>,
+    auto_refresh_snapshot_dirty: bool,
     back_history: Vec<PathBuf>,
     forward_history: Vec<PathBuf>,
     home: Option<PathBuf>,
@@ -129,7 +130,8 @@ impl FileManager {
             window_size: Size::new(WINDOW_INITIAL_WIDTH, WINDOW_INITIAL_HEIGHT),
             next_request_id: 0,
             active_request_id: None,
-            current_folder_refresh_pending: None,
+            auto_refresh_snapshot_id: None,
+            auto_refresh_snapshot_dirty: false,
             back_history: Vec::new(),
             forward_history: Vec::new(),
             home,
@@ -984,8 +986,17 @@ impl FileManager {
                 Task::none()
             }
             Message::SearchFinished(request, result) => self.search_finished(request, result),
-            Message::CurrentFolderChanged(path) => self.current_folder_changed(path),
-            Message::CurrentFolderRefreshReady(path) => self.current_folder_refresh_ready(path),
+            Message::CurrentFolderChanged(change) => self.current_folder_changed(change),
+            Message::AutoRefreshEntryLoaded(request_id, path, result) => {
+                self.auto_refresh_entry_loaded(request_id, path, result)
+            }
+            Message::AutoRefreshSnapshotLoaded(request, result) => {
+                self.auto_refresh_snapshot_loaded(request, result)
+            }
+            Message::AutoRefreshEntriesDecorated(request_id, decorations) => {
+                self.auto_refresh_entries_decorated(request_id, decorations);
+                Task::none()
+            }
             Message::CurrentFolderWatchFailed(path, error) => {
                 if path == self.cwd {
                     self.status = format!("Auto-refresh unavailable: {error}");
@@ -1724,6 +1735,7 @@ impl FileManager {
         let name: Element<'_, Message> = text(short_display_name.clone())
             .size(15)
             .width(TILE_WIDTH)
+            .height(Length::Fixed(38.0))
             .align_x(Horizontal::Center)
             .style(if cut {
                 style::disabled_text
@@ -1930,38 +1942,108 @@ impl FileManager {
         self.search_current_dir(query)
     }
 
-    fn current_folder_changed(&mut self, path: PathBuf) -> Task<Message> {
-        if path != self.cwd || self.current_folder_refresh_pending.is_some() {
-            return Task::none();
-        }
-
-        self.current_folder_refresh_pending = Some(path.clone());
-
-        Task::perform(
-            async move {
-                std::thread::sleep(CURRENT_FOLDER_REFRESH_DELAY);
-                path
-            },
-            Message::CurrentFolderRefreshReady,
-        )
-    }
-
-    fn current_folder_refresh_ready(&mut self, path: PathBuf) -> Task<Message> {
-        if self.current_folder_refresh_pending.as_ref() != Some(&path) {
-            return Task::none();
-        }
-
-        self.current_folder_refresh_pending = None;
-
-        if path != self.cwd {
+    fn current_folder_changed(&mut self, change: CurrentFolderChange) -> Task<Message> {
+        if change.path != self.cwd {
             return Task::none();
         }
 
         if self.search_query.is_some() {
-            self.rerun_search()
-        } else {
-            self.reload()
+            return self.rerun_search();
         }
+
+        match change.kind {
+            CurrentFolderChangeKind::Rescan | CurrentFolderChangeKind::Structure => {
+                self.start_auto_refresh_snapshot()
+            }
+            CurrentFolderChangeKind::Entry => {
+                let cwd = self.cwd.clone();
+                let mut tasks = Vec::new();
+                for path in change.paths {
+                    if path.parent() == Some(cwd.as_path()) {
+                        let request_id = self.next_request_id();
+                        tasks.push(refresh_entry_task(request_id, path));
+                    }
+                }
+
+                Task::batch(tasks)
+            }
+        }
+    }
+
+    fn auto_refresh_entry_loaded(
+        &mut self,
+        _request_id: u64,
+        path: PathBuf,
+        result: Result<DisplayEntry, FsError>,
+    ) -> Task<Message> {
+        if path.parent() != Some(self.cwd.as_path()) {
+            return Task::none();
+        }
+
+        match result {
+            Ok(entry) => {
+                self.upsert_auto_refresh_entry(entry);
+                Task::none()
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.start_auto_refresh_snapshot()
+            }
+            Err(_) => Task::none(),
+        }
+    }
+
+    fn start_auto_refresh_snapshot(&mut self) -> Task<Message> {
+        if self.auto_refresh_snapshot_id.is_some() {
+            self.auto_refresh_snapshot_dirty = true;
+            return Task::none();
+        }
+
+        let id = self.next_request_id();
+        self.auto_refresh_snapshot_id = Some(id);
+        let request = AutoRefreshRequest {
+            id,
+            path: self.cwd.clone(),
+        };
+        let options = ScanOptions {
+            show_hidden: self.show_hidden,
+        };
+
+        load_auto_refresh_snapshot_task(request, options)
+    }
+
+    fn auto_refresh_snapshot_loaded(
+        &mut self,
+        request: AutoRefreshRequest,
+        result: Result<Vec<DisplayEntry>, FsError>,
+    ) -> Task<Message> {
+        if self.auto_refresh_snapshot_id != Some(request.id) || request.path != self.cwd {
+            return Task::none();
+        }
+
+        self.auto_refresh_snapshot_id = None;
+
+        let mut tasks = Vec::new();
+        match result {
+            Ok(entries) => {
+                let decorate_entries = self.apply_auto_refresh_snapshot(entries);
+                if !decorate_entries.is_empty() {
+                    tasks.push(decorate_auto_refresh_entries_task(
+                        request.id,
+                        decorate_entries,
+                    ));
+                }
+            }
+            Err(error) => {
+                self.set_scan_error(error);
+            }
+        }
+
+        if self.auto_refresh_snapshot_dirty {
+            self.auto_refresh_snapshot_dirty = false;
+            tasks.push(self.start_auto_refresh_snapshot());
+        }
+
+        Task::batch(tasks)
     }
 
     fn load_path(
@@ -2078,7 +2160,8 @@ impl FileManager {
         self.alert_dialog = None;
         self.search_query = None;
         self.search_root = None;
-        self.current_folder_refresh_pending = None;
+        self.auto_refresh_snapshot_id = None;
+        self.auto_refresh_snapshot_dirty = false;
         self.clear_selection_state();
         self.browser_scroll_y = 0.0;
         self.browser_pointer = None;
@@ -2142,6 +2225,149 @@ impl FileManager {
                 entry.icon = decoration.icon;
                 entry.badge = decoration.badge;
             }
+        }
+    }
+
+    fn auto_refresh_entries_decorated(
+        &mut self,
+        _request_id: u64,
+        decorations: Vec<EntryDecoration>,
+    ) {
+        let mut decorations = decorations
+            .into_iter()
+            .map(|decoration| (decoration.path.clone(), decoration))
+            .collect::<BTreeMap<_, _>>();
+
+        for entry in &mut self.entries {
+            if let Some(decoration) = decorations.remove(&entry.file.path) {
+                entry.mime = decoration.mime;
+                entry.icon = decoration.icon;
+                entry.badge = decoration.badge;
+            }
+        }
+    }
+
+    fn upsert_auto_refresh_entry(&mut self, entry: DisplayEntry) {
+        if entry.file.hidden && !self.show_hidden {
+            self.remove_entry_path(&entry.file.path);
+            return;
+        }
+
+        match self.entry_index_for_path(&entry.file.path) {
+            Some(index) => {
+                self.entries[index] = entry;
+            }
+            None => {
+                self.entries.push(entry);
+            }
+        }
+
+        self.sort_entries();
+    }
+
+    fn remove_entry_path(&mut self, path: &PathBuf) {
+        self.entries.retain(|entry| entry.file.path != *path);
+        self.selected_paths.remove(path);
+        if self.selection_anchor.as_ref() == Some(path) {
+            self.selection_anchor = None;
+        }
+    }
+
+    fn apply_auto_refresh_snapshot(&mut self, entries: Vec<DisplayEntry>) -> Vec<FileEntry> {
+        let previous_visible_paths = self.visible_entry_paths();
+        let old_entries = self
+            .entries
+            .iter()
+            .map(|entry| (entry.file.path.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut needs_decoration = BTreeSet::new();
+
+        self.entries = entries
+            .into_iter()
+            .map(|mut entry| {
+                if let Some(old_entry) = old_entries.get(&entry.file.path) {
+                    if !same_entry_decoration_key(&old_entry.file, &entry.file) {
+                        needs_decoration.insert(entry.file.path.clone());
+                    }
+                    entry.mime = old_entry.mime.clone();
+                    entry.icon = old_entry.icon.clone();
+                    entry.badge = old_entry.badge;
+                } else {
+                    needs_decoration.insert(entry.file.path.clone());
+                }
+                entry
+            })
+            .collect();
+        self.sort_entries();
+        self.retain_existing_selection();
+        self.status = format!("{} entries", self.entries.len());
+
+        if self.visible_entry_paths() != previous_visible_paths {
+            self.visible_files()
+        } else {
+            self.visible_files_needing_decoration(&needs_decoration)
+        }
+    }
+
+    fn retain_existing_selection(&mut self) {
+        let paths = self
+            .entries
+            .iter()
+            .map(|entry| entry.file.path.clone())
+            .collect::<BTreeSet<_>>();
+        self.selected_paths.retain(|path| paths.contains(path));
+        if self
+            .selection_anchor
+            .as_ref()
+            .is_some_and(|path| !paths.contains(path))
+        {
+            self.selection_anchor = None;
+        }
+    }
+
+    fn visible_files_needing_decoration(&self, paths: &BTreeSet<PathBuf>) -> Vec<FileEntry> {
+        let (start, end) = self.visible_entry_range();
+
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(index, entry)| {
+                *index >= start && *index < end && paths.contains(&entry.file.path)
+            })
+            .map(|(_, entry)| entry.file.clone())
+            .collect()
+    }
+
+    fn visible_files(&self) -> Vec<FileEntry> {
+        let (start, end) = self.visible_entry_range();
+
+        self.entries[start..end]
+            .iter()
+            .map(|entry| entry.file.clone())
+            .collect()
+    }
+
+    fn visible_entry_paths(&self) -> Vec<PathBuf> {
+        let (start, end) = self.visible_entry_range();
+
+        self.entries[start..end]
+            .iter()
+            .map(|entry| entry.file.path.clone())
+            .collect()
+    }
+
+    fn visible_entry_range(&self) -> (usize, usize) {
+        match self.view_mode {
+            ViewMode::Icons => {
+                let columns = self.icon_grid_columns();
+                let total_rows = self.entries.len().div_ceil(columns);
+                let (start_row, end_row) = self.visible_grid_rows(total_rows);
+                (
+                    (start_row * columns).min(self.entries.len()),
+                    (end_row * columns).min(self.entries.len()),
+                )
+            }
+            ViewMode::List => self.visible_list_range(self.entries.len()),
         }
     }
 
@@ -4336,6 +4562,12 @@ fn display_entry_sort_group(entry: &DisplayEntry) -> u8 {
     }
 }
 
+fn same_entry_decoration_key(left: &FileEntry, right: &FileEntry) -> bool {
+    left.name == right.name
+        && left.kind == right.kind
+        && left.symlink_target == right.symlink_target
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4701,7 +4933,8 @@ mod tests {
         let previous_generation = manager.browser_generation;
         manager.search_query = Some("old".to_string());
         manager.search_root = Some(PathBuf::from("/tmp"));
-        manager.current_folder_refresh_pending = Some(PathBuf::from("/tmp/many"));
+        manager.auto_refresh_snapshot_id = Some(7);
+        manager.auto_refresh_snapshot_dirty = true;
         manager
             .selected_paths
             .insert(PathBuf::from("/tmp/old-1.txt"));
@@ -4723,7 +4956,8 @@ mod tests {
         assert_eq!(manager.browser_generation, previous_generation + 1);
         assert!(manager.search_query.is_none());
         assert!(manager.search_root.is_none());
-        assert!(manager.current_folder_refresh_pending.is_none());
+        assert!(manager.auto_refresh_snapshot_id.is_none());
+        assert!(!manager.auto_refresh_snapshot_dirty);
         assert!(manager.selected_paths.is_empty());
         assert!(manager.selection_anchor.is_none());
         assert!(manager.selection_drag.is_none());
@@ -4937,47 +5171,128 @@ mod tests {
 
     #[test]
     fn current_folder_change_ignores_non_current_path() {
-        let (mut manager, _) = FileManager::new();
-        let other = manager.cwd.join("other");
+        let mut manager = manager_with_entries(&["alpha.txt"]);
+        manager.cwd = PathBuf::from("/tmp");
+        let change = CurrentFolderChange {
+            path: PathBuf::from("/var"),
+            kind: CurrentFolderChangeKind::Structure,
+            paths: vec![PathBuf::from("/var/alpha.txt")],
+        };
 
-        let _ = manager.update(Message::CurrentFolderChanged(other));
+        let _ = manager.update(Message::CurrentFolderChanged(change));
 
-        assert!(manager.current_folder_refresh_pending.is_none());
+        assert!(manager.auto_refresh_snapshot_id.is_none());
+        assert_eq!(manager.entries.len(), 1);
     }
 
     #[test]
-    fn current_folder_change_schedules_single_pending_refresh() {
-        let (mut manager, _) = FileManager::new();
-        let cwd = manager.cwd.clone();
+    fn structure_change_starts_snapshot_without_clearing_entries() {
+        let mut manager = manager_with_entries(&["alpha.txt", "bravo.txt"]);
+        manager.cwd = PathBuf::from("/tmp");
+        let previous_generation = manager.browser_generation;
+        let previous_entries = manager
+            .entries
+            .iter()
+            .map(|entry| entry.file.name.clone())
+            .collect::<Vec<_>>();
+        let change = CurrentFolderChange {
+            path: manager.cwd.clone(),
+            kind: CurrentFolderChangeKind::Structure,
+            paths: vec![manager.cwd.join("charlie.txt")],
+        };
 
-        let _ = manager.update(Message::CurrentFolderChanged(cwd.clone()));
-        let _ = manager.update(Message::CurrentFolderChanged(cwd.clone()));
+        let _ = manager.update(Message::CurrentFolderChanged(change));
 
-        assert_eq!(manager.current_folder_refresh_pending.as_ref(), Some(&cwd));
+        assert!(manager.auto_refresh_snapshot_id.is_some());
+        assert_eq!(manager.browser_generation, previous_generation);
+        assert_eq!(
+            manager
+                .entries
+                .iter()
+                .map(|entry| entry.file.name.clone())
+                .collect::<Vec<_>>(),
+            previous_entries
+        );
     }
 
     #[test]
-    fn stale_current_folder_refresh_ready_does_not_clear_pending_refresh() {
-        let (mut manager, _) = FileManager::new();
-        let cwd = manager.cwd.clone();
-        manager.current_folder_refresh_pending = Some(cwd.clone());
+    fn structure_change_during_snapshot_marks_dirty() {
+        let mut manager = manager_with_entries(&["alpha.txt"]);
+        manager.cwd = PathBuf::from("/tmp");
+        manager.auto_refresh_snapshot_id = Some(42);
+        let change = CurrentFolderChange {
+            path: manager.cwd.clone(),
+            kind: CurrentFolderChangeKind::Structure,
+            paths: vec![manager.cwd.join("bravo.txt")],
+        };
 
-        let _ = manager.update(Message::CurrentFolderRefreshReady(cwd.join("old")));
+        let _ = manager.update(Message::CurrentFolderChanged(change));
 
-        assert_eq!(manager.current_folder_refresh_pending.as_ref(), Some(&cwd));
+        assert_eq!(manager.auto_refresh_snapshot_id, Some(42));
+        assert!(manager.auto_refresh_snapshot_dirty);
     }
 
     #[test]
-    fn current_folder_refresh_ready_reloads_current_directory() {
-        let (mut manager, _) = FileManager::new();
-        let cwd = manager.cwd.clone();
-        let previous_request = manager.active_request_id;
-        manager.current_folder_refresh_pending = Some(cwd.clone());
+    fn entry_auto_refresh_updates_single_entry_without_clearing() {
+        let mut manager = manager_with_entries(&["alpha.txt", "bravo.txt"]);
+        manager.cwd = PathBuf::from("/tmp");
+        manager.browser_generation = 9;
+        manager.browser_scroll_y = 120.0;
+        let mut updated = file_entry("alpha.txt");
+        updated.file.size = Some(42);
 
-        let _ = manager.update(Message::CurrentFolderRefreshReady(cwd));
+        let _ = manager.update(Message::AutoRefreshEntryLoaded(
+            1,
+            PathBuf::from("/tmp/alpha.txt"),
+            Ok(updated),
+        ));
 
-        assert!(manager.current_folder_refresh_pending.is_none());
-        assert!(manager.active_request_id > previous_request);
+        assert_eq!(manager.entries.len(), 2);
+        assert_eq!(manager.entries[0].file.name, "alpha.txt");
+        assert_eq!(manager.entries[0].file.size, Some(42));
+        assert_eq!(manager.browser_generation, 9);
+        assert_eq!(manager.browser_scroll_y, 120.0);
+    }
+
+    #[test]
+    fn snapshot_auto_refresh_merges_entries_and_retains_visible_state() {
+        let mut manager = manager_with_entries(&["alpha.txt", "bravo.txt"]);
+        manager.cwd = PathBuf::from("/tmp");
+        manager.browser_scroll_y = 120.0;
+        manager
+            .selected_paths
+            .insert(PathBuf::from("/tmp/alpha.txt"));
+        manager
+            .selected_paths
+            .insert(PathBuf::from("/tmp/bravo.txt"));
+        manager.selection_anchor = Some(PathBuf::from("/tmp/bravo.txt"));
+
+        let entries = vec![file_entry("alpha.txt"), file_entry("charlie.txt")];
+        let decorate_entries = manager.apply_auto_refresh_snapshot(entries);
+
+        assert_eq!(
+            manager
+                .entries
+                .iter()
+                .map(|entry| entry.file.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.txt", "charlie.txt"]
+        );
+        assert!(manager
+            .selected_paths
+            .contains(&PathBuf::from("/tmp/alpha.txt")));
+        assert!(!manager
+            .selected_paths
+            .contains(&PathBuf::from("/tmp/bravo.txt")));
+        assert!(manager.selection_anchor.is_none());
+        assert_eq!(manager.browser_scroll_y, 120.0);
+        assert_eq!(
+            decorate_entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.txt", "charlie.txt"]
+        );
     }
 
     #[test]

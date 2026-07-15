@@ -1,15 +1,16 @@
 use crate::apps::{load_app_registry, open_file_with_app, set_default_app_for_mime};
 use crate::config::BlankMenuCommand;
-use crate::icons::{basic_entries, decorate_entry_batch};
+use crate::icons::{basic_entries, decorate_entry_batch, decorated_entry};
 use crate::model::{
-    DefaultAppAssignment, DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest,
+    AutoRefreshRequest, CurrentFolderChange, CurrentFolderChangeKind, DefaultAppAssignment,
+    DeleteEntriesOutcome, DesktopApp, DirectoryLoadEvent, DirectoryRequest, DisplayEntry,
     DisplaySearchResults, FileOperationEvent, HomeShortcut, Message, NewEntryKind, OpenFileOutcome,
     TemplateFile,
 };
 use filesystem_core::{
-    create_file, create_file_from_template, create_folder, delete_entry, paste_paths_with_progress,
-    search_file_names, DirectoryScanner, FileEntry, FileOperationCancelToken, FsError, PasteAction,
-    ScanOptions,
+    create_file, create_file_from_template, create_folder, delete_entry, entry_for_path,
+    paste_paths_with_progress, scan_dir, search_file_names, DirectoryScanner, FileEntry,
+    FileOperationCancelToken, FsError, PasteAction, ScanOptions,
 };
 use iced::{
     futures::channel::mpsc as iced_mpsc, futures::SinkExt, stream, window, Subscription, Task,
@@ -69,9 +70,10 @@ fn current_folder_events(state: &CurrentFolderState) -> impl iced::futures::Stre
 
             let mut watcher =
                 match notify::recommended_watcher(move |event: notify::Result<Event>| match event {
-                    Ok(event) if should_refresh_for_event(&event) => {
-                        let _ = event_output
-                            .try_send(Message::CurrentFolderChanged(event_path.clone()));
+                    Ok(event) => {
+                        if let Some(change) = current_folder_change_for_event(&event_path, &event) {
+                            let _ = event_output.try_send(Message::CurrentFolderChanged(change));
+                        }
                     }
                     Err(error) => {
                         let _ = event_output.try_send(Message::CurrentFolderWatchFailed(
@@ -79,7 +81,6 @@ fn current_folder_events(state: &CurrentFolderState) -> impl iced::futures::Stre
                             error.to_string(),
                         ));
                     }
-                    _ => {}
                 }) {
                     Ok(watcher) => watcher,
                     Err(error) => {
@@ -111,18 +112,60 @@ fn current_folder_events(state: &CurrentFolderState) -> impl iced::futures::Stre
     )
 }
 
-fn should_refresh_for_event(event: &Event) -> bool {
+fn current_folder_change_for_event(cwd: &Path, event: &Event) -> Option<CurrentFolderChange> {
+    let paths = direct_child_event_paths(cwd, &event.paths);
+
     if event.need_rescan() {
-        return true;
+        return Some(CurrentFolderChange {
+            path: cwd.to_path_buf(),
+            kind: CurrentFolderChangeKind::Rescan,
+            paths,
+        });
     }
 
-    match event.kind {
-        EventKind::Any | EventKind::Create(_) | EventKind::Remove(_) => true,
-        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => false,
-        EventKind::Modify(_) => true,
-        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
-        EventKind::Access(_) | EventKind::Other => false,
+    let kind = match event.kind {
+        EventKind::Any | EventKind::Other => CurrentFolderChangeKind::Rescan,
+        EventKind::Create(_) | EventKind::Remove(_) => CurrentFolderChangeKind::Structure,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => return None,
+        EventKind::Modify(ModifyKind::Name(_)) => CurrentFolderChangeKind::Structure,
+        EventKind::Modify(ModifyKind::Data(_)) | EventKind::Modify(ModifyKind::Metadata(_)) => {
+            CurrentFolderChangeKind::Entry
+        }
+        EventKind::Modify(ModifyKind::Any | ModifyKind::Other) => CurrentFolderChangeKind::Rescan,
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => CurrentFolderChangeKind::Entry,
+        EventKind::Access(_) => return None,
+    };
+
+    if kind != CurrentFolderChangeKind::Rescan && paths.is_empty() {
+        return None;
     }
+
+    let paths = if kind == CurrentFolderChangeKind::Entry {
+        paths
+            .into_iter()
+            .filter(|path| !path.is_dir())
+            .collect::<Vec<_>>()
+    } else {
+        paths
+    };
+
+    if kind == CurrentFolderChangeKind::Entry && paths.is_empty() {
+        return None;
+    }
+
+    Some(CurrentFolderChange {
+        path: cwd.to_path_buf(),
+        kind,
+        paths,
+    })
+}
+
+fn direct_child_event_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<PathBuf> {
+    paths
+        .iter()
+        .filter(|path| path.parent() == Some(cwd))
+        .cloned()
+        .collect()
 }
 
 fn detect_home_shortcuts(home: Option<PathBuf>) -> Vec<HomeShortcut> {
@@ -401,6 +444,42 @@ pub(crate) fn load_directory_stream(
     ))
 }
 
+pub(crate) fn refresh_entry_task(request_id: u64, path: PathBuf) -> Task<Message> {
+    let message_path = path.clone();
+    Task::perform(
+        async move { entry_for_path(&path).map(decorated_entry) },
+        move |result| Message::AutoRefreshEntryLoaded(request_id, message_path.clone(), result),
+    )
+}
+
+pub(crate) fn load_auto_refresh_snapshot_task(
+    request: AutoRefreshRequest,
+    options: ScanOptions,
+) -> Task<Message> {
+    let path = request.path.clone();
+    Task::perform(
+        async move { load_directory_snapshot(path, options) },
+        move |result| Message::AutoRefreshSnapshotLoaded(request.clone(), result),
+    )
+}
+
+fn load_directory_snapshot(
+    path: PathBuf,
+    options: ScanOptions,
+) -> Result<Vec<DisplayEntry>, FsError> {
+    scan_dir(path, options).map(|listing| basic_entries(listing.entries))
+}
+
+pub(crate) fn decorate_auto_refresh_entries_task(
+    request_id: u64,
+    entries: Vec<FileEntry>,
+) -> Task<Message> {
+    Task::perform(
+        async move { decorate_entry_batch(entries) },
+        move |decorations| Message::AutoRefreshEntriesDecorated(request_id, decorations),
+    )
+}
+
 pub(crate) fn load_search(
     root: PathBuf,
     query: String,
@@ -642,6 +721,7 @@ pub(crate) fn latest_window_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{CreateKind, DataChange, Flag};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(name: &str) -> TempDir {
@@ -669,6 +749,65 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn file_modify_event_maps_to_entry_change() {
+        let fixture = temp_dir("file-modify");
+        let path = fixture.path().join("file.txt");
+        fs::write(&path, b"content").unwrap();
+        let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(path.clone());
+
+        let change = current_folder_change_for_event(fixture.path(), &event).unwrap();
+
+        assert_eq!(change.kind, CurrentFolderChangeKind::Entry);
+        assert_eq!(change.paths, vec![path]);
+    }
+
+    #[test]
+    fn create_event_maps_to_structure_change() {
+        let fixture = temp_dir("create");
+        let path = fixture.path().join("file.txt");
+        let event = Event::new(EventKind::Create(CreateKind::File)).add_path(path.clone());
+
+        let change = current_folder_change_for_event(fixture.path(), &event).unwrap();
+
+        assert_eq!(change.kind, CurrentFolderChangeKind::Structure);
+        assert_eq!(change.paths, vec![path]);
+    }
+
+    #[test]
+    fn nested_child_event_is_ignored() {
+        let fixture = temp_dir("nested");
+        let path = fixture.path().join("subdir/file.txt");
+        let event = Event::new(EventKind::Create(CreateKind::File)).add_path(path);
+
+        assert!(current_folder_change_for_event(fixture.path(), &event).is_none());
+    }
+
+    #[test]
+    fn directory_modify_event_is_ignored() {
+        let fixture = temp_dir("directory-modify");
+        let path = fixture.path().join("subdir");
+        fs::create_dir(&path).unwrap();
+        let event = Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::WriteTime,
+        )))
+        .add_path(path);
+
+        assert!(current_folder_change_for_event(fixture.path(), &event).is_none());
+    }
+
+    #[test]
+    fn rescan_event_maps_to_rescan_even_without_paths() {
+        let fixture = temp_dir("rescan");
+        let event = Event::new(EventKind::Any).set_flag(Flag::Rescan);
+
+        let change = current_folder_change_for_event(fixture.path(), &event).unwrap();
+
+        assert_eq!(change.kind, CurrentFolderChangeKind::Rescan);
+        assert!(change.paths.is_empty());
     }
 
     #[test]

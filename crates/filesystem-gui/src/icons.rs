@@ -25,6 +25,20 @@ pub(crate) fn basic_entries(entries: Vec<FileEntry>) -> Vec<DisplayEntry> {
         .collect()
 }
 
+pub(crate) fn decorated_entry(file: FileEntry) -> DisplayEntry {
+    let resolver = IconResolver::new();
+    let mime = entry_mime(&file);
+    let icon = resolver.entry_icon(&file, &mime);
+    let badge = entry_badge(&file);
+
+    DisplayEntry {
+        file,
+        mime,
+        icon,
+        badge,
+    }
+}
+
 pub(crate) fn decorate_entry_batch(entries: Vec<FileEntry>) -> Vec<EntryDecoration> {
     let resolver = IconResolver::new();
 

@@ -96,8 +96,10 @@ pub(crate) enum Message {
     DirectoryEvent(DirectoryRequest, DirectoryLoadEvent),
     EntriesDecorated(u64, Vec<EntryDecoration>),
     SearchFinished(SearchRequest, Result<DisplaySearchResults, FsError>),
-    CurrentFolderChanged(PathBuf),
-    CurrentFolderRefreshReady(PathBuf),
+    CurrentFolderChanged(CurrentFolderChange),
+    AutoRefreshEntryLoaded(u64, PathBuf, Result<DisplayEntry, FsError>),
+    AutoRefreshSnapshotLoaded(AutoRefreshRequest, Result<Vec<DisplayEntry>, FsError>),
+    AutoRefreshEntriesDecorated(u64, Vec<EntryDecoration>),
     CurrentFolderWatchFailed(PathBuf, String),
     HomeShortcutsLoaded(Vec<HomeShortcut>),
     WindowDrag,
@@ -328,6 +330,26 @@ pub(crate) struct DirectoryRequest {
     pub(crate) path: PathBuf,
     pub(crate) mode: DirectoryLoadMode,
     pub(crate) previous: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CurrentFolderChangeKind {
+    Rescan,
+    Structure,
+    Entry,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CurrentFolderChange {
+    pub(crate) path: PathBuf,
+    pub(crate) kind: CurrentFolderChangeKind,
+    pub(crate) paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AutoRefreshRequest {
+    pub(crate) id: u64,
+    pub(crate) path: PathBuf,
 }
 
 #[derive(Debug, Clone)]

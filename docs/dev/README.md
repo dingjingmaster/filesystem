@@ -65,3 +65,9 @@
 | 28 | 2026-06-29 | L2 | fix | [28-fix-file-view-refresh-name-template.md](28-fix-file-view-refresh-name-template.md) | 已完成 | 修复目录切换回退残影、长文件名中间省略和模板子菜单去扩展名显示。 |
 | 29 | 2026-07-03 | L2 | task | [29-task-remote-arm-build.md](29-task-remote-arm-build.md) | 已完成 | 在 192.168.8.246 Ubuntu 18.04 aarch64 测试机使用用户级 Rust/Cargo 完成文件管理器 ARM release 构建，并验证 ELF 架构、动态依赖和本地副本哈希。 |
 | 30 | 2026-07-13 | L1 | summary | [30-summary-context-menu-bottom-clamp.md](30-summary-context-menu-bottom-clamp.md) | 已完成 | 修复文件管理器底部右键菜单被浏览区域裁剪的问题，按菜单高度在主文件区内纵向钳制显示。 |
+| 31 | 2026-07-14 | L3 | research | [31-research-auto-refresh-model-view.md](31-research-auto-refresh-model-view.md) | 已完成 | 调研编译高频文件事件导致自动刷新清空界面的问题，确定按事件级数据更新和结构快照同步优化。 |
+| 31 | 2026-07-14 | L3 | plan | [31-plan-auto-refresh-model-view.md](31-plan-auto-refresh-model-view.md) | 已完成 | 规划 core 单项条目读取、GUI watcher 事件分类、单项刷新、结构变化后台快照同步和验证步骤。 |
+| 31 | 2026-07-14 | L3 | summary | [31-summary-auto-refresh-model-view.md](31-summary-auto-refresh-model-view.md) | 已完成 | 总结当前文件夹自动刷新 model/view 优化：普通文件单项更新、结构变化后台快照合并、忽略子目录内部变化、切换目录保持全量刷新。 |
+| 32 | 2026-07-14 | L1 | summary | [32-summary-icon-title-residue.md](32-summary-icon-title-residue.md) | 已完成 | 修复图标视图标题超过一行时切换目录出现残留的问题，保留标题换行、预留两行标题区域并为普通 tile 绘制不透明背景。 |
+| 33 | 2026-07-14 | L1 | summary | [33-summary-list-owner-username.md](33-summary-list-owner-username.md) | 已完成 | 列表视图所有者列优先显示本机用户名，无法解析时保留 UID 兜底。 |
+| 34 | 2026-07-14 | L2 | fix | [34-fix-local-time-format.md](34-fix-local-time-format.md) | 已完成 | 修复文件管理器时间显示按 UTC 格式化的问题，列表修改时间和属性弹窗时间统一按系统本地时区显示。 |

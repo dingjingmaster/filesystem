@@ -627,6 +627,7 @@ dependencies = [
  "filesystem-core",
  "filesystem-mime",
  "iced",
+ "libc",
  "notify",
  "resvg",
 ]

@@ -102,7 +102,7 @@ pub(crate) fn tile_container(selected: bool, dimmed: bool) -> container_style::S
     } else if dimmed {
         style.background(Color::from_rgba(0.18, 0.18, 0.21, 0.35))
     } else {
-        style
+        style.background(CONTENT)
     }
 }
 
