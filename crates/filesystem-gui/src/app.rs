@@ -2093,8 +2093,7 @@ impl FileManager {
                     .map(|entry| entry.file.clone())
                     .collect::<Vec<_>>();
 
-                self.entries.extend(entries);
-                self.sort_entries();
+                self.merge_directory_batch(entries);
                 self.status = format!("Loading... {} entries", self.entries.len());
 
                 Task::batch([
@@ -2256,6 +2255,19 @@ impl FileManager {
             return;
         }
 
+        self.upsert_entry(entry);
+        self.sort_entries();
+    }
+
+    fn merge_directory_batch(&mut self, entries: Vec<DisplayEntry>) {
+        for entry in entries {
+            self.upsert_entry(entry);
+        }
+
+        self.sort_entries();
+    }
+
+    fn upsert_entry(&mut self, entry: DisplayEntry) {
         match self.entry_index_for_path(&entry.file.path) {
             Some(index) => {
                 self.entries[index] = entry;
@@ -2264,8 +2276,6 @@ impl FileManager {
                 self.entries.push(entry);
             }
         }
-
-        self.sort_entries();
     }
 
     fn remove_entry_path(&mut self, path: &PathBuf) {
@@ -5263,6 +5273,43 @@ mod tests {
 
         assert_eq!(manager.auto_refresh_snapshot_id, Some(42));
         assert!(manager.auto_refresh_snapshot_dirty);
+    }
+
+    #[test]
+    fn directory_batch_deduplicates_existing_paths_from_auto_refresh() {
+        let mut manager = manager_with_entries(&["old.txt"]);
+        manager.cwd = PathBuf::from("/tmp");
+        manager.active_request_id = Some(7);
+        manager.auto_refresh_snapshot_id = Some(8);
+
+        let snapshot_request = AutoRefreshRequest {
+            id: 8,
+            path: manager.cwd.clone(),
+        };
+        let _ = manager.update(Message::AutoRefreshSnapshotLoaded(
+            snapshot_request,
+            Ok(vec![file_entry("alpha.txt"), file_entry("bravo.txt")]),
+        ));
+
+        let directory_request = DirectoryRequest {
+            id: 7,
+            path: manager.cwd.clone(),
+            mode: DirectoryLoadMode::Replace,
+            previous: None,
+        };
+        let _ = manager.directory_event(
+            directory_request,
+            DirectoryLoadEvent::Batch(vec![file_entry("alpha.txt"), file_entry("bravo.txt")]),
+        );
+
+        assert_eq!(
+            manager
+                .entries
+                .iter()
+                .map(|entry| entry.file.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.txt", "bravo.txt"]
+        );
     }
 
     #[test]
