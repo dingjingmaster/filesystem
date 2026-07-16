@@ -77,3 +77,4 @@
 | 38 | 2026-07-15 | L2 | fix | [38-fix-new-file-duplicate-entries.md](38-fix-new-file-duplicate-entries.md) | 已完成 | 修复新建文件后目录 reload 与自动刷新快照交错导致同一路径重复显示的问题。 |
 | 39 | 2026-07-15 | L2 | task | [39-task-deepin-editor-clean-autobackup.md](39-task-deepin-editor-clean-autobackup.md) | 已完成 | 打开 deepin-editor 前清理自动备份和恢复历史；旧的 fcitx bus/D-Bus 专项兜底已从 filesystem 移除，session D-Bus 改由 sandbox 私有 bus 提供。 |
 | 40 | 2026-07-15 | L1 | summary | [40-summary-icon-name-two-lines.md](40-summary-icon-name-two-lines.md) | 已完成 | 文件名显示按 Iced paragraph 实测排版缩略：列表视图固定侧列、名称单行按列宽中间省略并降低 resize 测量成本，图标视图最多两行且偏向保留末尾扩展名。 |
+| 41 | 2026-07-16 | L1 | summary | [41-summary-address-bar-paste-limit.md](41-summary-address-bar-paste-limit.md) | 已完成 | 地址栏粘贴和输入增加 4096 字节上限，超限时保留原内容并提示“路径或搜索内容过长”。 |

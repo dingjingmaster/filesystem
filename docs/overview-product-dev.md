@@ -2,9 +2,9 @@
 
 > 文档元数据
 > - 文档版本：v1.0.0
-> - 最后更新：2026-07-15
+> - 最后更新：2026-07-16
 > - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/4-summary-gui-module-refactor.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/15-task-rust-edition-2021.md、docs/dev/16-task-renderer-selection.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/18-fix-uos-software-renderer-refresh.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md、docs/dev/24-task-open-with-default-app.md、docs/dev/25-fix-wps-docx-open.md、docs/dev/26-fix-wps-sandbox-prometheus-open.md、docs/dev/27-task-template-file-menu.md
-> - 本次更新来源：docs/dev/37-fix-properties-group-name.md
+> - 本次更新来源：docs/dev/41-summary-address-bar-paste-limit.md
 > - 关联产品文档：docs/overview-product.md
 
 ## 1. 技术栈
@@ -34,13 +34,14 @@
   - `crates/filesystem-gui/src/icons.rs`：主题图标解析、MIME 到主题图标名映射、本地 SVG 回退策略和软链接角标状态，封装 `IconResolver`。
   - `crates/filesystem-gui/src/components.rs`：toolbar、窗口按钮、侧栏图标、列表单元格、重命名编辑器、右键菜单和属性页行组件等 iced widget 工厂。
   - `crates/filesystem-gui/src/utils.rs`：布局计算、几何命中、格式化、权限显示和相关单元测试等纯函数。
-  - `crates/filesystem-gui/src/config.rs`：应用名、运行时 `filesystem.ini` 配置读取、窗口尺寸、布局常量和窗口 icon 设置。
+  - `crates/filesystem-gui/src/config.rs`：应用名、运行时 `filesystem.ini` 配置读取、窗口尺寸、地址栏输入长度上限、布局常量和窗口 icon 设置。
   - `crates/filesystem-gui/src/style.rs`：主题颜色、按钮/容器/输入框/SVG 样式和分割线组件；右键菜单、工具栏菜单和属性弹窗等动态 overlay 不使用模糊阴影，避免软件渲染局部 damage 清理旧阴影时留下残影。
 - 进程/线程边界：当前只运行单 GUI 进程；目录扫描通过 iced `Task::stream` 驱动 core `DirectoryScanner` 分批发送 Started/Batch/Finished/Failed 事件；当前文件夹自动刷新通过 iced `Subscription::run_with(cwd, ...)` 驱动 `notify` 非递归监听当前目录直接子项变化，watcher 把事件分类为单项条目、结构变化或 rescan，不在 UI 线程读取文件；单项刷新、后台快照同步和装饰任务均通过 `Task::perform` 执行；复制/剪切粘贴通过 iced `Task::stream` 驱动 core 进度回调发送操作进度和完成事件；文件名正则搜索、MIME 内容识别和主题图标解析、新建、重命名、删除、当前文件夹属性统计、普通文件属性读取、当前文件夹权限保存、本地应用注册表加载、外部文件打开和终端探测/启动通过 iced `Task::perform` 或 stream runner 交给 `thread-pool` executor 执行，UI 线程只处理状态更新和渲染；后续任何可能阻塞 UI 的文件操作必须沿用后台任务模型。
 - 客户端/服务端/驱动边界：无服务端、无内核模块、无桌面服务客户端。
 - 数据流：GUI 状态发起后台目录 stream 或 `search_file_names` 任务；目录 stream 先发送 Started 清空旧条目和更新路径，再按批次发送基础 `DisplayEntry`，GUI 追加后排序并立即渲染；每个批次的原始 `FileEntry` 再触发后台装饰任务，返回 `EntryDecoration` 后按 path 原地替换 MIME、主题图标和角标；搜索结果仍一次性返回基础条目，但同样后台装饰；当前目录文件事件变成 `CurrentFolderChanged(CurrentFolderChange)`，状态机确认路径仍是当前目录后，普通文件内容/metadata 变化通过 `entry_for_path` 读取并装饰单个条目，新增/删除/重命名/rescan 等结构或不确定事件通过后台目录快照合并校准，快照合并保留旧界面、滚动和选择状态，扫描中再次收到结构变化只标记 dirty 并在完成后补一轮；每个后台请求带自增 ID，过期批次、完成消息和装饰结果会被丢弃或按当前路径匹配忽略。
 - GUI 文件视图刷新规则：主文件区 `scrollable` 使用固定 widget id；目录加载 Started 阶段除清空旧条目外，还把 `browser_scroll_y` 和 iced 内部 scrollable 偏移复位到 `RelativeOffset::START`，避免从大目录切换或回退到小目录时保留旧可视区渲染状态。
 - GUI 文件名显示规则：`short_name` 和 `short_list_text` 使用中间省略，尾部多保留一个字符以优先保留扩展名；图标视图和列表视图条目外层用 tooltip 显示完整名称。
+- GUI 地址栏输入规则：地址栏输入和粘贴共用 `ADDRESS_BAR_MAX_INPUT_BYTES = 4096` 的 UTF-8 字节上限；Iced `text_input` 的粘贴分支发送独立 `PathPasted` 消息，超限时不替换 `path_input`，只更新状态栏为“路径或搜索内容过长”。
 - GUI 账号与组名显示规则：core `FileEntry.owner`、`FolderProperties.owner/group` 和 `FileProperties.owner/group` 保持 UID/GID；列表视图在 GUI 层缓存解析 `/etc/passwd`，把 UID 映射为用户名显示，无法解析时保留 UID；属性权限页所有者在 GUI 层缓存解析 `/etc/passwd` 后显示为 `用户名(UID)`；属性权限页用户组优先通过系统 NSS `getgrgid_r` 按 GID 查询组名，失败时读取 `/etc/group` 兜底，显示为 `组名(GID)`，仍无法解析时保留 `GID xxx`。
 - GUI 时间显示规则：core 保留 `SystemTime`；GUI 统一通过 `format_modified()` 转成系统本地时区 `YYYY-MM-DD HH:MM`，列表修改时间和属性弹窗访问/修改/创建时间共用该函数；无法转换时显示 `-`。
 - 启动配置规则：GUI 启动时通过 `current_exe()` 定位可执行文件同级 `filesystem.ini`，解析顶层或 `[window]` section 下的非空 `name` 和 `terminal` 键，以及 `[blank-menu.*]` section 下的 `label`、`command` 和重复 `arg`；`name` 写入 `RuntimeConfig` 后覆盖左侧标题栏显示，`terminal` 写入 `RuntimeConfig` 后作为右键“在终端打开”的优先终端路径，合法 blank-menu section 以配置文件顺序写入空白菜单自定义命令列表；配置文件不存在、读取失败或键为空时使用默认值。
@@ -211,6 +212,7 @@
   - docs/dev/31-summary-auto-refresh-model-view.md
   - docs/dev/33-summary-list-owner-username.md
   - docs/dev/34-fix-local-time-format.md
+  - docs/dev/41-summary-address-bar-paste-limit.md
 
 ## 10. 变更记录
 
@@ -268,3 +270,4 @@
 | 2026-07-14 | 记录 GUI 时间格式化从 UTC 手算改为系统本地时区转换，列表和属性弹窗时间共用同一路径 | 更新 GUI 时间显示和依赖边界 | docs/dev/34-fix-local-time-format.md |
 | 2026-07-15 | 记录属性权限页在 GUI 层解析 `/etc/passwd` 和 `/etc/group`，所有者/用户组显示为名称加 UID/GID | 更新 GUI 账号与组名显示规则 | docs/dev/36-summary-properties-owner-group-name.md |
 | 2026-07-15 | 用户组显示补强为优先通过系统 NSS `getgrgid_r` 解析 GID，失败时再读 `/etc/group` | 修复属性权限页用户组名称解析不完整 | docs/dev/37-fix-properties-group-name.md |
+| 2026-07-16 | 地址栏输入和粘贴共用 4096 个 UTF-8 字节上限，粘贴超限通过 `PathPasted` 分支拒绝并保留原内容 | 更新 GUI 地址栏输入控制流 | docs/dev/41-summary-address-bar-paste-limit.md |

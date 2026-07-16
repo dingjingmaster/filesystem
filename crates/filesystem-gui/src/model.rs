@@ -16,6 +16,7 @@ pub(crate) enum Message {
     Back,
     Forward,
     PathChanged(String),
+    PathPasted(String),
     PathSubmit,
     SelectEntry(PathBuf),
     SelectionModifiersChanged(SelectionModifiers),

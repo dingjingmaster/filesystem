@@ -180,10 +180,8 @@ impl FileManager {
                 self.close_menu();
                 self.go_forward()
             }
-            Message::PathChanged(path) => {
-                self.path_input = path;
-                Task::none()
-            }
+            Message::PathChanged(path) => self.set_path_input(path),
+            Message::PathPasted(path) => self.set_path_input(path),
             Message::PathSubmit => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
@@ -1336,6 +1334,7 @@ impl FileManager {
 
         let path_bar = text_input("输入绝对路径或文件名正则", &self.path_input)
             .on_input(Message::PathChanged)
+            .on_paste(Message::PathPasted)
             .on_submit(Message::PathSubmit)
             .size(15)
             .width(Fill)
@@ -3871,6 +3870,16 @@ impl FileManager {
             || self.properties_dialog.is_some()
     }
 
+    fn set_path_input(&mut self, path: String) -> Task<Message> {
+        if path.len() > ADDRESS_BAR_MAX_INPUT_BYTES {
+            self.status = "路径或搜索内容过长".to_string();
+            return Task::none();
+        }
+
+        self.path_input = path;
+        Task::none()
+    }
+
     fn selected_paths_vec(&self) -> Vec<PathBuf> {
         let mut seen = BTreeSet::new();
         let mut paths = Vec::new();
@@ -4770,6 +4779,28 @@ mod tests {
             keyboard_shortcut_event(repeated, event::Status::Ignored, window::Id::unique())
                 .is_none()
         );
+    }
+
+    #[test]
+    fn address_bar_accepts_limit_sized_paste() {
+        let (mut manager, _) = FileManager::new();
+        let input = "a".repeat(ADDRESS_BAR_MAX_INPUT_BYTES);
+
+        let _ = manager.update(Message::PathPasted(input.clone()));
+
+        assert_eq!(manager.path_input, input);
+    }
+
+    #[test]
+    fn address_bar_rejects_overlong_paste_without_replacing_input() {
+        let (mut manager, _) = FileManager::new();
+        manager.path_input = "/tmp".to_string();
+        let overlong = "a".repeat(ADDRESS_BAR_MAX_INPUT_BYTES + 1);
+
+        let _ = manager.update(Message::PathPasted(overlong));
+
+        assert_eq!(manager.path_input, "/tmp");
+        assert_eq!(manager.status, "路径或搜索内容过长");
     }
 
     #[test]

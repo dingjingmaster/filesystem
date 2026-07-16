@@ -14,6 +14,7 @@ pub(crate) const WINDOW_MIN_HEIGHT: f32 = 600.0;
 pub(crate) const SIDEBAR_WIDTH: f32 = 240.0;
 pub(crate) const FILE_OPERATION_POPUP_WIDTH: f32 = 360.0;
 pub(crate) const MAX_RUNNING_FILE_OPERATIONS: usize = 3;
+pub(crate) const ADDRESS_BAR_MAX_INPUT_BYTES: usize = 4096;
 pub(crate) const TOOLBAR_HEIGHT: f32 = 54.0;
 pub(crate) const RESIZE_HIT_SIZE: f32 = 6.0;
 pub(crate) const TILE_WIDTH: f32 = 142.0;

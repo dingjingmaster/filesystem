@@ -2,9 +2,9 @@
 
 > 文档元数据
 > - 文档版本：v1.0.0
-> - 最后更新：2026-07-15
+> - 最后更新：2026-07-16
 > - 更新来源：docs/dev/1-research-cosmic-files.md、docs/dev/1-plan-local-linux-file-manager.md、docs/dev/1-summary-local-linux-file-manager.md、docs/dev/2-summary-context-menu-file-ops-properties.md、docs/dev/3-summary-properties-permission-edit.md、docs/dev/7-summary-selected-folder-context-menu.md、docs/dev/8-summary-selected-file-context-menu.md、docs/dev/9-summary-filesystem-mime.md、docs/dev/11-fix-text-editor-fallback.md、docs/dev/12-summary-symlink-badge-open.md、docs/dev/13-summary-large-directory-performance.md、docs/dev/14-summary-file-operation-progress.md、docs/dev/17-fix-desktop-exec-field-codes.md、docs/dev/19-task-shortcuts-multi-select-menu.md、docs/dev/20-task-click-range-selection.md、docs/dev/21-task-filesystem-ini-config.md、docs/dev/22-task-blank-menu-custom-commands.md、docs/dev/23-task-current-folder-auto-refresh.md、docs/dev/24-task-open-with-default-app.md、docs/dev/25-fix-wps-docx-open.md、docs/dev/26-fix-wps-sandbox-prometheus-open.md、docs/dev/27-task-template-file-menu.md
-> - 本次更新来源：docs/dev/37-fix-properties-group-name.md
+> - 本次更新来源：docs/dev/41-summary-address-bar-paste-limit.md
 
 ## 1. 产品定位
 
@@ -54,6 +54,7 @@
 - 属性权限页显示规则：所有者值优先显示为 `用户名(UID)`，用户组值优先显示为 `组名(GID)`；无法解析名称时分别保留 `UID xxx` 或 `GID xxx` 兜底。
 - 时间显示规则：列表视图修改时间、文件夹属性修改/创建时间和普通文件属性访问/修改/创建时间统一按系统本地时区显示为 `YYYY-MM-DD HH:MM`；无法转换时显示 `-`。
 - 模板文件新建规则：空白菜单“新建文档”子菜单只显示模板文件名去掉最后一个扩展名后的名称；选择模板后复制创建的文件仍使用模板原始文件名和扩展名，并进入内联重命名。
+- 地址栏输入限制规则：地址栏输入或粘贴内容最多允许 4096 个 UTF-8 字节；超过上限时拒绝本次输入，保留原地址栏内容，并在状态栏提示“路径或搜索内容过长”。
 - 异常处理：缺失路径、不可读路径和 metadata 读取失败必须显式反馈。
 - 兼容约束：同一二进制应可在 X11 和 Wayland 会话运行，不分别编译。
 - 用户可见行为：默认不显示隐藏文件；隐藏文件开关位于地址栏右侧菜单中；右侧主区域文件和文件夹普通单击只选中单项，按住 `Ctrl` 单击其它条目可切换加入/移除多选，按住 `Shift` 单击其它条目会按当前显示顺序选中锚点和目标之间的所有条目，空白区域拖拽可框选多个条目，双击目录进入目录、双击非目录条目尝试用默认应用或打开方式首选候选应用打开；图标视图和列表视图空白处右键菜单包含“新建文件”“新建文件夹”“新建文档”“粘贴”“全选”“在终端打开”“属性”，`filesystem.ini` 中配置的空白菜单自定义命令插入到“在终端打开”后的分割线与“属性”前的分割线之间，菜单叠加显示且不重排文件视图；单个选中文件夹右键菜单包含“打开”“复制”“剪切”“重命名”“删除”“在终端打开”“属性”；单个选中非文件夹条目的右键菜单包含“用 xxx 打开”“打开方式”“复制”“剪切”“重命名”“删除”“属性”；打开方式弹窗列出本地 `.desktop` 声明或 `mimeapps.list` 关联支持该 MIME 类型的应用并默认选中首选应用，MIME 类型由后台缓存的 `filesystem-mime` 识别结果提供，`Makefile` 等常见无扩展名文本文件按文本应用匹配；打开方式弹窗可勾选“设为默认打开方式”，打开成功后写入用户级 MIME apps 配置文件并让后续双击、右键“用 xxx 打开”和候选排序立即使用新默认应用，写入失败只在状态栏反馈且不阻断本次打开；新建文件/文件夹在当前目录创建唯一名称并进入内联重命名；如果 XDG 模板目录中存在模板文件，空白菜单“新建文档”可展开子菜单，选择模板后把该模板文件复制到当前目录并进入内联重命名，默认名称全选，编辑框作为文件视图上层覆盖层显示，不挤压其它文件/文件夹位置，使用 1.5 倍行高，长名称最多扩展到基础宽度 3 倍，继续输入会换行并增高，编辑时按当前目录 `NAME_MAX` 和 `PATH_MAX` 字节限制拒绝超限输入，回车或点击文件视图/工具栏/侧边栏等外部区域提交且不覆盖已有路径；如果限制未知且系统返回文件名过长，则退出重命名并保留新建时的默认名称；粘贴从标准剪贴板文本解析本地绝对路径或 `file://` URI，`copy` 文本标记按复制处理，`cut`/`move` 文本标记按剪切处理，同文件系统优先用 `rename` 移动，跨文件系统在 `rename` 返回跨设备错误时复制成功后删除源路径；复制/剪切粘贴期间侧栏标题“文件”居中显示，标题右侧显示右对齐圆形总进度，点击可展开或隐藏每次粘贴的条形进度、当前文件、速度和取消入口，详情作为上层 popup 可覆盖到右侧内容上方且不改变侧栏或主区域布局，点击 popup 外部区域会自动隐藏详情，不超过 5 条详情时不显示滚动条，运行中点 `x` 会取消对应操作并立即移除该详情条，同一时间最多 3 个文件操作复制线程，更多操作显示为排队并在前序操作结束后启动，全部完成后圆形中心显示对钩并延时 3 秒消失；“在终端打开”按 `terminator`、`mate-terminal`、`gnome-terminal` 顺序查找 PATH 并在当前目录或目标文件夹启动；“属性”弹窗可查看当前文件夹概要和权限页，也可查看普通文件的类型、大小、父目录、时间、权限和是否可执行；属性弹窗上层事件不传递到底层文件视图，标题区域可拖拽，关闭按钮复用 `icons/close.svg` 和主窗口关闭按钮样式，信息水平左对齐、垂直居中；权限页可修改当前文件夹 owner/group/other 访问权限，可取消待保存改动或后台保存，不提供“更改内容文件的权限”入口；窗口英文标题和 Linux app_id 使用 `File`；左侧拖拽标题栏显示 `文件`；窗口/任务栏图标使用 `icons/fs.svg`；窗口最小尺寸为 800x600；地址栏左侧只有后退和前进按钮，分别使用 `icons/left.svg` 与 `icons/right.svg`，无历史时置灰不可点；地址栏右侧菜单按钮使用 `icons/menu.svg`，位置靠近最小化按钮且保留拖拽空白，菜单提供“视图”子菜单，可选择图标视图或列表视图；菜单和子菜单叠加在文件显示区域上层，不改变图标/列表视图中的文件位置和布局；图标视图使用固定 tile 大小的流式布局，窗口变宽时增加每行列数、变窄时把列尾条目换到下一行，不缩放文件/文件夹图标；列表视图显示名称、大小、所有者、修改时间；图标视图和列表视图均显示条目图标，文件夹使用 `icons/folder.svg`，文件按 MIME 类型优先使用本地图标主题中的 SVG MIME 图标，找不到时使用 `icons/file.svg`；侧边栏只显示主文件夹、根目录和用户家目录中实际存在的常见目录，导航项使用本地 SVG 图标并保持左对齐、垂直居中；侧边栏顶部和地址栏右侧空白区可拖拽窗口；窗口四边和四角可拖动缩放；地址栏可编辑，回车时只有绝对路径按路径访问，其他输入一律作为正则表达式在当前目录树下搜索文件/目录名并列出匹配项。
@@ -103,6 +104,7 @@
   - docs/dev/34-fix-local-time-format.md：文件时间按本地时区显示修复记录。
   - docs/dev/36-summary-properties-owner-group-name.md：属性权限页所有者和用户组名称显示记录。
   - docs/dev/37-fix-properties-group-name.md：属性权限页用户组名称解析补强记录。
+  - docs/dev/41-summary-address-bar-paste-limit.md：地址栏输入和粘贴 4096 字节上限记录。
 
 ## 8. 变更记录
 
@@ -155,3 +157,4 @@
 | 2026-07-14 | 记录列表修改时间和属性弹窗文件时间统一按系统本地时区显示 | 更新文件时间显示规则 | docs/dev/34-fix-local-time-format.md |
 | 2026-07-15 | 记录属性权限页所有者显示为 `用户名(UID)`、用户组显示为 `组名(GID)`，未知名称保留 UID/GID 兜底 | 更新属性权限页用户可见行为 | docs/dev/36-summary-properties-owner-group-name.md |
 | 2026-07-15 | 修正属性权限页用户组名称解析，确保优先按系统 GID 解析组名后再显示 `组名(GID)` | 修复属性权限页用户组显示 | docs/dev/37-fix-properties-group-name.md |
+| 2026-07-16 | 地址栏输入和粘贴增加 4096 个 UTF-8 字节上限，超限时保留原内容并提示“路径或搜索内容过长” | 更新地址栏用户可见行为 | docs/dev/41-summary-address-bar-paste-limit.md |
