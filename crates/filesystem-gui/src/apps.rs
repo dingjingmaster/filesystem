@@ -291,11 +291,36 @@ fn spawn_open_command(path: &Path, command: &[String]) -> std::io::Result<Child>
 
     let mut child = Command::new(program);
     child.args(args);
+    sanitize_open_command_environment(&mut child);
     if let Some(parent) = path.parent() {
         child.current_dir(parent);
     }
 
     child.spawn()
+}
+
+fn sanitize_open_command_environment(command: &mut Command) {
+    command.env_remove("LD_PRELOAD");
+
+    let Some(library_path) = env::var_os("LD_LIBRARY_PATH") else {
+        return;
+    };
+
+    let mut filtered_paths = Vec::new();
+    for path in env::split_paths(&library_path) {
+        if path == Path::new("/usr/local/andsec/lib")
+            || path == Path::new("/usr/local/andsec/lib64")
+        {
+            continue;
+        }
+        filtered_paths.push(path);
+    }
+
+    if filtered_paths.is_empty() {
+        command.env_remove("LD_LIBRARY_PATH");
+    } else if let Ok(filtered_library_path) = env::join_paths(filtered_paths) {
+        command.env("LD_LIBRARY_PATH", filtered_library_path);
+    }
 }
 
 pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
@@ -1287,8 +1312,35 @@ fn split_exec(value: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::os::unix::fs::symlink;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old_value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let old_value = env::var_os(key);
+            env::set_var(key, value);
+            Self { key, old_value }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.old_value {
+                env::set_var(self.key, value);
+            } else {
+                env::remove_var(self.key);
+            }
+        }
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let id = SystemTime::now()
@@ -1455,6 +1507,42 @@ mod tests {
 
         assert!(fs::symlink_metadata(&backup).is_err());
         assert!(target.join("keep.txt").exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn spawn_open_command_removes_sandbox_runtime_environment() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+        let root = temp_dir("spawn-open-command-env");
+        fs::create_dir_all(&root).unwrap();
+        let env_file = root.join("env.txt");
+        let file = root.join("code.rs");
+        fs::write(&file, "fn main() {}\n").unwrap();
+
+        let _ld_preload = EnvVarGuard::set(
+            "LD_PRELOAD",
+            "/usr/local/andsec/sandbox/hook/hook-connect.so",
+        );
+        let _ld_library_path = EnvVarGuard::set(
+            "LD_LIBRARY_PATH",
+            "/usr/local/andsec/lib:/opt/keep:/usr/local/andsec/lib64",
+        );
+
+        let command = vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            format!("env > '{}'", env_file.display()),
+        ];
+
+        let mut child = spawn_open_command(&file, &command).unwrap();
+        assert!(child.wait().unwrap().success());
+
+        let output = fs::read_to_string(&env_file).unwrap();
+        assert!(!output.contains("LD_PRELOAD="));
+        assert!(!output.contains("/usr/local/andsec/lib"));
+        assert!(!output.contains("/usr/local/andsec/lib64"));
+        assert!(output.contains("LD_LIBRARY_PATH=/opt/keep"));
 
         fs::remove_dir_all(root).unwrap();
     }
