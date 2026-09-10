@@ -78,3 +78,4 @@
 | 39 | 2026-07-15 | L2 | task | [39-task-deepin-editor-clean-autobackup.md](39-task-deepin-editor-clean-autobackup.md) | 已完成 | 打开 deepin-editor 前清理自动备份和恢复历史；旧的 fcitx bus/D-Bus 专项兜底已从 filesystem 移除，session D-Bus 改由 sandbox 私有 bus 提供。 |
 | 40 | 2026-07-15 | L1 | summary | [40-summary-icon-name-two-lines.md](40-summary-icon-name-two-lines.md) | 已完成 | 文件名显示按 Iced paragraph 实测排版缩略：列表视图固定侧列、名称单行按列宽中间省略并降低 resize 测量成本，图标视图最多两行且偏向保留末尾扩展名。 |
 | 41 | 2026-07-16 | L1 | summary | [41-summary-address-bar-paste-limit.md](41-summary-address-bar-paste-limit.md) | 已完成 | 地址栏粘贴和输入增加 4096 字节上限，超限时保留原内容并提示“路径或搜索内容过长”。 |
+| 42 | 2026-09-09 | L2 | task | [42-task-root-scope.md](42-task-root-scope.md) | 已完成 | 增加 `--root <dir>` 逻辑根目录启动参数，启动后默认打开 root，根目录按钮指向 root，并限制目录访问、地址栏绝对路径、历史导航、软链接目标和打开文件入口不得跳出 root。 |

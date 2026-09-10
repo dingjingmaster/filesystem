@@ -2,6 +2,7 @@ use crate::apps::{apps_for_mime, best_app_for_mime};
 use crate::components::*;
 use crate::config::*;
 use crate::model::*;
+use crate::root::RootScope;
 use crate::style;
 use crate::tasks::*;
 use crate::utils::*;
@@ -34,6 +35,7 @@ const CHECK_MARK_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width
 
 pub(crate) struct FileManager {
     cwd: PathBuf,
+    root_scope: Option<RootScope>,
     runtime_config: RuntimeConfig,
     entries: Vec<DisplayEntry>,
     show_hidden: bool,
@@ -89,13 +91,21 @@ impl FileManager {
 
     pub(crate) fn new() -> (Self, Task<Message>) {
         let runtime_config = load_runtime_config();
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        let (root_scope, root_error) = match RootScope::from_env_args() {
+            Ok(scope) => (scope, None),
+            Err(error) => (None, Some(error)),
+        };
+        let cwd = root_scope
+            .as_ref()
+            .map(|scope| scope.root().to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let shortcuts_task = load_home_shortcuts(home.clone());
         let template_files_task = load_template_files_task(home.clone());
         let app_registry_task = load_app_registry_task();
         let mut manager = Self {
             cwd,
+            root_scope,
             runtime_config,
             entries: Vec::new(),
             show_hidden: false,
@@ -144,6 +154,9 @@ impl FileManager {
             open_with_dialog: None,
         };
         let task = manager.reload();
+        if let Some(error) = root_error {
+            manager.status = error;
+        }
         (
             manager,
             Task::batch([task, shortcuts_task, template_files_task, app_registry_task]),
@@ -470,11 +483,17 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
+                }
                 self.start_rename(path)
             }
             Message::FolderDelete(path) => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
+                }
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
                 }
                 self.show_delete_confirmation(vec![path], Some("文件夹"))
             }
@@ -490,6 +509,9 @@ impl FileManager {
                     .entry_for_path(&path)
                     .map(Self::entry_open_path)
                     .unwrap_or(path);
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
+                }
                 self.status = "Opening terminal...".to_string();
                 let terminal = self.runtime_config.terminal.clone();
                 Task::perform(
@@ -502,6 +524,9 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
+                }
                 self.open_properties(path)
             }
             Message::FileOpenDefault(path) => {
@@ -516,6 +541,9 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
+                }
                 if let Some(dialog) = self.open_with_dialog_for(path.clone()) {
                     self.open_with_dialog = Some(dialog);
                     Task::none()
@@ -552,11 +580,17 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
+                }
                 self.start_rename(path)
             }
             Message::FileDelete(path) => {
                 if self.rename_state.is_some() {
                     return self.submit_rename();
+                }
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
                 }
                 self.show_delete_confirmation(vec![path], Some("文件"))
             }
@@ -565,6 +599,9 @@ impl FileManager {
                     return self.submit_rename();
                 }
                 self.close_menu();
+                if !self.path_allowed(&path) {
+                    return self.reject_outside_root();
+                }
                 self.open_file_properties(path)
             }
             Message::CancelDelete => {
@@ -657,6 +694,9 @@ impl FileManager {
                     self.status = "Selected application is not available".to_string();
                     return Task::none();
                 };
+                if !self.path_allowed(&dialog.path) {
+                    return self.reject_outside_root();
+                }
 
                 let default_mime = dialog.set_as_default.then_some(dialog.mime);
                 self.status = if default_mime.is_some() {
@@ -1005,7 +1045,9 @@ impl FileManager {
                 Task::none()
             }
             Message::HomeShortcutsLoaded(shortcuts) => {
-                self.home_shortcuts = shortcuts;
+                if self.root_scope.is_none() {
+                    self.home_shortcuts = shortcuts;
+                }
                 Task::none()
             }
             Message::WindowDrag => latest_window_task(window::drag),
@@ -1771,12 +1813,20 @@ impl FileManager {
         icon: &'static [u8],
         label: &'static str,
     ) -> Element<'_, Message> {
-        let path = match kind {
-            NavKind::Home => self.home_path(),
-            NavKind::Root => PathBuf::from("/"),
-        };
+        let path = self.nav_kind_path(kind);
 
         self.nav_path(icon, label, path)
+    }
+
+    fn nav_kind_path(&self, kind: NavKind) -> PathBuf {
+        match kind {
+            NavKind::Home => self.home_path(),
+            NavKind::Root => self
+                .root_scope
+                .as_ref()
+                .map(|scope| scope.root().to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("/")),
+        }
     }
 
     fn nav_path(
@@ -1810,7 +1860,12 @@ impl FileManager {
     }
 
     fn home_path(&self) -> PathBuf {
-        self.home.clone().unwrap_or_else(|| PathBuf::from("/"))
+        let home = self.home.clone().unwrap_or_else(|| PathBuf::from("/"));
+        if self.path_allowed(&home) {
+            home
+        } else {
+            self.nav_kind_path(NavKind::Root)
+        }
     }
 
     fn open_path(&mut self, path: PathBuf, kind: EntryKind) -> Task<Message> {
@@ -1837,6 +1892,9 @@ impl FileManager {
     }
 
     fn open_file_with_default(&mut self, path: PathBuf) -> Task<Message> {
+        if !self.path_allowed(&path) {
+            return self.reject_outside_root();
+        }
         if self.is_broken_symlink_path(&path) {
             return self.show_broken_symlink_alert(&path);
         }
@@ -1846,6 +1904,9 @@ impl FileManager {
     }
 
     fn open_file_with_default_for_mime(&mut self, path: PathBuf, mime: MimeInfo) -> Task<Message> {
+        if !self.path_allowed(&path) {
+            return self.reject_outside_root();
+        }
         let mime = mime.mime;
         if let Some(app) = best_app_for_mime(&self.app_registry, &mime) {
             self.status = format!("Opening with {}...", app.name);
@@ -1872,6 +1933,9 @@ impl FileManager {
     }
 
     fn visit_path(&mut self, path: PathBuf) -> Task<Message> {
+        if !self.path_allowed(&path) {
+            return self.redirect_to_root();
+        }
         if path == self.cwd {
             return self.reload();
         }
@@ -1882,6 +1946,10 @@ impl FileManager {
 
     fn go_back(&mut self) -> Task<Message> {
         if let Some(path) = self.back_history.last().cloned() {
+            if !self.path_allowed(&path) {
+                self.back_history.pop();
+                return self.redirect_to_root();
+            }
             let previous = self.cwd.clone();
             self.load_path(path, DirectoryLoadMode::Back, Some(previous))
         } else {
@@ -1891,6 +1959,10 @@ impl FileManager {
 
     fn go_forward(&mut self) -> Task<Message> {
         if let Some(path) = self.forward_history.last().cloned() {
+            if !self.path_allowed(&path) {
+                self.forward_history.pop();
+                return self.redirect_to_root();
+            }
             let previous = self.cwd.clone();
             self.load_path(path, DirectoryLoadMode::Forward, Some(previous))
         } else {
@@ -1900,6 +1972,34 @@ impl FileManager {
 
     fn reload(&mut self) -> Task<Message> {
         self.load_path(self.cwd.clone(), DirectoryLoadMode::Replace, None)
+    }
+
+    fn path_allowed(&self, path: &Path) -> bool {
+        self.root_scope
+            .as_ref()
+            .is_none_or(|scope| scope.contains_existing(path))
+    }
+
+    fn redirect_to_root(&mut self) -> Task<Message> {
+        let Some(root) = self
+            .root_scope
+            .as_ref()
+            .map(|scope| scope.root().to_path_buf())
+        else {
+            return self.reject_outside_root();
+        };
+
+        if root == self.cwd {
+            return self.reload();
+        }
+
+        let previous = self.cwd.clone();
+        self.load_path(root, DirectoryLoadMode::Visit, Some(previous))
+    }
+
+    fn reject_outside_root(&mut self) -> Task<Message> {
+        self.status = "Path is outside root".to_string();
+        Task::none()
     }
 
     fn search_current_dir(&mut self, query: String) -> Task<Message> {
@@ -4684,6 +4784,14 @@ mod tests {
         manager
     }
 
+    fn manager_with_root(root: PathBuf) -> FileManager {
+        let (mut manager, _) = FileManager::new();
+        manager.root_scope = Some(crate::root::RootScope::new_for_test(root.clone()));
+        manager.cwd = root.clone();
+        manager.path_input = root.display().to_string();
+        manager
+    }
+
     fn desktop_app(id: &str, name: &str, exec: &str, mime_types: &[&str]) -> DesktopApp {
         DesktopApp {
             id: id.to_string(),
@@ -4980,6 +5088,72 @@ mod tests {
         assert!(manager.back_history.is_empty());
         assert_eq!(manager.forward_history.len(), 1);
         assert_eq!(manager.forward_history[0], PathBuf::from("/tmp/many"));
+    }
+
+    #[test]
+    fn root_scope_redirects_directory_visit_outside_root() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let outside = PathBuf::from("/");
+        let mut manager = manager_with_root(root.clone());
+
+        let _ = manager.visit_path(outside);
+
+        assert_eq!(manager.cwd, root);
+        assert_ne!(manager.status, "Path is outside root");
+    }
+
+    #[test]
+    fn root_nav_points_to_configured_root() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let manager = manager_with_root(root.clone());
+
+        assert_eq!(manager.nav_kind_path(NavKind::Root), root);
+    }
+
+    #[test]
+    fn root_scope_redirects_symlink_target_outside_root() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let mut manager = manager_with_root(root.clone());
+        let link = root.join("outside-link");
+        manager.entries = vec![DisplayEntry {
+            file: filesystem_core::FileEntry {
+                name: "outside-link".to_string(),
+                path: link.clone(),
+                kind: EntryKind::Symlink,
+                symlink_target: Some(filesystem_core::SymlinkTarget {
+                    kind: SymlinkTargetKind::Directory,
+                    broken: false,
+                    path: Some(PathBuf::from("/")),
+                }),
+                hidden: false,
+                size: None,
+                owner: None,
+                modified: None,
+            },
+            mime: MimeInfo::new("inode/symlink", filesystem_mime::MimeSource::BuiltInName),
+            icon: EntryIcon::Embedded(include_bytes!("../../../icons/file.svg")),
+            badge: None,
+        }];
+
+        let _ = manager.update(Message::Open(link, EntryKind::Symlink));
+
+        assert_eq!(manager.cwd, root);
+        assert_ne!(manager.status, "Path is outside root");
+    }
+
+    #[test]
+    fn root_scope_hides_home_shortcuts() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let mut manager = manager_with_root(root);
+        let shortcuts = vec![HomeShortcut {
+            icon: include_bytes!("../../../icons/download.svg"),
+            label: "下载",
+            path: PathBuf::from("/tmp/Downloads"),
+        }];
+
+        let _ = manager.update(Message::HomeShortcutsLoaded(shortcuts));
+
+        assert!(manager.home_shortcuts.is_empty());
     }
 
     #[test]

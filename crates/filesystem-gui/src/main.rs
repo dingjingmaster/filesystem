@@ -5,6 +5,7 @@ mod config;
 mod icons;
 mod model;
 mod renderer;
+mod root;
 mod style;
 mod tasks;
 mod utils;
