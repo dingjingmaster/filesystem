@@ -1094,19 +1094,10 @@ impl FileManager {
     }
 
     fn sidebar(&self) -> Element<'_, Message> {
-        let quick = column![
-            self.nav_item(
-                NavKind::Home,
-                include_bytes!("../../../icons/home.svg"),
-                "主文件夹"
-            ),
-            self.nav_item(
-                NavKind::Root,
-                include_bytes!("../../../icons/root.svg"),
-                "根目录"
-            ),
-        ]
-        .spacing(4);
+        let mut quick = column![].spacing(4);
+        for kind in self.sidebar_nav_kinds() {
+            quick = quick.push(self.sidebar_nav_item(*kind));
+        }
 
         let mut content = column![quick].spacing(8).padding([14, 10]);
 
@@ -1135,6 +1126,29 @@ impl FileManager {
             .height(Fill)
             .style(style::sidebar)
             .into()
+    }
+
+    fn sidebar_nav_kinds(&self) -> &'static [NavKind] {
+        if self.root_scope.is_some() {
+            &[NavKind::Root]
+        } else {
+            &[NavKind::Home, NavKind::Root]
+        }
+    }
+
+    fn sidebar_nav_item(&self, kind: NavKind) -> Element<'_, Message> {
+        match kind {
+            NavKind::Home => self.nav_item(
+                NavKind::Home,
+                include_bytes!("../../../icons/home.svg"),
+                "主文件夹",
+            ),
+            NavKind::Root => self.nav_item(
+                NavKind::Root,
+                include_bytes!("../../../icons/root.svg"),
+                "根目录",
+            ),
+        }
     }
 
     fn sidebar_header(&self) -> Element<'_, Message> {
@@ -5154,6 +5168,21 @@ mod tests {
         let _ = manager.update(Message::HomeShortcutsLoaded(shortcuts));
 
         assert!(manager.home_shortcuts.is_empty());
+    }
+
+    #[test]
+    fn sidebar_nav_shows_home_and_root_without_root_scope() {
+        let (manager, _) = FileManager::new();
+
+        assert_eq!(manager.sidebar_nav_kinds(), &[NavKind::Home, NavKind::Root]);
+    }
+
+    #[test]
+    fn sidebar_nav_shows_only_root_with_root_scope() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let manager = manager_with_root(root);
+
+        assert_eq!(manager.sidebar_nav_kinds(), &[NavKind::Root]);
     }
 
     #[test]
