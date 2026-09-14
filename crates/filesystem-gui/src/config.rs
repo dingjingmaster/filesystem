@@ -1,10 +1,13 @@
 use iced::{window, Size};
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 pub(crate) const APP_NAME_EN: &str = "File";
 pub(crate) const APP_NAME_ZH: &str = "文件";
+pub(crate) const DISABLE_RUNTIME_CONFIG_ARG: &str = "--no-config";
+pub(crate) const DISABLE_RUNTIME_CONFIG_ENV: &str = "FILESYSTEM_NO_CONFIG";
 pub(crate) const RUNTIME_CONFIG_FILE: &str = "filesystem.ini";
 pub(crate) const WINDOW_ICON_SIZE: u32 = 128;
 pub(crate) const WINDOW_INITIAL_WIDTH: f32 = 1220.0;
@@ -79,6 +82,51 @@ impl Default for RuntimeConfig {
 }
 
 pub(crate) fn load_runtime_config() -> RuntimeConfig {
+    load_runtime_config_with_options(
+        std::env::args_os(),
+        std::env::var_os(DISABLE_RUNTIME_CONFIG_ENV),
+        load_runtime_config_file,
+    )
+}
+
+fn load_runtime_config_with_options<I, F>(
+    args: I,
+    disable_config_env: Option<OsString>,
+    load_config: F,
+) -> RuntimeConfig
+where
+    I: IntoIterator<Item = OsString>,
+    F: FnOnce() -> RuntimeConfig,
+{
+    if runtime_config_disabled(args, disable_config_env) {
+        return RuntimeConfig::default();
+    }
+
+    load_config()
+}
+
+fn runtime_config_disabled<I>(args: I, disable_config_env: Option<OsString>) -> bool
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let has_disable_arg = args
+        .into_iter()
+        .skip(1)
+        .any(|arg| arg == DISABLE_RUNTIME_CONFIG_ARG);
+    has_disable_arg || disable_runtime_config_env_enabled(disable_config_env)
+}
+
+fn disable_runtime_config_env_enabled(value: Option<OsString>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    matches!(
+        value.to_string_lossy().trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn load_runtime_config_file() -> RuntimeConfig {
     runtime_config_path()
         .and_then(|path| load_runtime_config_from_path(&path).ok())
         .unwrap_or_default()
@@ -271,6 +319,7 @@ fn unpremultiply_rgba(rgba: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
     #[test]
     fn runtime_config_defaults_without_supported_values() {
@@ -391,5 +440,30 @@ mod tests {
             config.terminal,
             Some(PathBuf::from("/opt/Terminal/bin/terminal"))
         );
+    }
+
+    #[test]
+    fn runtime_config_no_config_argument_skips_loader() {
+        let config = load_runtime_config_with_options(
+            [
+                OsString::from("filesystem-gui"),
+                OsString::from("--no-config"),
+            ],
+            None,
+            || panic!("filesystem.ini loader should not run"),
+        );
+
+        assert_eq!(config, RuntimeConfig::default());
+    }
+
+    #[test]
+    fn runtime_config_no_config_environment_skips_loader() {
+        let config = load_runtime_config_with_options(
+            [OsString::from("filesystem-gui")],
+            Some(OsString::from("true")),
+            || panic!("filesystem.ini loader should not run"),
+        );
+
+        assert_eq!(config, RuntimeConfig::default());
     }
 }
