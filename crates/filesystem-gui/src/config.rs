@@ -8,6 +8,7 @@ pub(crate) const APP_NAME_EN: &str = "File";
 pub(crate) const APP_NAME_ZH: &str = "文件";
 pub(crate) const DISABLE_RUNTIME_CONFIG_ARG: &str = "--no-config";
 pub(crate) const DISABLE_RUNTIME_CONFIG_ENV: &str = "FILESYSTEM_NO_CONFIG";
+pub(crate) const HIDE_TERMINAL_ENTRY_ENV: &str = "FILESYSTEM_HIDE_TERMINAL_ENTRY";
 pub(crate) const RUNTIME_CONFIG_FILE: &str = "filesystem.ini";
 pub(crate) const WINDOW_ICON_SIZE: u32 = 128;
 pub(crate) const WINDOW_INITIAL_WIDTH: f32 = 1220.0;
@@ -61,6 +62,7 @@ pub(crate) const LIST_RENAME_X_OFFSET: f32 = 48.0;
 pub(crate) struct RuntimeConfig {
     pub(crate) name: String,
     pub(crate) terminal: Option<PathBuf>,
+    pub(crate) hide_terminal_entry: bool,
     pub(crate) blank_menu_commands: Vec<BlankMenuCommand>,
 }
 
@@ -76,6 +78,7 @@ impl Default for RuntimeConfig {
         Self {
             name: APP_NAME_ZH.to_string(),
             terminal: None,
+            hide_terminal_entry: false,
             blank_menu_commands: Vec::new(),
         }
     }
@@ -85,6 +88,7 @@ pub(crate) fn load_runtime_config() -> RuntimeConfig {
     load_runtime_config_with_options(
         std::env::args_os(),
         std::env::var_os(DISABLE_RUNTIME_CONFIG_ENV),
+        std::env::var_os(HIDE_TERMINAL_ENTRY_ENV),
         load_runtime_config_file,
     )
 }
@@ -92,17 +96,24 @@ pub(crate) fn load_runtime_config() -> RuntimeConfig {
 fn load_runtime_config_with_options<I, F>(
     args: I,
     disable_config_env: Option<OsString>,
+    hide_terminal_entry_env: Option<OsString>,
     load_config: F,
 ) -> RuntimeConfig
 where
     I: IntoIterator<Item = OsString>,
     F: FnOnce() -> RuntimeConfig,
 {
+    let hide_terminal_entry = env_flag_enabled(hide_terminal_entry_env);
     if runtime_config_disabled(args, disable_config_env) {
-        return RuntimeConfig::default();
+        return RuntimeConfig {
+            hide_terminal_entry,
+            ..RuntimeConfig::default()
+        };
     }
 
-    load_config()
+    let mut config = load_config();
+    config.hide_terminal_entry = hide_terminal_entry;
+    config
 }
 
 fn runtime_config_disabled<I>(args: I, disable_config_env: Option<OsString>) -> bool
@@ -113,10 +124,10 @@ where
         .into_iter()
         .skip(1)
         .any(|arg| arg == DISABLE_RUNTIME_CONFIG_ARG);
-    has_disable_arg || disable_runtime_config_env_enabled(disable_config_env)
+    has_disable_arg || env_flag_enabled(disable_config_env)
 }
 
-fn disable_runtime_config_env_enabled(value: Option<OsString>) -> bool {
+fn env_flag_enabled(value: Option<OsString>) -> bool {
     let Some(value) = value else {
         return false;
     };
@@ -450,6 +461,7 @@ mod tests {
                 OsString::from("--no-config"),
             ],
             None,
+            None,
             || panic!("filesystem.ini loader should not run"),
         );
 
@@ -461,9 +473,37 @@ mod tests {
         let config = load_runtime_config_with_options(
             [OsString::from("filesystem-gui")],
             Some(OsString::from("true")),
+            None,
             || panic!("filesystem.ini loader should not run"),
         );
 
         assert_eq!(config, RuntimeConfig::default());
+    }
+
+    #[test]
+    fn runtime_config_hide_terminal_entry_environment_sets_flag() {
+        let config = load_runtime_config_with_options(
+            [OsString::from("filesystem-gui")],
+            None,
+            Some(OsString::from("yes")),
+            RuntimeConfig::default,
+        );
+
+        assert!(config.hide_terminal_entry);
+    }
+
+    #[test]
+    fn runtime_config_hide_terminal_entry_survives_no_config() {
+        let config = load_runtime_config_with_options(
+            [
+                OsString::from("filesystem-gui"),
+                OsString::from("--no-config"),
+            ],
+            None,
+            Some(OsString::from("on")),
+            || panic!("filesystem.ini loader should not run"),
+        );
+
+        assert!(config.hide_terminal_entry);
     }
 }

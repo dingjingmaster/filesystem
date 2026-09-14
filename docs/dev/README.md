@@ -81,3 +81,4 @@
 | 42 | 2026-09-09 | L2 | task | [42-task-root-scope.md](42-task-root-scope.md) | 已完成 | 增加 `--root <dir>` 逻辑根目录启动参数，启动后默认打开 root，根目录按钮指向 root，并限制目录访问、地址栏绝对路径、历史导航、软链接目标和打开文件入口不得跳出 root。 |
 | 43 | 2026-09-14 | L2 | task | [43-task-disable-runtime-config.md](43-task-disable-runtime-config.md) | 已完成 | 增加 `--no-config` 和 `FILESYSTEM_NO_CONFIG`，使启动时可跳过读取可执行文件同级 `filesystem.ini`。 |
 | 44 | 2026-09-14 | L2 | task | [44-task-root-sidebar-only-root.md](44-task-root-sidebar-only-root.md) | 已完成 | 调整 `--root` 模式侧边栏只显示根目录，普通模式仍显示主文件夹、根目录和家目录特殊文件夹。 |
+| 45 | 2026-09-14 | L2 | task | [45-task-hide-terminal-menu-entry.md](45-task-hide-terminal-menu-entry.md) | 已完成 | 增加 `FILESYSTEM_HIDE_TERMINAL_ENTRY`，开启后右键菜单隐藏终端入口并去掉多余分割线。 |

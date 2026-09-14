@@ -2896,8 +2896,9 @@ impl FileManager {
     fn blank_context_menu_height(&self) -> f32 {
         let has_templates = !self.template_files.is_empty();
         let custom_commands = self.runtime_config.blank_menu_commands.len();
-        let items = 6 + usize::from(has_templates) + custom_commands;
-        let separators = 3 + usize::from(custom_commands > 0);
+        let terminal_items = usize::from(!self.runtime_config.hide_terminal_entry);
+        let items = 5 + terminal_items + usize::from(has_templates) + custom_commands;
+        let separators = 2 + terminal_items + usize::from(custom_commands > 0);
         let panel_height = context_menu_panel_height(items, separators);
 
         if self.template_submenu_open && has_templates {
@@ -2912,7 +2913,8 @@ impl FileManager {
     }
 
     fn folder_context_menu_height(&self) -> f32 {
-        context_menu_panel_height(7, 4)
+        let terminal_items = usize::from(!self.runtime_config.hide_terminal_entry);
+        context_menu_panel_height(6 + terminal_items, 3 + terminal_items)
     }
 
     fn file_context_menu_height(&self) -> f32 {
@@ -2952,12 +2954,16 @@ impl FileManager {
             .push(context_menu_separator())
             .push(context_menu_item("粘贴", Message::ContextPaste))
             .push(context_menu_item("全选", Message::ContextSelectAll))
-            .push(context_menu_separator())
-            .push(context_menu_item(
-                "在终端打开",
-                Message::ContextOpenTerminal,
-            ))
             .push(context_menu_separator());
+
+        if !self.runtime_config.hide_terminal_entry {
+            menu = menu
+                .push(context_menu_item(
+                    "在终端打开",
+                    Message::ContextOpenTerminal,
+                ))
+                .push(context_menu_separator());
+        }
 
         for (index, command) in self.runtime_config.blank_menu_commands.iter().enumerate() {
             menu = menu.push(context_menu_item_owned(
@@ -3022,27 +3028,35 @@ impl FileManager {
     }
 
     fn folder_context_menu(&self, path: PathBuf) -> Element<'_, Message> {
-        container(
-            column![
-                context_menu_item("打开", Message::FolderOpen(path.clone())),
-                context_menu_separator(),
-                context_menu_item("复制", Message::FolderCopy(path.clone())),
-                context_menu_item("剪切", Message::FolderCut(path.clone())),
-                context_menu_separator(),
-                context_menu_item("重命名", Message::FolderRename(path.clone())),
-                context_menu_item("删除", Message::FolderDelete(path.clone())),
-                context_menu_separator(),
-                context_menu_item("在终端打开", Message::FolderOpenTerminal(path.clone())),
-                context_menu_separator(),
-                context_menu_item("属性", Message::FolderProperties(path)),
-            ]
-            .spacing(CONTEXT_MENU_ITEM_SPACING)
-            .align_x(iced::Alignment::Start)
-            .padding(CONTEXT_MENU_PANEL_PADDING),
-        )
-        .width(CONTEXT_MENU_WIDTH)
-        .style(style::context_menu)
-        .into()
+        let mut menu = column![
+            context_menu_item("打开", Message::FolderOpen(path.clone())),
+            context_menu_separator(),
+            context_menu_item("复制", Message::FolderCopy(path.clone())),
+            context_menu_item("剪切", Message::FolderCut(path.clone())),
+            context_menu_separator(),
+            context_menu_item("重命名", Message::FolderRename(path.clone())),
+            context_menu_item("删除", Message::FolderDelete(path.clone())),
+            context_menu_separator(),
+        ]
+        .spacing(CONTEXT_MENU_ITEM_SPACING)
+        .align_x(iced::Alignment::Start)
+        .padding(CONTEXT_MENU_PANEL_PADDING);
+
+        if !self.runtime_config.hide_terminal_entry {
+            menu = menu
+                .push(context_menu_item(
+                    "在终端打开",
+                    Message::FolderOpenTerminal(path.clone()),
+                ))
+                .push(context_menu_separator());
+        }
+
+        menu = menu.push(context_menu_item("属性", Message::FolderProperties(path)));
+
+        container(menu)
+            .width(CONTEXT_MENU_WIDTH)
+            .style(style::context_menu)
+            .into()
     }
 
     fn file_context_menu(&self, path: PathBuf) -> Element<'_, Message> {
@@ -5293,6 +5307,47 @@ mod tests {
         assert_eq!(
             manager.blank_context_menu_height(),
             manager.template_context_submenu_height()
+        );
+    }
+
+    #[test]
+    fn blank_context_menu_height_removes_terminal_entry_and_separator() {
+        let (mut manager, _) = FileManager::new();
+        manager.runtime_config.hide_terminal_entry = true;
+
+        assert_eq!(
+            manager.blank_context_menu_height(),
+            context_menu_panel_height(5, 2)
+        );
+    }
+
+    #[test]
+    fn blank_context_menu_height_removes_terminal_entry_without_extra_custom_separator() {
+        let (mut manager, _) = FileManager::new();
+        manager.runtime_config.hide_terminal_entry = true;
+        manager
+            .runtime_config
+            .blank_menu_commands
+            .push(BlankMenuCommand {
+                label: "Custom".to_string(),
+                command: PathBuf::from("/usr/bin/custom"),
+                args: Vec::new(),
+            });
+
+        assert_eq!(
+            manager.blank_context_menu_height(),
+            context_menu_panel_height(6, 3)
+        );
+    }
+
+    #[test]
+    fn folder_context_menu_height_removes_terminal_entry_and_separator() {
+        let (mut manager, _) = FileManager::new();
+        manager.runtime_config.hide_terminal_entry = true;
+
+        assert_eq!(
+            manager.folder_context_menu_height(),
+            context_menu_panel_height(6, 3)
         );
     }
 
