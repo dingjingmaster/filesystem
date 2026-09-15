@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::thread;
 
+const HOOK_MODE_ENV: &str = "FILESYSTEM_HOOK_MODE";
+const YUNBOX_HOOK_ENV: &str = "BOXFlLESO";
+const SANDBOX_HOOK_PRELOAD: &str = "/usr/local/andsec/sandbox/hook/hook-connect.so";
+
 pub(crate) fn load_app_registry() -> AppRegistry {
     let mut apps = Vec::new();
     let mut seen = BTreeSet::new();
@@ -301,6 +305,17 @@ fn spawn_open_command(path: &Path, command: &[String]) -> std::io::Result<Child>
 
 fn sanitize_open_command_environment(command: &mut Command) {
     command.env_remove("LD_PRELOAD");
+    match env::var(HOOK_MODE_ENV).as_deref() {
+        Ok("sandbox") => {
+            command.env("LD_PRELOAD", SANDBOX_HOOK_PRELOAD);
+        }
+        Ok("yunbox") => {
+            if let Some(hook) = env::var_os(YUNBOX_HOOK_ENV).filter(|value| !value.is_empty()) {
+                command.env("LD_PRELOAD", hook);
+            }
+        }
+        _ => {}
+    }
 
     let Some(library_path) = env::var_os("LD_LIBRARY_PATH") else {
         return;
@@ -1312,7 +1327,7 @@ fn split_exec(value: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::os::unix::fs::symlink;
     use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1348,6 +1363,13 @@ mod tests {
             .unwrap()
             .as_nanos();
         env::temp_dir().join(format!("filesystem-gui-{name}-{}-{id}", std::process::id()))
+    }
+
+    fn command_env_value(command: &Command, key: &str) -> Option<Option<String>> {
+        command
+            .get_envs()
+            .find(|(name, _)| *name == OsStr::new(key))
+            .map(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
     }
 
     fn desktop_app(id: &str, name: &str, exec: &str) -> DesktopApp {
@@ -1545,6 +1567,43 @@ mod tests {
         assert!(output.contains("LD_LIBRARY_PATH=/opt/keep"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn spawn_open_command_uses_sandbox_hook_mode() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+
+        let _hook_mode = EnvVarGuard::set("FILESYSTEM_HOOK_MODE", "sandbox");
+        let _box_hook = EnvVarGuard::set("BOXFlLESO", "/usr/local/andsec/hook/yun/fileman.so");
+        let _ld_preload = EnvVarGuard::set("LD_PRELOAD", "/tmp/old-hook.so");
+
+        let mut command = Command::new("/bin/true");
+        sanitize_open_command_environment(&mut command);
+        assert_eq!(
+            command_env_value(&command, "LD_PRELOAD"),
+            Some(Some(
+                "/usr/local/andsec/sandbox/hook/hook-connect.so".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn spawn_open_command_uses_yunbox_hook_mode() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+
+        let _hook_mode = EnvVarGuard::set("FILESYSTEM_HOOK_MODE", "yunbox");
+        let _box_hook = EnvVarGuard::set("BOXFlLESO", "/usr/local/andsec/hook/yun/fileman.so");
+        let _ld_preload = EnvVarGuard::set(
+            "LD_PRELOAD",
+            "/usr/local/andsec/sandbox/hook/hook-connect.so",
+        );
+
+        let mut command = Command::new("/bin/true");
+        sanitize_open_command_environment(&mut command);
+        assert_eq!(
+            command_env_value(&command, "LD_PRELOAD"),
+            Some(Some("/usr/local/andsec/hook/yun/fileman.so".to_string()))
+        );
     }
 
     #[test]

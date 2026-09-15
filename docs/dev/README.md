@@ -82,3 +82,4 @@
 | 43 | 2026-09-14 | L2 | task | [43-task-disable-runtime-config.md](43-task-disable-runtime-config.md) | 已完成 | 增加 `--no-config` 和 `FILESYSTEM_NO_CONFIG`，使启动时可跳过读取可执行文件同级 `filesystem.ini`。 |
 | 44 | 2026-09-14 | L2 | task | [44-task-root-sidebar-only-root.md](44-task-root-sidebar-only-root.md) | 已完成 | 调整 `--root` 模式侧边栏只显示根目录，普通模式仍显示主文件夹、根目录和家目录特殊文件夹。 |
 | 45 | 2026-09-14 | L2 | task | [45-task-hide-terminal-menu-entry.md](45-task-hide-terminal-menu-entry.md) | 已完成 | 增加 `FILESYSTEM_HIDE_TERMINAL_ENTRY`，开启后右键菜单隐藏终端入口并去掉多余分割线。 |
+| 46 | 2026-09-15 | L2 | task | [46-task-filesystem-hook-mode.md](46-task-filesystem-hook-mode.md) | 已完成 | 增加 `FILESYSTEM_HOOK_MODE=sandbox|yunbox`，外部应用启动时按模式分别注入沙盒 hook 或 `BOXFlLESO` 指定的云盒 hook，默认继续清理 `LD_PRELOAD`。 |
