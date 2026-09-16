@@ -1141,6 +1141,14 @@ fn build_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<String>, Stri
 
 fn build_exec_commands(app: &DesktopApp, path: &Path) -> Result<Vec<Vec<String>>, String> {
     let desktop_command = build_desktop_exec_command(app, path)?;
+    if let Some(component_command) = yunbox_wps_presentation_command(app, path, &desktop_command) {
+        if component_command == desktop_command {
+            return Ok(vec![desktop_command]);
+        }
+
+        return Ok(vec![component_command, desktop_command]);
+    }
+
     let Some(wps_command) = wps_prometheus_command(app, path, &desktop_command) else {
         return Ok(vec![desktop_command]);
     };
@@ -1183,6 +1191,22 @@ fn build_desktop_exec_command(app: &DesktopApp, path: &Path) -> Result<Vec<Strin
     Ok(command)
 }
 
+fn yunbox_wps_presentation_command(
+    app: &DesktopApp,
+    path: &Path,
+    desktop_command: &[String],
+) -> Option<Vec<String>> {
+    if env::var(HOOK_MODE_ENV).as_deref() != Ok("yunbox") || !app_is_wps_presentation(app) {
+        return None;
+    }
+
+    let executable = wps_component_executable(desktop_command, "wpp")?;
+    Some(vec![
+        executable.to_string_lossy().into_owned(),
+        path.to_string_lossy().into_owned(),
+    ])
+}
+
 fn wps_prometheus_command(
     app: &DesktopApp,
     path: &Path,
@@ -1194,6 +1218,37 @@ fn wps_prometheus_command(
         "/prometheus".to_string(),
         path.to_string_lossy().into_owned(),
     ])
+}
+
+fn app_is_wps_presentation(app: &DesktopApp) -> bool {
+    wps_app_mime_family(app) == Some(WPS_PRESENTATION_MIME_FAMILY)
+}
+
+fn wps_component_executable(desktop_command: &[String], component: &str) -> Option<PathBuf> {
+    let program = desktop_command.first()?;
+    let program_path = Path::new(program);
+    let program_name = program_path
+        .file_name()
+        .and_then(|name| name.to_str())?
+        .to_ascii_lowercase();
+
+    if program_name != component {
+        return None;
+    }
+
+    if program_path.is_absolute()
+        && program_path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "office6")
+    {
+        return Some(program_path.to_path_buf());
+    }
+
+    Some(PathBuf::from(format!(
+        "/opt/kingsoft/wps-office/office6/{component}"
+    )))
 }
 
 fn wps_prometheus_executable(app: &DesktopApp, desktop_command: &[String]) -> Option<PathBuf> {
@@ -1775,6 +1830,73 @@ mod tests {
                 ],
                 vec!["/usr/bin/wpp", "/tmp/a file.dps"],
             ]
+        );
+    }
+
+    #[test]
+    fn yunbox_wps_presentation_uses_component_entry_before_desktop_fallback() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+        let _hook_mode = EnvVarGuard::set("FILESYSTEM_HOOK_MODE", "yunbox");
+        let app = DesktopApp {
+            id: "wps-office-wpp.desktop".to_string(),
+            name: "WPS Presentation".to_string(),
+            exec: "/usr/bin/wpp %F".to_string(),
+            mime_types: vec!["application/wps-office.dps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let commands = build_exec_commands(&app, Path::new("/yunbox/ss.dps")).unwrap();
+
+        assert_eq!(
+            commands,
+            vec![
+                vec!["/opt/kingsoft/wps-office/office6/wpp", "/yunbox/ss.dps"],
+                vec!["/usr/bin/wpp", "/yunbox/ss.dps"],
+            ]
+        );
+    }
+
+    #[test]
+    fn yunbox_wps_writer_and_spreadsheets_keep_prometheus_entry() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+        let _hook_mode = EnvVarGuard::set("FILESYSTEM_HOOK_MODE", "yunbox");
+        let writer = DesktopApp {
+            id: "wps-office-wps.desktop".to_string(),
+            name: "WPS Writer".to_string(),
+            exec: "/usr/bin/wps %F".to_string(),
+            mime_types: vec!["application/wps-office.wps".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+        let spreadsheet = DesktopApp {
+            id: "wps-office-et.desktop".to_string(),
+            name: "WPS Spreadsheets".to_string(),
+            exec: "/usr/bin/et %F".to_string(),
+            mime_types: vec!["application/wps-office.et".to_string()],
+            text_editor: false,
+            icon: resolve_app_icon(None),
+        };
+
+        let writer_commands = build_exec_commands(&writer, Path::new("/yunbox/aaa.wps")).unwrap();
+        let spreadsheet_commands =
+            build_exec_commands(&spreadsheet, Path::new("/yunbox/as.et")).unwrap();
+
+        assert_eq!(
+            writer_commands.first(),
+            Some(&vec![
+                "/opt/kingsoft/wps-office/office6/wpsoffice".to_string(),
+                "/prometheus".to_string(),
+                "/yunbox/aaa.wps".to_string(),
+            ])
+        );
+        assert_eq!(
+            spreadsheet_commands.first(),
+            Some(&vec![
+                "/opt/kingsoft/wps-office/office6/wpsoffice".to_string(),
+                "/prometheus".to_string(),
+                "/yunbox/as.et".to_string(),
+            ])
         );
     }
 

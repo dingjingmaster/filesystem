@@ -83,3 +83,4 @@
 | 44 | 2026-09-14 | L2 | task | [44-task-root-sidebar-only-root.md](44-task-root-sidebar-only-root.md) | 已完成 | 调整 `--root` 模式侧边栏只显示根目录，普通模式仍显示主文件夹、根目录和家目录特殊文件夹。 |
 | 45 | 2026-09-14 | L2 | task | [45-task-hide-terminal-menu-entry.md](45-task-hide-terminal-menu-entry.md) | 已完成 | 增加 `FILESYSTEM_HIDE_TERMINAL_ENTRY`，开启后右键菜单隐藏终端入口并去掉多余分割线。 |
 | 46 | 2026-09-15 | L2 | task | [46-task-filesystem-hook-mode.md](46-task-filesystem-hook-mode.md) | 已完成 | 增加 `FILESYSTEM_HOOK_MODE=sandbox|yunbox`，外部应用启动时按模式分别注入沙盒 hook 或 `BOXFlLESO` 指定的云盒 hook，默认继续清理 `LD_PRELOAD`。 |
+| 47 | 2026-09-16 | L2 | fix | [47-fix-yunbox-wps-presentation-open.md](47-fix-yunbox-wps-presentation-open.md) | 已完成 | 修复 Kylin 云盒中 `.dps` 经 `wpsoffice /prometheus` 被派发到 WPS Writer 的问题，云盒 WPS Presentation 改为优先直启 `office6/wpp`，Writer/表格保留 Prometheus 兼容入口。 |
