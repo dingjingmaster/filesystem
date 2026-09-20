@@ -2,6 +2,7 @@ use crate::icons::resolve_app_icon;
 use crate::model::{AppRegistry, DesktopApp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -313,6 +314,7 @@ fn sanitize_open_command_environment(command: &mut Command) {
             if let Some(hook) = env::var_os(YUNBOX_HOOK_ENV).filter(|value| !value.is_empty()) {
                 command.env("LD_PRELOAD", hook);
             }
+            normalize_yunbox_user_environment(command);
         }
         _ => {}
     }
@@ -336,6 +338,55 @@ fn sanitize_open_command_environment(command: &mut Command) {
     } else if let Ok(filtered_library_path) = env::join_paths(filtered_paths) {
         command.env("LD_LIBRARY_PATH", filtered_library_path);
     }
+}
+
+fn normalize_yunbox_user_environment(command: &mut Command) {
+    let Some(user) = user_name_from_pkexec_uid(env::var_os("PKEXEC_UID"))
+        .or_else(|| user_name_from_home(env::var_os("HOME").map(PathBuf::from)))
+    else {
+        return;
+    };
+
+    command.env("USER", &user);
+    command.env("LOGNAME", &user);
+    command.env("USERNAME", user);
+}
+
+fn user_name_from_pkexec_uid(pkexec_uid: Option<OsString>) -> Option<String> {
+    let uid = pkexec_uid?.to_str()?.parse().ok()?;
+    let passwd = fs::read_to_string("/etc/passwd").ok()?;
+    user_name_for_uid_in_passwd(uid, &passwd)
+}
+
+fn user_name_for_uid_in_passwd(uid: u32, passwd: &str) -> Option<String> {
+    if uid == 0 {
+        return None;
+    }
+
+    for line in passwd.lines() {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        let _password = fields.next()?;
+        let Some(entry_uid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+
+        if entry_uid == uid && !name.is_empty() && name != "root" {
+            return Some(name.to_string());
+        }
+    }
+
+    None
+}
+
+fn user_name_from_home(home: Option<PathBuf>) -> Option<String> {
+    let home = home.filter(|path| !path.as_os_str().is_empty())?;
+    if home.parent() != Some(Path::new("/home")) {
+        return None;
+    }
+
+    let user = home.file_name()?.to_str()?;
+    (!user.is_empty() && user != "root").then(|| user.to_string())
 }
 
 pub(crate) fn set_default_app_for_mime(mime: &str, app_id: &str) -> Result<(), String> {
@@ -1604,6 +1655,79 @@ mod tests {
             command_env_value(&command, "LD_PRELOAD"),
             Some(Some("/usr/local/andsec/hook/yun/fileman.so".to_string()))
         );
+    }
+
+    #[test]
+    fn spawn_open_command_normalizes_yunbox_user_environment_from_home() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+
+        let _hook_mode = EnvVarGuard::set("FILESYSTEM_HOOK_MODE", "yunbox");
+        let _home = EnvVarGuard::set("HOME", "/home/dingjing");
+        let _user = EnvVarGuard::set("USER", "root");
+        let _username = EnvVarGuard::set("USERNAME", "root");
+        let _logname = EnvVarGuard::set("LOGNAME", "root");
+
+        let mut command = Command::new("/bin/true");
+        sanitize_open_command_environment(&mut command);
+
+        assert_eq!(
+            command_env_value(&command, "USER"),
+            Some(Some("dingjing".to_string()))
+        );
+        assert_eq!(
+            command_env_value(&command, "USERNAME"),
+            Some(Some("dingjing".to_string()))
+        );
+        assert_eq!(
+            command_env_value(&command, "LOGNAME"),
+            Some(Some("dingjing".to_string()))
+        );
+    }
+
+    #[test]
+    fn spawn_open_command_normalizes_yunbox_user_environment_from_pkexec_uid() {
+        let _env_lock = ENV_LOCK.lock().unwrap();
+
+        let _hook_mode = EnvVarGuard::set("FILESYSTEM_HOOK_MODE", "yunbox");
+        let _pkexec_uid = EnvVarGuard::set("PKEXEC_UID", "1000");
+        let _home = EnvVarGuard::set("HOME", "/home/root");
+        let _user = EnvVarGuard::set("USER", "root");
+        let _username = EnvVarGuard::set("USERNAME", "root");
+        let _logname = EnvVarGuard::set("LOGNAME", "root");
+
+        let Some(expected_user) = user_name_from_pkexec_uid(env::var_os("PKEXEC_UID")) else {
+            return;
+        };
+
+        let mut command = Command::new("/bin/true");
+        sanitize_open_command_environment(&mut command);
+
+        assert_eq!(
+            command_env_value(&command, "USER"),
+            Some(Some(expected_user.clone()))
+        );
+        assert_eq!(
+            command_env_value(&command, "USERNAME"),
+            Some(Some(expected_user.clone()))
+        );
+        assert_eq!(
+            command_env_value(&command, "LOGNAME"),
+            Some(Some(expected_user))
+        );
+    }
+
+    #[test]
+    fn user_name_for_uid_in_passwd_uses_non_root_pkexec_uid() {
+        let passwd = "\
+root:x:0:0:root:/root:/bin/bash
+dingjing:x:1000:1000:dingjing:/home/dingjing:/bin/bash
+";
+
+        assert_eq!(
+            user_name_for_uid_in_passwd(1000, passwd),
+            Some("dingjing".to_string())
+        );
+        assert_eq!(user_name_for_uid_in_passwd(0, passwd), None);
     }
 
     #[test]
